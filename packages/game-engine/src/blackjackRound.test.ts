@@ -91,6 +91,29 @@ describe('BlackjackRound', () => {
     ]);
   });
 
+  it('auto-stands a hand that reaches a natural 21 immediately after a split', () => {
+    // Player: A, A -> split. Original hand (index 0) draws K -> A,K = 21,
+    // auto-stands without an explicit `stand` call. New hand (index 1)
+    // draws 5 -> A,5 = 16, stays active. Dealer: 9,7 (16) -> hits 5 -> 21.
+    const shoe = [card('A'), card('A'), card('9'), card('7'), card('5'), card('K'), card('5')];
+    const round = new BlackjackRound(100, { shoe });
+
+    round.act('split');
+    expect(round.playerHands[0].cards).toEqual([card('A'), card('K')]);
+    expect(round.playerHands[0].done).toBe(true);
+    expect(round.playerHands[1].cards).toEqual([card('A'), card('5')]);
+    expect(round.playerHands[1].done).toBe(false);
+    expect(round.phase).toBe('playing'); // hand 1 is still active; hand 0 was auto-settled
+
+    round.act('stand'); // stands hand 1 (16)
+
+    expect(round.phase).toBe('settled');
+    expect(round.results).toEqual([
+      { outcome: 'blackjack', payout: 150 }, // hand 0: A,K pays 3:2 per this codebase's documented split-21 simplification
+      { outcome: 'lose', payout: -100 }, // hand 1: 16 loses to dealer's 21
+    ]);
+  });
+
   it('rejects splitting more than once per round', () => {
     const shoe = [card('8'), card('8'), card('9'), card('6'), card('3'), card('4')];
     const round = new BlackjackRound(100, { shoe });

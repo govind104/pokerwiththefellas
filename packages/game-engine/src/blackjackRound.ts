@@ -59,10 +59,16 @@ export class BlackjackRound {
     return drawn;
   }
 
+  /** Safe to show clients at any time, including while phase is 'playing'. */
   getDealerUpcard(): Card {
     return this.dealerCards[0];
   }
 
+  /**
+   * The full dealer hand, including the hole card. Callers must only reveal
+   * this to clients once `phase` is 'dealer' or 'settled' — revealing it
+   * during 'playing' leaks the dealer's hole card early.
+   */
   getDealerCards(): Card[] {
     return this.dealerCards;
   }
