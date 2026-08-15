@@ -1,0 +1,10 @@
+{
+  "name": "poker-blackjack-friends-app",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present"
+  }
+}
