@@ -22,6 +22,10 @@ export interface BlackjackRoundOptions {
   shoe?: Card[];
 }
 
+function isTwoCardTwentyOne(cards: Card[]): boolean {
+  return cards.length === 2 && handValue(cards).total === 21;
+}
+
 export class BlackjackRound {
   private shoe: Card[];
   private dealerCards: Card[];
@@ -43,7 +47,7 @@ export class BlackjackRound {
         cards: initialCards,
         bet: initialBet,
         doubled: false,
-        done: handValue(initialCards).total === 21,
+        done: isTwoCardTwentyOne(initialCards),
       },
     ];
     this.dealerCards = [this.draw(), this.draw()];
@@ -66,8 +70,8 @@ export class BlackjackRound {
 
   /**
    * The full dealer hand, including the hole card. Callers must only reveal
-   * this to clients once `phase` is 'dealer' or 'settled' — revealing it
-   * during 'playing' leaks the dealer's hole card early.
+   * this to clients once `phase` is 'settled' — revealing it during
+   * 'playing' leaks the dealer's hole card early.
    */
   getDealerCards(): Card[] {
     return this.dealerCards;
@@ -124,15 +128,18 @@ export class BlackjackRound {
           // (3:2), same as a natural. Real casinos usually pay split 21s as
           // a plain win instead — acceptable simplification for chip-only
           // play among friends; revisit if it ever matters.
-          done: handValue(newHandCards).total === 21,
+          done: isTwoCardTwentyOne(newHandCards),
         };
 
         const firstHandCards = [first, this.draw()];
         hand.cards = firstHandCards;
-        hand.done = handValue(firstHandCards).total === 21;
+        hand.done = isTwoCardTwentyOne(firstHandCards);
 
         this.playerHands.splice(this.activeHandIndex + 1, 0, newHand);
         break;
+      }
+      default: {
+        throw new Error(`Unknown action: ${action}`);
       }
     }
 

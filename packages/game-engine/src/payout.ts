@@ -5,6 +5,12 @@ export type Outcome = 'blackjack' | 'win' | 'push' | 'lose' | 'bust';
 
 export interface RoundResult {
   outcome: Outcome;
+  /**
+   * The complete net change to apply to the player's chip balance for this
+   * hand: `balance += payout`. This already nets out the wager — do not
+   * separately deduct the bet before the hand or add it back after settling.
+   * Positive on a win/blackjack, negative on a loss/bust, 0 on a push.
+   */
   payout: number;
 }
 
@@ -20,6 +26,10 @@ export function resolveHand(playerCards: Card[], dealerCards: Card[], bet: numbe
     return { outcome: 'push', payout: 0 };
   }
   if (playerBlackjack) {
+    // Bets/payouts may be fractional (e.g. bet=101 -> blackjack payout 151.5).
+    // No rounding is applied anywhere in this MVP — chip balances are stored
+    // and compared as raw numbers. Revisit only if the app ever needs
+    // integer-only chip semantics.
     return { outcome: 'blackjack', payout: bet * 1.5 };
   }
   if (dealerBlackjack) {

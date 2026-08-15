@@ -22,6 +22,9 @@ export function createDeck(): Card[] {
 // Injectable so tests are deterministic and so a future provably-fair
 // shuffle (see spec Section 9) can swap in a seeded generator later
 // without touching any calling code.
+/** Must return a value in [0, 1), matching Math.random's contract — a
+ * function that can return exactly 1 would corrupt the shuffle (swaps in
+ * `undefined`). */
 export type RandomFn = () => number;
 
 export function shuffle(cards: Card[], random: RandomFn = Math.random): Card[] {
