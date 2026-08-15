@@ -22,6 +22,10 @@ describe('handValue', () => {
   it('handles two aces correctly', () => {
     expect(handValue([card('A'), card('A'), card('9')])).toEqual({ total: 21, isSoft: true });
   });
+
+  it('handles three aces correctly', () => {
+    expect(handValue([card('A'), card('A'), card('A'), card('8')])).toEqual({ total: 21, isSoft: true });
+  });
 });
 
 describe('isBlackjack', () => {
