@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { handValue, isBlackjack, isBust } from './handValue';
+import { handValue, isBlackjack, isBust, cardValue } from './handValue';
 import { Card } from './deck';
 
 function card(rank: Card['rank'], suit: Card['suit'] = 'spades'): Card {
@@ -45,5 +45,20 @@ describe('isBust', () => {
 
   it('is false at 21 or under', () => {
     expect(isBust([card('K'), card('Q')])).toBe(false);
+  });
+});
+
+describe('cardValue', () => {
+  it('values an ace at 11', () => {
+    expect(cardValue('A')).toBe(11);
+  });
+  it('values face cards at 10', () => {
+    expect(cardValue('K')).toBe(10);
+    expect(cardValue('Q')).toBe(10);
+    expect(cardValue('J')).toBe(10);
+  });
+  it('values numeric ranks at their face value', () => {
+    expect(cardValue('7')).toBe(7);
+    expect(cardValue('10')).toBe(10);
   });
 });

@@ -63,10 +63,17 @@ describe('resolveHand', () => {
     });
   });
 
-  it('player loses when both player and dealer bust', () => {
+  it('busts even when the dealer also busts (bust takes precedence over comparison)', () => {
     expect(resolveHand([card('K'), card('Q'), card('5')], [card('K'), card('Q'), card('5', 'hearts')], 100)).toEqual({
       outcome: 'bust',
       payout: -100,
+    });
+  });
+
+  it('produces an exact fractional payout for an odd blackjack bet', () => {
+    expect(resolveHand([card('A'), card('K')], [card('9'), card('8')], 101)).toEqual({
+      outcome: 'blackjack',
+      payout: 151.5,
     });
   });
 });

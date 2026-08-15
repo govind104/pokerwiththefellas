@@ -33,4 +33,11 @@ describe('shuffle', () => {
     const shuffledB = shuffle(deck, fixedRandom);
     expect(shuffledA).toEqual(shuffledB);
   });
+
+  it('actually reorders the cards (not a no-op)', () => {
+    const deck = createDeck();
+    const shuffled = shuffle(deck);
+    const isIdentical = shuffled.every((c, i) => c.suit === deck[i].suit && c.rank === deck[i].rank);
+    expect(isIdentical).toBe(false);
+  });
 });

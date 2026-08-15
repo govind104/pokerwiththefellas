@@ -127,4 +127,52 @@ describe('BlackjackRound', () => {
     expect(round.phase).toBe('settled');
     expect(() => round.act('stand')).toThrow('Cannot act while round is in phase "settled"');
   });
+
+  it('player wins when the dealer busts while drawing to reach 17', () => {
+    const shoe = [card('10'), card('9'), card('10'), card('6'), card('K')];
+    const round = new BlackjackRound(100, { shoe });
+    round.act('stand');
+    expect(round.phase).toBe('settled');
+    expect(round.getDealerCards()).toEqual([card('10'), card('6'), card('K')]);
+    expect(round.results).toEqual([{ outcome: 'win', payout: 100 }]);
+  });
+
+  it('lets the player hit multiple times without busting before standing', () => {
+    const shoe = [card('2'), card('3'), card('10'), card('9'), card('4'), card('5')];
+    const round = new BlackjackRound(100, { shoe });
+    round.act('hit');
+    expect(round.playerHands[0].cards).toEqual([card('2'), card('3'), card('4')]);
+    round.act('hit');
+    expect(round.playerHands[0].cards).toEqual([card('2'), card('3'), card('4'), card('5')]);
+    expect(round.phase).toBe('playing');
+    round.act('stand');
+    expect(round.phase).toBe('settled');
+    expect(round.results).toEqual([{ outcome: 'lose', payout: -100 }]);
+  });
+
+  it('rejects splitting a hand that is not a pair', () => {
+    const shoe = [card('8'), card('9'), card('10'), card('7')];
+    const round = new BlackjackRound(100, { shoe });
+    expect(() => round.act('split')).toThrow('Hand is not eligible to split');
+  });
+
+  it('allows doubling a two-card hand created by a split', () => {
+    const shoe = [card('8'), card('8'), card('10'), card('9'), card('2'), card('3'), card('K')];
+    const round = new BlackjackRound(100, { shoe });
+    round.act('split');
+    expect(round.playerHands[0].cards).toEqual([card('8'), card('3')]);
+    expect(round.playerHands[1].cards).toEqual([card('8'), card('2')]);
+
+    round.act('double'); // doubles hand 0, the currently active hand
+    expect(round.playerHands[0]).toMatchObject({ bet: 200, doubled: true, done: true });
+    expect(round.playerHands[0].cards).toEqual([card('8'), card('3'), card('K')]);
+    expect(round.phase).toBe('playing'); // hand 1 is still active
+
+    round.act('stand');
+    expect(round.phase).toBe('settled');
+    expect(round.results).toEqual([
+      { outcome: 'win', payout: 200 },
+      { outcome: 'lose', payout: -100 },
+    ]);
+  });
 });
