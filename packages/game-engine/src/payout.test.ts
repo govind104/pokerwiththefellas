@@ -62,4 +62,11 @@ describe('resolveHand', () => {
       payout: 0,
     });
   });
+
+  it('player loses when both player and dealer bust', () => {
+    expect(resolveHand([card('K'), card('Q'), card('5')], [card('K'), card('Q'), card('5', 'hearts')], 100)).toEqual({
+      outcome: 'bust',
+      payout: -100,
+    });
+  });
 });
