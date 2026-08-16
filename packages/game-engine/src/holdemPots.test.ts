@@ -62,4 +62,22 @@ describe('computePots', () => {
     ]);
     expect(pots).toEqual([{ amount: 200, eligiblePlayerIds: ['a', 'b'] }]);
   });
+
+  it('omits a pot layer where every contributor folded, without crashing (defensive — not expected in normal play)', () => {
+    // p1 is the sole contributor at the top level (1000) but folded, so that
+    // layer has zero eligible winners and is dropped entirely rather than
+    // crashing. This means those 900 chips (1000-100) are NOT reflected in
+    // the output — a known, accepted gap for a scenario the caller (HoldemHand)
+    // never actually produces, since a hand settles uncontested the moment
+    // only one player remains, before computePots is ever called.
+    const pots = computePots([
+      { playerId: 'p1', amount: 1000, folded: true },
+      { playerId: 'p2', amount: 100, folded: false },
+      { playerId: 'p3', amount: 50, folded: false },
+    ]);
+    expect(pots).toEqual([
+      { amount: 150, eligiblePlayerIds: ['p2', 'p3'] },
+      { amount: 100, eligiblePlayerIds: ['p2'] },
+    ]);
+  });
 });

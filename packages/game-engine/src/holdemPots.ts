@@ -1,5 +1,6 @@
 export interface PlayerContribution {
   playerId: string;
+  /** Total chips contributed across the whole hand (all streets summed), not a single street's amount. */
   amount: number;
   folded: boolean;
 }
