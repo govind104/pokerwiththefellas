@@ -63,6 +63,10 @@ export function validateAction(context: BettingContext, action: HoldemAction, am
   }
 }
 
+/**
+ * Only valid to call after `validateAction` has passed for the same
+ * context/action/amount — this function does not re-validate.
+ */
 export function chipsToCommit(context: BettingContext, action: HoldemAction, amount?: number): number {
   switch (action) {
     case 'fold':
@@ -71,7 +75,10 @@ export function chipsToCommit(context: BettingContext, action: HoldemAction, amo
     case 'call':
       return context.toCall;
     case 'raise':
-      return (amount as number) - context.playerStreetContributed;
+      if (amount === undefined) {
+        throw new Error('Raise requires an amount');
+      }
+      return amount - context.playerStreetContributed;
     case 'all-in':
       return context.playerStack;
     default: {

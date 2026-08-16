@@ -75,6 +75,13 @@ describe('validateAction', () => {
     const context = computeBettingContext(20, 20, 20, 0);
     expect(() => validateAction(context, 'all-in')).toThrow('No chips left to go all-in with');
   });
+
+  it('treats a raise from a zero current bet as opening a bet, with minRaiseTo equal to lastRaiseSize', () => {
+    const context = computeBettingContext(0, 20, 0, 500);
+    expect(context.minRaiseTo).toBe(20);
+    expect(() => validateAction(context, 'raise', 20)).not.toThrow();
+    expect(() => validateAction(context, 'raise', 10)).toThrow('Raise must be to at least 20');
+  });
 });
 
 describe('chipsToCommit', () => {
