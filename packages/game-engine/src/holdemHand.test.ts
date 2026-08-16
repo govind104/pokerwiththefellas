@@ -366,6 +366,122 @@ describe('HoldemHand.act — betting rounds', () => {
     const totalPayout = hand.results.reduce((sum, r) => sum + r.payout, 0);
     expect(totalPayout).toBe(0); // conservation
   });
+
+  it('reopens action for players who already called before a later raise (limp-limp-raise)', () => {
+    const deck: Card[] = [
+      card('2', 'clubs'), card('3', 'clubs'),
+      card('4', 'clubs'), card('5', 'clubs'),
+      card('6', 'clubs'), card('7', 'clubs'),
+      card('8', 'clubs'), card('9', 'clubs'), card('10', 'clubs'),
+    ];
+    const hand = new HoldemHand(
+      [
+        { playerId: 'a', stack: 1000 },
+        { playerId: 'b', stack: 1000 },
+        { playerId: 'c', stack: 1000 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck }
+    );
+    hand.act('a', 'call'); // button calls the BB
+    hand.act('b', 'call'); // SB completes
+    hand.act('c', 'raise', 60); // BB raises
+
+    expect(hand.actingPlayerId).toBe('a'); // a already called -- must respond again
+    hand.act('a', 'call');
+    expect(hand.actingPlayerId).toBe('b'); // b already called -- must respond again
+    hand.act('b', 'call');
+
+    expect(hand.street).toBe('flop');
+    for (const p of hand.players) {
+      expect(p.contributed).toBe(60);
+    }
+  });
+
+  it('awards the main pot and a side pot to different winners based on genuine hand comparison', () => {
+    const deck: Card[] = [
+      card('K', 'spades'), card('K', 'clubs'), // a
+      card('A', 'spades'), card('A', 'clubs'), // b (short stack)
+      card('Q', 'spades'), card('Q', 'clubs'), // c
+      card('A', 'diamonds'), card('7', 'hearts'), card('2', 'clubs'), // flop
+      card('9', 'diamonds'), // turn
+      card('3', 'spades'), // river
+    ];
+    const hand = new HoldemHand(
+      [
+        { playerId: 'a', stack: 1000 },
+        { playerId: 'b', stack: 50 },
+        { playerId: 'c', stack: 1000 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck }
+    );
+
+    hand.act('a', 'call');
+    hand.act('b', 'all-in');
+    expect(hand.players[1]).toMatchObject({ isAllIn: true, contributed: 50 });
+    hand.act('c', 'call');
+    hand.act('a', 'call');
+
+    expect(hand.street).toBe('flop');
+    expect(hand.actingPlayerId).toBe('c'); // b is all-in, correctly skipped
+    hand.act('c', 'raise', 200);
+    hand.act('a', 'call');
+
+    expect(hand.street).toBe('turn');
+    hand.act('c', 'check');
+    hand.act('a', 'check');
+
+    expect(hand.street).toBe('river');
+    hand.act('c', 'check');
+    hand.act('a', 'check');
+
+    expect(hand.street).toBe('settled');
+    expect(hand.pots).toEqual([
+      { amount: 150, eligiblePlayerIds: ['a', 'b', 'c'] },
+      { amount: 400, eligiblePlayerIds: ['a', 'c'] },
+    ]);
+    // b's trip aces (A-A-A-9-7) wins the main pot outright; a's pair of
+    // kings (K-K-A-9-7) beats c's pair of queens for the side pot -- two
+    // DIFFERENT winners, proving determineWinners is consulted per pot
+    // rather than every pot going to the same player.
+    expect(hand.results).toEqual([
+      { playerId: 'a', payout: 150 },
+      { playerId: 'b', payout: 100 },
+      { playerId: 'c', payout: -250 },
+    ]);
+  });
+
+  it('produces an exact fractional payout when a tied pot does not split evenly among the winners', () => {
+    const deck: Card[] = [
+      card('A', 'spades'), card('A', 'clubs'), // a
+      card('A', 'hearts'), card('A', 'diamonds'), // b
+      card('Q', 'spades'), card('Q', 'clubs'), // c
+      card('K', 'clubs'), card('9', 'diamonds'), card('5', 'hearts'), // flop
+      card('3', 'spades'), // turn
+      card('2', 'clubs'), // river
+    ];
+    const hand = new HoldemHand(
+      [
+        { playerId: 'a', stack: 101 },
+        { playerId: 'b', stack: 101 },
+        { playerId: 'c', stack: 101 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck }
+    );
+    hand.act('a', 'all-in');
+    hand.act('b', 'all-in');
+    hand.act('c', 'all-in');
+
+    expect(hand.street).toBe('settled');
+    expect(hand.pots).toEqual([{ amount: 303, eligiblePlayerIds: ['a', 'b', 'c'] }]);
+    // a and b both hold pocket aces -- a genuine tie, pair of aces with
+    // identical K-9-5 kickers from the board. c's pocket queens lose. The
+    // 303 pot does not divide evenly between the two tied winners.
+    expect(hand.results).toEqual([
+      { playerId: 'a', payout: 50.5 },
+      { playerId: 'b', payout: 50.5 },
+      { playerId: 'c', payout: -101 },
+    ]);
+  });
 });
 
 describe('HoldemHand.act — all-in runout', () => {
@@ -480,6 +596,8 @@ describe('HoldemHand — full showdown (heads-up)', () => {
     // hole A + board A. Other plays K-K (pair of kings, A-9-8 kickers) using
     // hole K + board K. Pair of aces beats pair of kings outright.
     expect(hand.street).toBe('settled');
+    expect(hand.communityCards).toHaveLength(5);
+    expect(hand.actingPlayerId).toBeNull();
     expect(hand.results).toEqual([
       { playerId: 'button', payout: 20 },
       { playerId: 'other', payout: -20 },
