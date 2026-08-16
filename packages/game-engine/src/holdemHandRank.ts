@@ -1,0 +1,37 @@
+import { Hand } from 'pokersolver';
+import { Card, Rank, Suit } from './deck';
+
+const SUIT_CODES: Record<Suit, string> = {
+  clubs: 'c',
+  diamonds: 'd',
+  hearts: 'h',
+  spades: 's',
+};
+
+function rankCode(rank: Rank): string {
+  return rank === '10' ? 'T' : rank;
+}
+
+function toPokersolverCard(card: Card): string {
+  return `${rankCode(card.rank)}${SUIT_CODES[card.suit]}`;
+}
+
+export function determineWinners(
+  players: { playerId: string; holeCards: [Card, Card] }[],
+  communityCards: Card[]
+): string[] {
+  const solved = players.map((p) => ({
+    playerId: p.playerId,
+    hand: Hand.solve([...p.holeCards, ...communityCards].map(toPokersolverCard)),
+  }));
+  const winningHands = Hand.winners(solved.map((s) => s.hand));
+  return solved.filter((s) => winningHands.includes(s.hand)).map((s) => s.playerId);
+}
+
+export function describeHand(
+  holeCards: [Card, Card],
+  communityCards: Card[]
+): { name: string; description: string } {
+  const hand = Hand.solve([...holeCards, ...communityCards].map(toPokersolverCard));
+  return { name: hand.name, description: hand.descr };
+}
