@@ -1,4 +1,12 @@
 import { Card, RandomFn, createDeck, shuffle } from './deck';
+import {
+  HoldemAction,
+  computeBettingContext,
+  validateAction,
+  chipsToCommit,
+} from './holdemBetting';
+import { PlayerContribution, Pot, computePots } from './holdemPots';
+import { determineWinners } from './holdemHandRank';
 
 export interface HoldemPlayerInput {
   playerId: string;
@@ -25,6 +33,11 @@ export interface HoldemHandConfig {
 
 export type HoldemStreet = 'preflop' | 'flop' | 'turn' | 'river' | 'settled';
 
+export interface HoldemResult {
+  playerId: string;
+  payout: number;
+}
+
 export class HoldemHand {
   /**
    * Ground truth for every player, including hole cards. A future server
@@ -36,6 +49,8 @@ export class HoldemHand {
   street: HoldemStreet = 'preflop';
   communityCards: Card[] = [];
   actingPlayerId: string | null = null;
+  pots: Pot[] = [];
+  results: HoldemResult[] = [];
 
   private deck: Card[];
   private buttonIndex: number;
@@ -84,6 +99,8 @@ export class HoldemHand {
     this.playersToAct = new Set(
       this.players.map((_, i) => i).filter((i) => !this.players[i].folded && !this.players[i].isAllIn)
     );
+
+    this.resolveActingPlayer();
   }
 
   private draw(): Card {
@@ -103,5 +120,181 @@ export class HoldemHand {
     if (player.stack === 0) {
       player.isAllIn = true;
     }
+  }
+
+  private resolveActingPlayer(): void {
+    if (this.playersToAct.size === 0) {
+      // Nobody can act preflop -- e.g. every active player is already
+      // all-in from posting blinds. Skip straight to dealing out the rest
+      // of the board and settling, the same cascade dealStreet already
+      // uses mid-hand when everyone left is all-in.
+      this.advanceStreet();
+      return;
+    }
+    if (!this.playersToAct.has(this.actingIndex)) {
+      // The naively-computed first-to-act player turned out to be all-in
+      // (e.g. a short-stacked heads-up button whose blind exhausted them)
+      // -- find the next player who can actually act.
+      this.actingIndex = this.nextActingIndex(this.actingIndex);
+      this.actingPlayerId = this.players[this.actingIndex].playerId;
+    }
+  }
+
+  act(playerId: string, action: HoldemAction, amount?: number): void {
+    if (this.street === 'settled') {
+      throw new Error('Cannot act after the hand has settled');
+    }
+    if (this.actingPlayerId !== playerId) {
+      throw new Error(`It is not ${playerId}'s turn to act`);
+    }
+
+    const index = this.actingIndex;
+    const player = this.players[index];
+
+    const context = computeBettingContext(
+      this.currentBet,
+      this.lastRaiseSize,
+      player.streetContributed,
+      player.stack
+    );
+    validateAction(context, action, amount);
+    const chips = chipsToCommit(context, action, amount);
+
+    player.stack -= chips;
+    player.streetContributed += chips;
+    player.contributed += chips;
+
+    if (action === 'fold') {
+      player.folded = true;
+    }
+    if (action === 'all-in') {
+      player.isAllIn = true;
+    }
+
+    this.playersToAct.delete(index);
+
+    if (player.streetContributed > this.currentBet) {
+      this.lastRaiseSize = player.streetContributed - this.currentBet;
+      this.currentBet = player.streetContributed;
+      this.playersToAct = new Set(
+        this.players
+          .map((_, i) => i)
+          .filter((i) => i !== index && !this.players[i].folded && !this.players[i].isAllIn)
+      );
+    }
+
+    const remainingPlayers = this.players.filter((p) => !p.folded);
+    if (remainingPlayers.length === 1) {
+      this.settleUncontested(remainingPlayers[0].playerId);
+      return;
+    }
+
+    if (this.playersToAct.size === 0) {
+      this.advanceStreet();
+      return;
+    }
+
+    this.actingIndex = this.nextActingIndex(index);
+    this.actingPlayerId = this.players[this.actingIndex].playerId;
+  }
+
+  private nextActingIndex(fromIndex: number): number {
+    const n = this.players.length;
+    for (let step = 1; step <= n; step++) {
+      const candidate = (fromIndex + step) % n;
+      if (this.playersToAct.has(candidate)) {
+        return candidate;
+      }
+    }
+    throw new Error('No players left to act');
+  }
+
+  private firstActiveAfter(index: number): number {
+    const n = this.players.length;
+    for (let step = 1; step <= n; step++) {
+      const candidate = (index + step) % n;
+      if (!this.players[candidate].folded) {
+        return candidate;
+      }
+    }
+    throw new Error('No active players remain');
+  }
+
+  private advanceStreet(): void {
+    if (this.street === 'preflop') {
+      this.dealStreet('flop', 3);
+    } else if (this.street === 'flop') {
+      this.dealStreet('turn', 1);
+    } else if (this.street === 'turn') {
+      this.dealStreet('river', 1);
+    } else if (this.street === 'river') {
+      this.settleShowdown();
+    }
+  }
+
+  private dealStreet(next: HoldemStreet, cardCount: number): void {
+    this.street = next;
+    for (let i = 0; i < cardCount; i++) {
+      this.communityCards.push(this.draw());
+    }
+
+    for (const p of this.players) {
+      p.streetContributed = 0;
+    }
+    this.currentBet = 0;
+    this.lastRaiseSize = this.bigBlindAmount;
+
+    const activeNonAllIn = this.players
+      .map((_, i) => i)
+      .filter((i) => !this.players[i].folded && !this.players[i].isAllIn);
+
+    if (activeNonAllIn.length <= 1) {
+      this.advanceStreet();
+      return;
+    }
+
+    this.playersToAct = new Set(activeNonAllIn);
+    this.actingIndex = this.firstActiveAfter(this.buttonIndex);
+    this.actingPlayerId = this.players[this.actingIndex].playerId;
+  }
+
+  private settleUncontested(winnerPlayerId: string): void {
+    this.street = 'settled';
+    this.actingPlayerId = null;
+
+    const totalPot = this.players.reduce((sum, p) => sum + p.contributed, 0);
+    this.results = this.players.map((p) => ({
+      playerId: p.playerId,
+      payout: p.playerId === winnerPlayerId ? totalPot - p.contributed : -p.contributed,
+    }));
+    this.pots = [{ amount: totalPot, eligiblePlayerIds: [winnerPlayerId] }];
+  }
+
+  private settleShowdown(): void {
+    this.street = 'settled';
+    this.actingPlayerId = null;
+
+    const contributions: PlayerContribution[] = this.players.map((p) => ({
+      playerId: p.playerId,
+      amount: p.contributed,
+      folded: p.folded,
+    }));
+    this.pots = computePots(contributions);
+
+    const netChange = new Map<string, number>(this.players.map((p) => [p.playerId, -p.contributed]));
+
+    for (const pot of this.pots) {
+      const eligiblePlayers = this.players.filter((p) => pot.eligiblePlayerIds.includes(p.playerId));
+      const winnerIds = determineWinners(
+        eligiblePlayers.map((p) => ({ playerId: p.playerId, holeCards: p.holeCards })),
+        this.communityCards
+      );
+      const share = pot.amount / winnerIds.length;
+      for (const winnerId of winnerIds) {
+        netChange.set(winnerId, (netChange.get(winnerId) ?? 0) + share);
+      }
+    }
+
+    this.results = this.players.map((p) => ({ playerId: p.playerId, payout: netChange.get(p.playerId) ?? 0 }));
   }
 }
