@@ -42,6 +42,9 @@ export function validateAction(context: BettingContext, action: HoldemAction, am
       if (amount === undefined) {
         throw new Error('Raise requires an amount');
       }
+      if (!Number.isFinite(amount)) {
+        throw new Error('Raise amount must be a finite number');
+      }
       if (amount < context.minRaiseTo) {
         throw new Error(`Raise must be to at least ${context.minRaiseTo}`);
       }

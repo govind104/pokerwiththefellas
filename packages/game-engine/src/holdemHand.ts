@@ -67,6 +67,17 @@ export class HoldemHand {
     if (config.buttonIndex < 0 || config.buttonIndex >= playersInput.length) {
       throw new Error('buttonIndex out of range');
     }
+    if (config.smallBlind <= 0) {
+      throw new Error('smallBlind must be greater than 0');
+    }
+    if (config.bigBlind < config.smallBlind) {
+      throw new Error('bigBlind must be greater than or equal to smallBlind');
+    }
+    for (const p of playersInput) {
+      if (p.stack <= 0) {
+        throw new Error(`Player ${p.playerId} must start with a positive stack`);
+      }
+    }
 
     this.buttonIndex = config.buttonIndex;
     this.deck = config.deck ? [...config.deck] : shuffle(createDeck(), config.random ?? Math.random);

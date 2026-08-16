@@ -82,6 +82,22 @@ describe('validateAction', () => {
     expect(() => validateAction(context, 'raise', 20)).not.toThrow();
     expect(() => validateAction(context, 'raise', 10)).toThrow('Raise must be to at least 20');
   });
+
+  it('rejects a non-finite raise amount', () => {
+    const context = computeBettingContext(20, 20, 0, 500);
+    expect(() => validateAction(context, 'raise', NaN)).toThrow('Raise amount must be a finite number');
+    expect(() => validateAction(context, 'raise', Infinity)).toThrow('Raise amount must be a finite number');
+  });
+
+  it('allows a call that uses exactly the entire remaining stack', () => {
+    const context = computeBettingContext(20, 20, 0, 20);
+    expect(() => validateAction(context, 'call')).not.toThrow();
+  });
+
+  it('allows a raise that uses exactly the entire remaining stack', () => {
+    const context = computeBettingContext(20, 20, 0, 40);
+    expect(() => validateAction(context, 'raise', 40)).not.toThrow();
+  });
 });
 
 describe('chipsToCommit', () => {

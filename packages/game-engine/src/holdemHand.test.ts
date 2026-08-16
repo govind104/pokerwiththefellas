@@ -107,6 +107,45 @@ describe('HoldemHand construction — 3+ handed', () => {
         )
     ).toThrow('buttonIndex out of range');
   });
+
+  it('rejects a non-positive small blind', () => {
+    expect(
+      () =>
+        new HoldemHand(
+          [
+            { playerId: 'a', stack: 1000 },
+            { playerId: 'b', stack: 1000 },
+          ],
+          { smallBlind: 0, bigBlind: 20, buttonIndex: 0 }
+        )
+    ).toThrow('smallBlind must be greater than 0');
+  });
+
+  it('rejects a big blind smaller than the small blind', () => {
+    expect(
+      () =>
+        new HoldemHand(
+          [
+            { playerId: 'a', stack: 1000 },
+            { playerId: 'b', stack: 1000 },
+          ],
+          { smallBlind: 20, bigBlind: 10, buttonIndex: 0 }
+        )
+    ).toThrow('bigBlind must be greater than or equal to smallBlind');
+  });
+
+  it('rejects a player with a non-positive stack', () => {
+    expect(
+      () =>
+        new HoldemHand(
+          [
+            { playerId: 'a', stack: 1000 },
+            { playerId: 'b', stack: 0 },
+          ],
+          { smallBlind: 10, bigBlind: 20, buttonIndex: 0 }
+        )
+    ).toThrow('Player b must start with a positive stack');
+  });
 });
 
 describe('HoldemHand construction — heads-up', () => {
