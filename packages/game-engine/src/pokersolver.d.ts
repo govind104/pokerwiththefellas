@@ -4,6 +4,5 @@ declare module 'pokersolver' {
     static winners(hands: Hand[]): Hand[];
     name: string;
     descr: string;
-    rank: number;
   }
 }

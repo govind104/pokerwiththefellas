@@ -1,6 +1,7 @@
 import { Card, RandomFn, createDeck, shuffle } from './deck';
 import {
   HoldemAction,
+  BettingContext,
   computeBettingContext,
   validateAction,
   chipsToCommit,
@@ -49,7 +50,9 @@ export class HoldemHand {
   street: HoldemStreet = 'preflop';
   communityCards: Card[] = [];
   actingPlayerId: string | null = null;
+  /** Populated once `street` is `'settled'`. Safe to reveal to all clients at that point — settlement is public information in poker. */
   pots: Pot[] = [];
+  /** Populated once `street` is `'settled'`. Net payout per player: `balance += payout`. */
   results: HoldemResult[] = [];
 
   private deck: Card[];
@@ -151,6 +154,20 @@ export class HoldemHand {
     }
   }
 
+  /**
+   * The betting context for whoever is currently up, or `null` once the
+   * hand has settled or nobody is acting. A server needs this to compute
+   * the minimum legal raise (`minRaiseTo`) for the current actor -- that
+   * value depends on `lastRaiseSize`, which has no other public accessor.
+   */
+  getBettingContext(): BettingContext | null {
+    if (this.street === 'settled' || this.actingPlayerId === null) {
+      return null;
+    }
+    const player = this.players[this.actingIndex];
+    return computeBettingContext(this.currentBet, this.lastRaiseSize, player.streetContributed, player.stack);
+  }
+
   act(playerId: string, action: HoldemAction, amount?: number): void {
     if (this.street === 'settled') {
       throw new Error('Cannot act after the hand has settled');
@@ -184,6 +201,12 @@ export class HoldemHand {
 
     this.playersToAct.delete(index);
 
+    // Spec-conformant MVP simplification (design spec Section 3 / plan
+    // Global Constraints): ANY raise reopens action for every other active
+    // player, even an all-in for less than a full minimum raise. Real
+    // tournament rules narrow this ("an incomplete raise doesn't reopen
+    // action for players who already acted"); this codebase deliberately
+    // doesn't implement that narrower rule.
     if (player.streetContributed > this.currentBet) {
       this.lastRaiseSize = player.streetContributed - this.currentBet;
       this.currentBet = player.streetContributed;
@@ -303,6 +326,9 @@ export class HoldemHand {
         eligiblePlayers.map((p) => ({ playerId: p.playerId, holeCards: p.holeCards })),
         this.communityCards
       );
+      if (winnerIds.length === 0) {
+        throw new Error('No eligible winner found for a pot — this should never happen');
+      }
       const share = pot.amount / winnerIds.length;
       for (const winnerId of winnerIds) {
         netChange.set(winnerId, (netChange.get(winnerId) ?? 0) + share);

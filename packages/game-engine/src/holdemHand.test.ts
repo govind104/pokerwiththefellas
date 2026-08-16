@@ -146,6 +146,28 @@ describe('HoldemHand construction — 3+ handed', () => {
         )
     ).toThrow('Player b must start with a positive stack');
   });
+
+  it('exposes the current actor\'s betting context, and null once settled', () => {
+    const hand = new HoldemHand(
+      [
+        { playerId: 'a', stack: 1000 },
+        { playerId: 'b', stack: 1000 },
+        { playerId: 'c', stack: 1000 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck: threeHandedDeck() }
+    );
+    // acting player is 'a' (button), facing the BB of 20, having put in 0 this street
+    expect(hand.getBettingContext()).toEqual({
+      toCall: 20,
+      minRaiseTo: 40,
+      playerStack: 1000,
+      playerStreetContributed: 0,
+    });
+    hand.act('a', 'raise', 60);
+    hand.act('b', 'fold');
+    hand.act('c', 'fold');
+    expect(hand.getBettingContext()).toBeNull();
+  });
 });
 
 describe('HoldemHand construction — heads-up', () => {
