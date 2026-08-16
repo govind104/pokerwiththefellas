@@ -72,6 +72,18 @@ describe('HoldemHand construction — 3+ handed', () => {
     expect(hand.players[1]).toMatchObject({ stack: 0, streetContributed: 5, contributed: 5, isAllIn: true });
   });
 
+  it('marks a player all-in when a blind post exactly exhausts their stack', () => {
+    const hand = new HoldemHand(
+      [
+        { playerId: 'a', stack: 1000 },
+        { playerId: 'b', stack: 10 }, // posts small blind (10), exactly matching their stack
+        { playerId: 'c', stack: 1000 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck: threeHandedDeck() }
+    );
+    expect(hand.players[1]).toMatchObject({ stack: 0, streetContributed: 10, contributed: 10, isAllIn: true });
+  });
+
   it('rejects fewer than 2 or more than 8 players', () => {
     expect(
       () =>

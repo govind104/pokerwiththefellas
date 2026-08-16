@@ -100,7 +100,7 @@ export class HoldemHand {
     player.stack -= posted;
     player.streetContributed += posted;
     player.contributed += posted;
-    if (posted < amount) {
+    if (player.stack === 0) {
       player.isAllIn = true;
     }
   }
