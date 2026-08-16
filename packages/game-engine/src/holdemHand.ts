@@ -167,7 +167,7 @@ export class HoldemHand {
     if (action === 'fold') {
       player.folded = true;
     }
-    if (action === 'all-in') {
+    if (player.stack === 0) {
       player.isAllIn = true;
     }
 
@@ -229,6 +229,8 @@ export class HoldemHand {
       this.dealStreet('river', 1);
     } else if (this.street === 'river') {
       this.settleShowdown();
+    } else {
+      throw new Error(`Cannot advance from street "${this.street}"`);
     }
   }
 
@@ -256,6 +258,7 @@ export class HoldemHand {
     this.playersToAct = new Set(activeNonAllIn);
     this.actingIndex = this.firstActiveAfter(this.buttonIndex);
     this.actingPlayerId = this.players[this.actingIndex].playerId;
+    this.resolveActingPlayer();
   }
 
   private settleUncontested(winnerPlayerId: string): void {

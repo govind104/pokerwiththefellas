@@ -252,6 +252,59 @@ describe('HoldemHand.act — betting rounds', () => {
     hand.act('c', 'fold');
     expect(() => hand.act('a', 'check')).toThrow('Cannot act after the hand has settled');
   });
+
+  it('correctly skips an all-in player (all-in via an exact-stack call, not the all-in action) on every postflop street, and settles a genuine side pot', () => {
+    const deck: Card[] = [
+      card('2', 'clubs'), card('3', 'clubs'), // a (button)
+      card('4', 'clubs'), card('5', 'clubs'), // b (SB, will end up all-in)
+      card('6', 'clubs'), card('7', 'clubs'), // c (BB)
+      card('8', 'clubs'), card('9', 'clubs'), card('10', 'clubs'), // flop
+      card('J', 'clubs'), // turn
+      card('Q', 'clubs'), // river
+    ];
+    const hand = new HoldemHand(
+      [
+        { playerId: 'a', stack: 1000 },
+        { playerId: 'b', stack: 50 }, // SB, short stack
+        { playerId: 'c', stack: 1000 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck }
+    );
+
+    // Preflop: a raises to 50, b calls with their exact remaining stack (40 more, on top of the 10 SB) -- a 'call', not 'all-in'.
+    hand.act('a', 'raise', 50);
+    hand.act('b', 'call');
+    expect(hand.players[1]).toMatchObject({ stack: 0, isAllIn: true, contributed: 50 }); // C2: isAllIn must be true even though the action was 'call'
+    hand.act('c', 'call');
+
+    // Flop: first-to-act must be 'c', never the all-in 'b' (C1).
+    expect(hand.street).toBe('flop');
+    expect(hand.actingPlayerId).toBe('c');
+    hand.act('c', 'raise', 100); // bets more, growing a side pot only a/c are eligible for
+    expect(hand.actingPlayerId).toBe('a');
+    hand.act('a', 'call');
+
+    // Turn: first-to-act must again be 'c', not 'b'.
+    expect(hand.street).toBe('turn');
+    expect(hand.actingPlayerId).toBe('c');
+    hand.act('c', 'check');
+    hand.act('a', 'check');
+
+    // River: same check.
+    expect(hand.street).toBe('river');
+    expect(hand.actingPlayerId).toBe('c');
+    hand.act('c', 'check');
+    hand.act('a', 'check');
+
+    expect(hand.street).toBe('settled');
+    // a and c each put in 150 total (50 preflop + 100 flop); b capped at 50.
+    expect(hand.pots).toEqual([
+      { amount: 150, eligiblePlayerIds: ['a', 'b', 'c'] },
+      { amount: 200, eligiblePlayerIds: ['a', 'c'] }, // b never reaches this layer -- proves the cap is respected
+    ]);
+    const totalPayout = hand.results.reduce((sum, r) => sum + r.payout, 0);
+    expect(totalPayout).toBe(0); // conservation
+  });
 });
 
 describe('HoldemHand.act — all-in runout', () => {
