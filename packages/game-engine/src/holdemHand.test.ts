@@ -378,3 +378,51 @@ describe('HoldemHand construction — all-in from blinds', () => {
     expect(totalPayout).toBe(0);
   });
 });
+
+describe('HoldemHand — full showdown (heads-up)', () => {
+  it('checks through every street to a showdown and pays the better hand, verifying button acts first preflop but last postflop', () => {
+    const deck: Card[] = [
+      card('A', 'spades'), card('2', 'clubs'), // player 0 (button/SB) hole cards
+      card('K', 'hearts'), card('3', 'diamonds'), // player 1 (BB) hole cards
+      card('A', 'clubs'), card('K', 'clubs'), card('7', 'hearts'), // flop
+      card('8', 'spades'), // turn
+      card('9', 'diamonds'), // river
+    ];
+    const hand = new HoldemHand(
+      [
+        { playerId: 'button', stack: 1000 },
+        { playerId: 'other', stack: 1000 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck }
+    );
+
+    expect(hand.actingPlayerId).toBe('button'); // preflop: button acts first
+    hand.act('button', 'call');
+    hand.act('other', 'check');
+
+    expect(hand.street).toBe('flop');
+    expect(hand.actingPlayerId).toBe('other'); // postflop: button acts last
+    hand.act('other', 'check');
+    hand.act('button', 'check');
+
+    expect(hand.street).toBe('turn');
+    expect(hand.actingPlayerId).toBe('other');
+    hand.act('other', 'check');
+    hand.act('button', 'check');
+
+    expect(hand.street).toBe('river');
+    expect(hand.actingPlayerId).toBe('other');
+    hand.act('other', 'check');
+    hand.act('button', 'check');
+
+    // Board: A K 7 8 9. Button plays A-A (pair of aces, K-9-8 kickers) using
+    // hole A + board A. Other plays K-K (pair of kings, A-9-8 kickers) using
+    // hole K + board K. Pair of aces beats pair of kings outright.
+    expect(hand.street).toBe('settled');
+    expect(hand.results).toEqual([
+      { playerId: 'button', payout: 20 },
+      { playerId: 'other', payout: -20 },
+    ]);
+    expect(hand.pots).toEqual([{ amount: 40, eligiblePlayerIds: ['button', 'other'] }]);
+  });
+});
