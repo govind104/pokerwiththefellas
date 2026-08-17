@@ -5,6 +5,8 @@ import {
   shuffle,
   type HoldemPlayerInput,
   type HoldemHandConfig,
+  type PlayerAction,
+  type HoldemAction,
   type Card,
 } from '@poker-blackjack/game-engine';
 import type { PlayerStore } from './playerStore';
@@ -43,6 +45,7 @@ export class Table {
   holdemHand: HoldemHand | null = null;
   blackjackRounds: Map<number, BlackjackRound> = new Map();
   activeSeatIndex: number | null = null;
+  blackjackSettledSeats: Set<number> = new Set();
 
   private buttonSeatIndex: number | null = null;
 
@@ -146,8 +149,105 @@ export class Table {
         rounds.map((r) => [r.seatIndex, new BlackjackRound(r.initialBet, { shoe: r.shoe })])
       );
       this.activeSeatIndex = rounds[0].seatIndex;
+      await this.advancePastSettledBlackjackRounds(rounds.map((r) => r.seatIndex));
     }
 
     this.deps.onStateChange();
+  }
+
+  async submitAction(
+    seatIndex: number,
+    action: PlayerAction | HoldemAction,
+    amount?: number
+  ): Promise<void> {
+    const seat = this.seats[seatIndex];
+    if (!seat) {
+      throw new Error('Seat is empty');
+    }
+    if (!this.handInProgress) {
+      throw new Error('No hand in progress');
+    }
+
+    if (this.config.gameMode === 'holdem') {
+      const hand = this.holdemHand!;
+      if (hand.actingPlayerId !== seat.displayName) {
+        throw new Error(`It is not ${seat.displayName}'s turn`);
+      }
+      hand.act(seat.displayName, action as HoldemAction, amount);
+      await this.deps.handLog.append({
+        type: 'holdem_action',
+        data: { playerId: seat.displayName, action, amount },
+      });
+      if (hand.street === 'settled') {
+        await this.settleHoldem(hand);
+      }
+    } else {
+      if (this.activeSeatIndex !== seatIndex) {
+        throw new Error(`It is not seat ${seatIndex}'s turn`);
+      }
+      const round = this.blackjackRounds.get(seatIndex)!;
+      round.act(action as PlayerAction);
+      await this.deps.handLog.append({ type: 'blackjack_action', data: { seatIndex, action } });
+      const seatedIndices = this.seats
+        .filter((s): s is Seat => s !== null)
+        .map((s) => s.seatIndex);
+      await this.advancePastSettledBlackjackRounds(seatedIndices);
+    }
+
+    this.deps.onStateChange();
+  }
+
+  private async settleHoldem(hand: HoldemHand): Promise<void> {
+    for (const result of hand.results) {
+      const seat = this.seats.find((s) => s?.displayName === result.playerId);
+      if (seat) {
+        seat.balance += result.payout;
+        await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
+      }
+    }
+    this.handInProgress = false;
+    this.holdemHand = null;
+    for (const seat of this.seats) {
+      if (seat) seat.ready = false;
+    }
+    await this.deps.handLog.clear();
+  }
+
+  private async settleBlackjackSeatIfNeeded(seatIndex: number): Promise<void> {
+    if (this.blackjackSettledSeats.has(seatIndex)) {
+      return;
+    }
+    const round = this.blackjackRounds.get(seatIndex)!;
+    if (round.phase !== 'settled') {
+      return;
+    }
+    this.blackjackSettledSeats.add(seatIndex);
+    const seat = this.seats[seatIndex]!;
+    const totalPayout = round.results.reduce((sum, r) => sum + r.payout, 0);
+    seat.balance += totalPayout;
+    await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
+  }
+
+  private async advancePastSettledBlackjackRounds(seatedIndices: number[]): Promise<void> {
+    while (this.activeSeatIndex !== null) {
+      const round = this.blackjackRounds.get(this.activeSeatIndex)!;
+      if (round.phase !== 'settled') {
+        return;
+      }
+      await this.settleBlackjackSeatIfNeeded(this.activeSeatIndex);
+      const pos = seatedIndices.indexOf(this.activeSeatIndex);
+      this.activeSeatIndex = seatedIndices[pos + 1] ?? null;
+    }
+    await this.finishBlackjackHandIfComplete();
+  }
+
+  private async finishBlackjackHandIfComplete(): Promise<void> {
+    this.handInProgress = false;
+    this.blackjackRounds = new Map();
+    this.blackjackSettledSeats = new Set();
+    for (const seat of this.seats) {
+      if (seat) seat.ready = false;
+    }
+    await this.deps.handLog.clear();
   }
 }

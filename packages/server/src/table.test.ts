@@ -249,3 +249,186 @@ describe('Table ready-gating and hand start (Blackjack)', () => {
     expect(handLog.entries[0].type).toBe('blackjack_hand_started');
   });
 });
+
+describe('Table submitAction (Hold\'em)', () => {
+  it('rejects an action from a seat when it is not that seat\'s turn', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    // Heads-up: alice (button) acts first preflop, so seat 1 (bob) is out of turn.
+    await expect(table.submitAction(1, 'fold')).rejects.toThrow();
+  });
+
+  it('rejects an illegal action and leaves state unchanged', async () => {
+    const { table, getStateChangeCount } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const countBefore = getStateChangeCount();
+    // Heads-up preflop: alice (SB) faces a bet from the BB, so check is illegal.
+    await expect(table.submitAction(0, 'check')).rejects.toThrow();
+    expect(getStateChangeCount()).toBe(countBefore);
+    expect(table.handInProgress).toBe(true);
+  });
+
+  it('settling an uncontested hand commits payouts via PlayerStore and returns to between-hands', async () => {
+    const { table, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
+    await playerStore.setBalance('alice', 1000);
+    await playerStore.setBalance('bob', 1000);
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    // Heads-up, alice on the button/SB acts first preflop -- folding here
+    // immediately ends the hand uncontested in bob's favor.
+    await table.submitAction(0, 'fold');
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.holdemHand).toBeNull();
+    await expect(playerStore.getBalance('alice')).resolves.toBe(995); // lost the 5-chip small blind
+    await expect(playerStore.getBalance('bob')).resolves.toBe(1005); // won alice's small blind
+    expect(table.seats[0]?.ready).toBe(false);
+    expect(table.seats[1]?.ready).toBe(false);
+  });
+
+  it('clears the HandLog once a hand settles', async () => {
+    const { table, handLog } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'fold');
+    await expect(handLog.readAll()).resolves.toEqual([]);
+  });
+
+  it('rotates the button to the next seated player on the next hand', async () => {
+    const { table } = makeTable();
+    await table.join('alice'); // seat 0
+    await table.join('bob'); // seat 1
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.holdemHand!.actingPlayerId).toBe('alice'); // button = seat 0 on the first hand
+
+    await table.submitAction(0, 'fold'); // settles hand 1, resets ready flags
+
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.holdemHand!.actingPlayerId).toBe('bob'); // button rotated to seat 1
+  });
+});
+
+describe('Table submitAction (Blackjack)', () => {
+  it('rejects an action from a seat that is not currently active', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.activeSeatIndex).toBe(0);
+    await expect(table.submitAction(1, 'stand')).rejects.toThrow();
+  });
+
+  it('advances to the next seat once the active seat\'s round settles', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    await table.submitAction(0, 'stand');
+    expect(table.blackjackRounds.get(0)!.phase).toBe('settled');
+    expect(table.activeSeatIndex).toBe(1);
+    expect(table.handInProgress).toBe(true);
+  });
+
+  it('finishes the table hand and commits balances once every seat\'s round settles', async () => {
+    const { table, playerStore } = makeTable({ gameMode: 'blackjack', blackjackDefaultBet: 25 });
+    await playerStore.setBalance('alice', 1000);
+    await playerStore.setBalance('bob', 1000);
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    await table.submitAction(0, 'stand');
+    await table.submitAction(1, 'stand');
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.blackjackRounds.size).toBe(0);
+    expect(table.activeSeatIndex).toBeNull();
+    const aliceBalance = await playerStore.getBalance('alice');
+    const bobBalance = await playerStore.getBalance('bob');
+    // Both started at 1000 with a 25-chip bet; win/push/lose all land within [975, 1037.5].
+    expect(aliceBalance).toBeGreaterThanOrEqual(975);
+    expect(aliceBalance).toBeLessThanOrEqual(1037.5);
+    expect(bobBalance).toBeGreaterThanOrEqual(975);
+    expect(bobBalance).toBeLessThanOrEqual(1037.5);
+  });
+
+  it('rejects an illegal Blackjack action and leaves state unchanged', async () => {
+    // Seed 3 (not the file default of 2): verified by direct simulation that
+    // alice's opening hand is not a natural and her single 'hit' below does
+    // not bust (4+10+7=21, still an active 3-card hand) -- both are required
+    // for 'double' to reach its own "first two cards" validation rather than
+    // failing on a turn-order or "no active hand" check first. Seed 2 (the
+    // file default) deals alice 4+K and busts her on this exact hit, which
+    // settles her round and makes the subsequent 'double' fail on turn order
+    // instead of the validation this test exists to exercise.
+    const { table, getStateChangeCount } = makeTable({
+      gameMode: 'blackjack',
+      random: makeDeterministicRandom(3),
+    });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'hit');
+    const countBefore = getStateChangeCount();
+    // A hand with 3+ cards can no longer double.
+    await expect(table.submitAction(0, 'double')).rejects.toThrow('first two cards');
+    expect(getStateChangeCount()).toBe(countBefore);
+  });
+
+  it('sums both hands\' payouts into one balance update after a split', async () => {
+    // Settlement reduces over round.results (one entry per split hand), so a
+    // player who splits must have BOTH hands' payouts reflected in their
+    // final balance, not just the first hand's -- the bug this guards
+    // against is silently using `results[0].payout` alone. Seed 20 is
+    // verified (by direct simulation) to: deal neither seat a natural; deal
+    // alice a splittable Qd/Js opening hand; and, after splitting and
+    // standing on both resulting hands (Qd7d and Js4c), have BOTH hands lose
+    // to the dealer. A net of -50 is only reachable by summing both results
+    // -- applying either hand's payout alone would show as -25 (balance
+    // 975), and skipping settlement entirely would leave the balance at the
+    // starting 1000, so this seed's outcome distinguishes the correct
+    // "sum all results" behavior from every plausible partial-settlement bug.
+    const { table, playerStore } = makeTable({
+      gameMode: 'blackjack',
+      blackjackDefaultBet: 25,
+      random: makeDeterministicRandom(20),
+    });
+    await playerStore.setBalance('alice', 1000);
+    await playerStore.setBalance('bob', 1000);
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    await table.submitAction(0, 'split');
+    expect(table.blackjackRounds.get(0)!.playerHands).toHaveLength(2);
+
+    await table.submitAction(0, 'stand'); // resolves the first split hand
+    await table.submitAction(0, 'stand'); // resolves the second split hand
+
+    expect(table.blackjackRounds.get(0)!.phase).toBe('settled');
+    expect(table.blackjackRounds.get(0)!.results).toEqual([
+      { outcome: 'lose', payout: -25 },
+      { outcome: 'lose', payout: -25 },
+    ]);
+    await expect(playerStore.getBalance('alice')).resolves.toBe(950);
+  });
+});
