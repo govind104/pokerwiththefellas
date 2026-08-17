@@ -71,7 +71,9 @@ is a contained addition rather than a rewrite.
 
 Game mode (Blackjack or Hold'em), small/big blind amounts (Hold'em), and starting
 balance for new players are all startup configuration (environment variables or a
-config file), not runtime-switchable — matching the Non-goals above.
+config file), not runtime-switchable — matching the Non-goals above. Seat capacity is 8
+for both games, matching the original spec's Hold'em cap (Section 3) and applied
+uniformly rather than defining a separate, unspecified Blackjack limit.
 
 | File | Responsibility |
 |---|---|
@@ -137,9 +139,11 @@ Client → server events:
   disconnect grace window (Section 5), rebinds this socket to that seat instead of
   assigning a new one.
 - `ready {}` — the sending seat signals ready for the next hand. Once every seated
-  player is ready (minimum 2 seated), `Table` starts the next hand automatically. An
-  explicit signal rather than a countdown/timer, so both this plan's automated tests
-  and Plan 4's eventual UI have a deterministic trigger to drive.
+  player is ready (minimum 2 seated, uniformly for both games — solo Blackjack against
+  the dealer is out of scope for this friends-focused app, and a uniform rule keeps
+  `Table`'s ready-check logic game-agnostic), `Table` starts the next hand
+  automatically. An explicit signal rather than a countdown/timer, so both this plan's
+  automated tests and Plan 4's eventual UI have a deterministic trigger to drive.
 - `action { ...PlayerAction | HoldemAction }` — passed through to the active engine's
   `.act()` after `Table` validates it's the sending seat's turn. The payload shape is
   exactly the engine's own action type; the server does not define a parallel type.
@@ -175,11 +179,12 @@ Server → client events:
    grace-window timer. If the same display name reconnects (a fresh `join`) within the
    window, the new socket is rebound to that seat and play resumes exactly where it
    left off.
-6. If the window elapses while it is that seat's turn, `Table` calls the lowest-cost
-   legal action on the player's behalf (check if available, otherwise fold) — the same
-   as a real player choosing to fold, logged the same way. If the window elapses on a
-   seat that isn't currently acting, the seat is simply marked sat-out until it
-   reconnects or the hand ends.
+6. If the window elapses while it is that seat's turn, `Table` calls the safest
+   always-legal action into `.act()` on the player's behalf — `stand` in Blackjack;
+   `check` if available, otherwise `fold`, in Hold'em — the same as if a real player
+   had chosen it, logged the same way. If the window elapses on a seat that isn't
+   currently acting, the seat is simply marked sat-out until it reconnects or the hand
+   ends.
 
 **Server restart:**
 7. On boot, `HandLog.recoverInProgressHand()` runs before the Socket.IO server starts
