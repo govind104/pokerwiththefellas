@@ -456,3 +456,120 @@ describe('Table submitAction (Blackjack)', () => {
     expect(table.activeSeatIndex).toBeNull();
   });
 });
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+describe('Table disconnect/reconnect', () => {
+  it('marks a seat disconnected and fires onStateChange', async () => {
+    const { table, getStateChangeCount } = makeTable();
+    await table.join('alice');
+    const before = getStateChangeCount();
+    table.disconnect(0);
+    expect(table.seats[0]?.connected).toBe(false);
+    expect(getStateChangeCount()).toBe(before + 1);
+  });
+
+  it('reconnect within the grace window rebinds the seat and returns its index', async () => {
+    const { table } = makeTable({ reconnectGraceMs: 200 });
+    await table.join('alice');
+    table.disconnect(0);
+    const seatIndex = table.reconnect('alice');
+    expect(seatIndex).toBe(0);
+    expect(table.seats[0]?.connected).toBe(true);
+  });
+
+  it('reconnect returns null for a name that is not currently disconnected', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    expect(table.reconnect('alice')).toBeNull(); // never disconnected
+    expect(table.reconnect('nobody')).toBeNull(); // not seated at all
+  });
+
+  it('a between-hands disconnect excludes that seat from the next hand instead of blocking it', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+    table.disconnect(2); // carol disconnects before anyone is ready
+
+    await table.setReady(0);
+    await table.setReady(1);
+    // Only alice and bob are connected; the hand should start without carol.
+    expect(table.handInProgress).toBe(true);
+    expect(table.holdemHand!.players.map((p) => p.playerId).sort()).toEqual(['alice', 'bob']);
+  });
+
+  it('disconnecting the seat whose turn it is auto-folds/checks once the grace window elapses (heads-up)', async () => {
+    const { table } = makeTable({ reconnectGraceMs: 30, smallBlind: 5, bigBlind: 10 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.holdemHand!.actingPlayerId).toBe('alice'); // button acts first, heads-up
+
+    table.disconnect(0);
+    await wait(100);
+
+    // Alice was facing a bet (SB posted 5, BB posted 10) so the safe default is fold,
+    // which ends the hand uncontested in bob's favor.
+    expect(table.handInProgress).toBe(false);
+  });
+
+  it('a reconnect before the grace window elapses prevents the auto-action', async () => {
+    const { table } = makeTable({ reconnectGraceMs: 200 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    table.disconnect(0);
+    await wait(20);
+    table.reconnect('alice');
+    await wait(250); // past where the original timer would have fired
+
+    expect(table.handInProgress).toBe(true); // never auto-folded
+    expect(table.holdemHand!.actingPlayerId).toBe('alice'); // still alice's turn
+  });
+
+  it('disconnecting a seat that is not currently acting only auto-acts once it becomes their turn', async () => {
+    const { table } = makeTable({ reconnectGraceMs: 30 });
+    await table.join('alice'); // seat 0 -- button, first to act in a 3-handed hand
+    await table.join('bob'); // seat 1 -- small blind
+    await table.join('carol'); // seat 2 -- big blind
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.setReady(2);
+    expect(table.holdemHand!.actingPlayerId).toBe('alice');
+
+    table.disconnect(1); // bob disconnects while it is alice's turn, not his
+    await wait(100); // past the grace window
+
+    // Still alice's turn -- bob's disconnect hasn't reached his turn yet, so nothing
+    // should have been auto-submitted on his behalf.
+    expect(table.holdemHand!.actingPlayerId).toBe('alice');
+    expect(table.handInProgress).toBe(true);
+
+    // Alice calls, advancing the turn to bob -- who is already past his grace window,
+    // so his action should be auto-submitted immediately with no further waiting.
+    await table.submitAction(0, 'call');
+
+    expect(table.holdemHand!.actingPlayerId).not.toBe('bob'); // bob's turn was auto-resolved
+  });
+
+  it('auto-acts with stand in Blackjack once the active seat times out', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack', reconnectGraceMs: 30 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.activeSeatIndex).toBe(0);
+
+    table.disconnect(0);
+    await wait(100);
+
+    expect(table.blackjackRounds.get(0)?.phase).toBe('settled');
+    expect(table.activeSeatIndex).toBe(1); // advanced to the next seat
+  });
+});

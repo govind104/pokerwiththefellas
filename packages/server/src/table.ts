@@ -48,6 +48,8 @@ export class Table {
   blackjackSettledSeats: Set<number> = new Set();
 
   private buttonSeatIndex: number | null = null;
+  private disconnectTimers: Map<number, NodeJS.Timeout> = new Map();
+  private timedOutSeats: Set<number> = new Set();
 
   constructor(
     private readonly config: TableConfig,
@@ -89,10 +91,74 @@ export class Table {
     seat.ready = true;
     this.deps.onStateChange();
 
-    const seatedSeats = this.seats.filter((s): s is Seat => s !== null);
-    const allReady = seatedSeats.length >= 2 && seatedSeats.every((s) => s.ready);
+    const connectedSeats = this.seats.filter((s): s is Seat => s !== null && s.connected);
+    const allReady = connectedSeats.length >= 2 && connectedSeats.every((s) => s.ready);
     if (allReady && !this.handInProgress) {
-      await this.startHand(seatedSeats);
+      await this.startHand(connectedSeats);
+    }
+  }
+
+  disconnect(seatIndex: number): void {
+    const seat = this.seats[seatIndex];
+    if (!seat) {
+      throw new Error('Seat is empty');
+    }
+    seat.connected = false;
+    this.deps.onStateChange();
+
+    const timer = setTimeout(() => {
+      void this.onGraceWindowElapsed(seatIndex);
+    }, this.config.reconnectGraceMs);
+    this.disconnectTimers.set(seatIndex, timer);
+  }
+
+  reconnect(displayName: string): number | null {
+    const seat = this.seats.find((s) => s?.displayName === displayName && !s.connected);
+    if (!seat) {
+      return null;
+    }
+    const timer = this.disconnectTimers.get(seat.seatIndex);
+    if (timer) {
+      clearTimeout(timer);
+      this.disconnectTimers.delete(seat.seatIndex);
+    }
+    this.timedOutSeats.delete(seat.seatIndex);
+    seat.connected = true;
+    this.deps.onStateChange();
+    return seat.seatIndex;
+  }
+
+  private async onGraceWindowElapsed(seatIndex: number): Promise<void> {
+    this.disconnectTimers.delete(seatIndex);
+    const seat = this.seats[seatIndex];
+    if (!seat || seat.connected) {
+      return;
+    }
+    this.timedOutSeats.add(seatIndex);
+    await this.autoActIfSeatIsUpAndTimedOut(seatIndex);
+  }
+
+  private async autoActIfSeatIsUpAndTimedOut(seatIndex: number): Promise<void> {
+    if (!this.handInProgress || !this.timedOutSeats.has(seatIndex)) {
+      return;
+    }
+    const seat = this.seats[seatIndex];
+    if (!seat) {
+      return;
+    }
+
+    if (this.config.gameMode === 'holdem') {
+      if (this.holdemHand?.actingPlayerId !== seat.displayName) {
+        return;
+      }
+      const context = this.holdemHand.getBettingContext();
+      const action: HoldemAction = context && context.toCall === 0 ? 'check' : 'fold';
+      await this.submitAction(seatIndex, action);
+    } else {
+      if (this.activeSeatIndex !== seatIndex) {
+        return;
+      }
+      await this.submitAction(seatIndex, 'stand');
     }
   }
 
@@ -192,6 +258,16 @@ export class Table {
     }
 
     this.deps.onStateChange();
+
+    if (this.handInProgress) {
+      const nextSeatIndex =
+        this.config.gameMode === 'holdem'
+          ? this.seats.find((s) => s?.displayName === this.holdemHand?.actingPlayerId)?.seatIndex
+          : this.activeSeatIndex;
+      if (nextSeatIndex !== undefined && nextSeatIndex !== null) {
+        await this.autoActIfSeatIsUpAndTimedOut(nextSeatIndex);
+      }
+    }
   }
 
   private async settleHoldem(hand: HoldemHand): Promise<void> {
