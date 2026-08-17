@@ -329,6 +329,7 @@ export class Table {
     const totalPayout = round.results.reduce((sum, r) => sum + r.payout, 0);
     seat.balance += totalPayout;
     await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
+    await this.deps.handLog.append({ type: 'blackjack_seat_settled', data: { seatIndex } });
   }
 
   private async advancePastSettledBlackjackRounds(): Promise<void> {
@@ -402,16 +403,15 @@ export class Table {
       const reconstructed = new Map(
         rounds.map((r) => [r.seatIndex, new BlackjackRound(r.initialBet, { shoe: r.shoe })])
       );
+      const alreadySettledSeats = new Set<number>();
       for (const entry of rest) {
         if (entry.type === 'blackjack_action') {
           const { seatIndex, action } = entry.data as { seatIndex: number; action: PlayerAction };
           reconstructed.get(seatIndex)!.act(action);
+        } else if (entry.type === 'blackjack_seat_settled') {
+          const { seatIndex } = entry.data as { seatIndex: number };
+          alreadySettledSeats.add(seatIndex);
         }
-      }
-      const allSettled = [...reconstructed.values()].every((r) => r.phase === 'settled');
-      if (allSettled) {
-        await this.deps.handLog.clear();
-        return;
       }
       for (const r of rounds) {
         const balance = await this.deps.playerStore.getBalance(r.displayName);
@@ -424,6 +424,7 @@ export class Table {
         };
       }
       this.blackjackRounds = reconstructed;
+      this.blackjackSettledSeats = alreadySettledSeats;
       this.activeSeatIndex = rounds[0].seatIndex;
       this.handInProgress = true;
       await this.advancePastSettledBlackjackRounds();
