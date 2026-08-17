@@ -211,10 +211,13 @@ describe('Table ready-gating and hand start (Blackjack)', () => {
   });
 
   it('gives each round an independent shoe (different card sequences)', async () => {
-    // With a real random function, two independently shuffled 6-deck shoes
-    // dealing the same first card to both players would be astronomically
-    // unlikely -- a cheap, reliable signal they are not sharing one shoe.
-    const { table } = makeTable({ gameMode: 'blackjack', random: Math.random });
+    // The default deterministic random is a stateful generator whose output
+    // advances across calls, so alice's and bob's sequential
+    // buildShuffledDeck calls produce different shoes deterministically --
+    // verified below by checking their first cards differ, with no flake
+    // risk (unlike relying on Math.random's small-but-real chance of a
+    // 6-deck shoe collision on the very first card, ~1.92% per run).
+    const { table } = makeTable({ gameMode: 'blackjack' });
     await table.join('alice');
     await table.join('bob');
     await table.setReady(0);
