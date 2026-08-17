@@ -61,9 +61,18 @@ New `packages/server` workspace member, `@poker-blackjack/server`, matching
 (server) for the transport.
 
 One Node process runs one `Table`, holding all live state in memory: seated players
-(socket ID ↔ display name ↔ seat index ↔ stack), the configured game mode, the current
-`BlackjackRound`/`HoldemHand` instance while a round is in progress, and per-seat
-disconnect timers. There is no multi-tenancy and no `TableManager` — the original
+(socket ID ↔ display name ↔ seat index ↔ stack), the configured game mode, and per-seat
+disconnect timers. While a round is in progress, `Table` holds either one shared
+`HoldemHand` instance (its constructor already takes multiple players) or one
+independent `BlackjackRound` instance per seated player, keyed by seat index —
+`BlackjackRound`'s constructor takes a single `initialBet` and has no multiplayer
+concept at all (`playerHands` is one player's *split* hands, not other players' hands),
+so a multi-seat Blackjack table is modeled as N independent player-vs-dealer rounds
+running in parallel, each with its own shoe and dealer outcome, coordinated by `Table`
+only for turn order and broadcasting. This requires no changes to the engine and is
+consistent with the 6-deck-shoe-reshuffled-every-hand rule already established for
+Blackjack (Section 3 of the original spec) — nothing about that rule assumed a shared
+shoe across players. There is no multi-tenancy and no `TableManager` — the original
 spec's Section 1 explicitly excludes multiple simultaneous tables for this project, so
 building one now would be speculative. `Table` is kept as a single, well-bounded class
 specifically so that promoting to multiple tables later, if it's ever genuinely needed,
@@ -77,9 +86,9 @@ uniformly rather than defining a separate, unspecified Blackjack limit.
 
 | File | Responsibility |
 |---|---|
-| `table.ts` | The `Table` class: seat assignment, turn routing, delegating actions to the active engine instance, triggering settlement, managing between-hands transitions and disconnect grace-window timers. |
+| `table.ts` | The `Table` class: seat assignment, turn routing, delegating actions to the active engine instance, triggering settlement, managing between-hands transitions, disconnect grace-window timers, and the startup crash-recovery routine (Section 3) — `Table` is the only place with full knowledge of both engines' constructors, so all game-specific log interpretation lives here rather than in `handLog.ts`. |
 | `playerStore.ts` | The `PlayerStore` interface (Section 3) plus a `JsonPlayerStore` implementation. |
-| `handLog.ts` | The `HandLog` interface (Section 3) plus a `JsonlHandLog` implementation and the startup recovery routine. |
+| `handLog.ts` | The generic, game-agnostic `HandLog` interface (Section 3) plus a `JsonlHandLog` implementation — knows nothing about `Table` or the engines. |
 | `protocol.ts` | Shared TypeScript types for socket event payloads, reusing `game-engine`'s `PlayerAction`/`HoldemAction`/etc. types directly rather than redefining them. |
 | `socketServer.ts` | Socket.IO server setup and event wiring: translates socket events into `Table` method calls, and serializes `Table`'s state into a per-socket view (Section 4). |
 | `index.ts` | Process entry point: reads config, constructs `Table`, `PlayerStore`, `HandLog`, starts the Socket.IO server. |
@@ -108,23 +117,37 @@ DynamoDB-backed implementation; `Table` and the engines never change.
 ```typescript
 interface HandLog {
   append(entry: HandLogEntry): Promise<void>;
-  recoverInProgressHand(): Promise<RecoveredHand | null>;
+  readAll(): Promise<HandLogEntry[]>;
+  clear(): Promise<void>;
 }
 ```
 
-`HandLogEntry` is one of three shapes, written as JSON-lines to a local file:
-- `hand_started` — the constructed engine's config and the already-shuffled deck (so
-  recovery replays actions, never randomness).
-- `action` — the acting player and the exact action payload passed to `.act()`.
-- `hand_settled` — marks the hand closed; `recoverInProgressHand()` ignores any hand
-  with a matching `hand_settled` entry.
+`HandLog` is deliberately game-agnostic: `HandLogEntry` is just an opaque
+`{ type: string; data: unknown }` record, and `HandLog` itself has no knowledge of
+`Table`, `HoldemHand`, or `BlackjackRound`. All interpretation of what's in `data`,
+and the actual crash-recovery reconstruction, live in `Table.recoverFromLog()`
+instead (Section 5) — `Table` is the only place with full knowledge of both engines'
+constructors. Keeping `HandLog` itself generic keeps it low-risk and independently
+testable.
 
-`recoverInProgressHand()` is called once, at server startup: it finds the most recent
-`hand_started` without a following `hand_settled`, reconstructs a fresh engine instance
-from the logged config and deck, and replays the logged `action` entries through
-`.act()` in order, returning the resulting engine instance and seat mapping for `Table`
-to adopt as its live state. If no unsettled hand exists, it returns `null` and `Table`
-starts empty, same as any other boot.
+`JsonlHandLog` writes each entry as one JSON line to a local file; `clear()` truncates
+it. `Table` appends a `hand_started`-typed entry (the constructed engine's config and
+the already-shuffled deck, so recovery replays actions, never randomness) when a hand
+begins and an `action`-typed entry after each accepted action, then calls `clear()` —
+not a `hand_settled` entry — once a hand settles, so the log only ever holds at most
+one in-progress hand's worth of history.
+
+`Table.recoverFromLog()` is called once, at server startup: if the log is empty,
+there's nothing to recover. Otherwise it reconstructs a fresh engine instance from the
+logged config/deck and replays the logged `action` entries through `.act()` in order.
+If replay produces an already-settled hand — meaning the crash happened during or
+after the multi-seat settlement commit, where recovery can't tell which balances were
+already written — it discards the hand and clears the log rather than risk
+re-applying a payout that was already committed (Section 6). Otherwise, it restores
+seats from the logged player list and marks every recovered seat disconnected,
+starting the same grace-window timers an ordinary disconnect would (Section 5), so
+reconnecting players resume through the normal reconnect path rather than a separate
+recovery-specific one.
 
 `HandLog` is local-only scaffolding for crash recovery. Unlike `PlayerStore`, it has no
 designed DynamoDB counterpart — Plan 6 will decide, based on real operational
@@ -187,7 +210,7 @@ Server → client events:
    ends.
 
 **Server restart:**
-7. On boot, `HandLog.recoverInProgressHand()` runs before the Socket.IO server starts
+7. On boot, `Table.recoverFromLog()` runs before the Socket.IO server starts
    accepting connections. If it finds an unsettled hand, `Table` adopts the
    reconstructed engine instance and seat mapping as its starting state. Since a
    process restart necessarily drops every existing socket connection, every
@@ -198,8 +221,10 @@ Server → client events:
 ## 6. Error Handling & Known Limitations
 
 - **Illegal actions throw inside the engines**, same as `BlackjackRound`/`HoldemHand`
-  always have; `Table` catches the throw, emits `error` to that one socket, and makes
-  no state change or broadcast.
+  always have. `Table`'s methods simply let the throw propagate (rejecting the
+  returned promise) — `Table` has no knowledge of sockets. `socketServer.ts` is what
+  catches it and emits `error` to that one socket. Either way, there's no state
+  change or broadcast, since the throw happens before anything is mutated.
 - **Malformed or unexpected socket payloads are rejected before reaching the engine at
   all** — never let unvalidated input reach `.act()`.
 - **A crash mid-write** (process dies after appending an `action` log entry but before
