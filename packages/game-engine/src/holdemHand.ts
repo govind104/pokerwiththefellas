@@ -70,13 +70,22 @@ export class HoldemHand {
     if (config.buttonIndex < 0 || config.buttonIndex >= playersInput.length) {
       throw new Error('buttonIndex out of range');
     }
+    if (!Number.isFinite(config.smallBlind)) {
+      throw new Error('smallBlind must be a finite number');
+    }
     if (config.smallBlind <= 0) {
       throw new Error('smallBlind must be greater than 0');
+    }
+    if (!Number.isFinite(config.bigBlind)) {
+      throw new Error('bigBlind must be a finite number');
     }
     if (config.bigBlind < config.smallBlind) {
       throw new Error('bigBlind must be greater than or equal to smallBlind');
     }
     for (const p of playersInput) {
+      if (!Number.isFinite(p.stack)) {
+        throw new Error(`Player ${p.playerId} must have a finite stack`);
+      }
       if (p.stack <= 0) {
         throw new Error(`Player ${p.playerId} must start with a positive stack`);
       }

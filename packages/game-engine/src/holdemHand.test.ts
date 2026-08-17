@@ -147,6 +147,45 @@ describe('HoldemHand construction — 3+ handed', () => {
     ).toThrow('Player b must start with a positive stack');
   });
 
+  it('rejects a non-finite small blind', () => {
+    expect(
+      () =>
+        new HoldemHand(
+          [
+            { playerId: 'a', stack: 1000 },
+            { playerId: 'b', stack: 1000 },
+          ],
+          { smallBlind: NaN, bigBlind: 20, buttonIndex: 0 }
+        )
+    ).toThrow('smallBlind must be a finite number');
+  });
+
+  it('rejects a non-finite big blind', () => {
+    expect(
+      () =>
+        new HoldemHand(
+          [
+            { playerId: 'a', stack: 1000 },
+            { playerId: 'b', stack: 1000 },
+          ],
+          { smallBlind: 10, bigBlind: NaN, buttonIndex: 0 }
+        )
+    ).toThrow('bigBlind must be a finite number');
+  });
+
+  it('rejects a non-finite player stack', () => {
+    expect(
+      () =>
+        new HoldemHand(
+          [
+            { playerId: 'a', stack: 1000 },
+            { playerId: 'b', stack: NaN },
+          ],
+          { smallBlind: 10, bigBlind: 20, buttonIndex: 0 }
+        )
+    ).toThrow('Player b must have a finite stack');
+  });
+
   it('exposes the current actor\'s betting context, and null once settled', () => {
     const hand = new HoldemHand(
       [
@@ -167,6 +206,25 @@ describe('HoldemHand construction — 3+ handed', () => {
     hand.act('b', 'fold');
     hand.act('c', 'fold');
     expect(hand.getBettingContext()).toBeNull();
+  });
+
+  it('reads the betting context for whichever player is currently up, not just the button', () => {
+    const hand = new HoldemHand(
+      [
+        { playerId: 'a', stack: 1000 },
+        { playerId: 'b', stack: 1000 },
+        { playerId: 'c', stack: 1000 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck: threeHandedDeck() }
+    );
+    hand.act('a', 'raise', 60);
+    expect(hand.actingPlayerId).toBe('b'); // not the button -- this is the point of the test
+    expect(hand.getBettingContext()).toEqual({
+      toCall: 50,
+      minRaiseTo: 100,
+      playerStack: 990,
+      playerStreetContributed: 10,
+    });
   });
 });
 
