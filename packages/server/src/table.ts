@@ -50,6 +50,7 @@ export class Table {
   private buttonSeatIndex: number | null = null;
   private disconnectTimers: Map<number, NodeJS.Timeout> = new Map();
   private timedOutSeats: Set<number> = new Set();
+  private holdemSettled = false;
 
   constructor(
     private readonly config: TableConfig,
@@ -79,8 +80,18 @@ export class Table {
     if (!this.seats[seatIndex]) {
       throw new Error('Seat is empty');
     }
+    const timer = this.disconnectTimers.get(seatIndex);
+    if (timer) {
+      clearTimeout(timer);
+      this.disconnectTimers.delete(seatIndex);
+    }
+    this.timedOutSeats.delete(seatIndex);
     this.seats[seatIndex] = null;
     this.deps.onStateChange();
+
+    this.startHandIfEveryoneReady().catch((err) => {
+      console.error(`Table: error starting hand after seat ${seatIndex} left:`, err);
+    });
   }
 
   async setReady(seatIndex: number): Promise<void> {
@@ -90,7 +101,10 @@ export class Table {
     }
     seat.ready = true;
     this.deps.onStateChange();
+    await this.startHandIfEveryoneReady();
+  }
 
+  private async startHandIfEveryoneReady(): Promise<void> {
     const connectedSeats = this.seats.filter((s): s is Seat => s !== null && s.connected);
     const allReady = connectedSeats.length >= 2 && connectedSeats.every((s) => s.ready);
     if (allReady && !this.handInProgress) {
@@ -103,13 +117,23 @@ export class Table {
     if (!seat) {
       throw new Error('Seat is empty');
     }
+    const existingTimer = this.disconnectTimers.get(seatIndex);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
     seat.connected = false;
     this.deps.onStateChange();
 
     const timer = setTimeout(() => {
-      void this.onGraceWindowElapsed(seatIndex);
+      this.onGraceWindowElapsed(seatIndex).catch((err) => {
+        console.error(`Table: error handling grace window elapse for seat ${seatIndex}:`, err);
+      });
     }, this.config.reconnectGraceMs);
     this.disconnectTimers.set(seatIndex, timer);
+
+    this.startHandIfEveryoneReady().catch((err) => {
+      console.error(`Table: error starting hand after seat ${seatIndex} disconnected:`, err);
+    });
   }
 
   reconnect(displayName: string): number | null {
@@ -202,6 +226,7 @@ export class Table {
         data: { players, config: holdemConfig },
       });
       this.holdemHand = new HoldemHand(players, holdemConfig);
+      this.holdemSettled = false;
     } else {
       const rounds = seatedSeats.map((s) => ({
         seatIndex: s.seatIndex,
@@ -271,6 +296,10 @@ export class Table {
   }
 
   private async settleHoldem(hand: HoldemHand): Promise<void> {
+    if (this.holdemSettled) {
+      return;
+    }
+    this.holdemSettled = true;
     for (const result of hand.results) {
       const seat = this.seats.find((s) => s?.displayName === result.playerId);
       if (seat) {
@@ -283,6 +312,7 @@ export class Table {
     for (const seat of this.seats) {
       if (seat) seat.ready = false;
     }
+    this.timedOutSeats.clear();
     await this.deps.handLog.clear();
   }
 
@@ -322,6 +352,7 @@ export class Table {
     for (const seat of this.seats) {
       if (seat) seat.ready = false;
     }
+    this.timedOutSeats.clear();
     await this.deps.handLog.clear();
   }
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Table, type TableConfig } from './table';
 import type { PlayerStore } from './playerStore';
 import type { HandLog, HandLogEntry } from './handLog';
@@ -24,6 +24,42 @@ class FakeHandLog implements HandLog {
   }
   async clear(): Promise<void> {
     this.entries = [];
+  }
+}
+
+// Test-local fake used only by the C2 concurrency-guard test below. Unlike
+// FakeHandLog, `append` can be told (via `holdAppends`) to return a Promise
+// that only resolves when the test explicitly calls `releaseNextAppend()`.
+// This lets a test suspend Table.submitAction mid-flight -- exactly where
+// production's real fs-backed HandLog would yield to the event loop -- so a
+// second, independently-triggered call into Table's settlement path can run
+// while the first is still pending, reproducing the interleaving the C2 fix
+// guards against instead of just trusting the guard by inspection.
+class ControllableHandLog implements HandLog {
+  entries: HandLogEntry[] = [];
+  holdAppends = false;
+  private pendingResolvers: Array<() => void> = [];
+  async append(entry: HandLogEntry): Promise<void> {
+    this.entries.push(entry);
+    if (!this.holdAppends) {
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.pendingResolvers.push(resolve);
+    });
+  }
+  async readAll(): Promise<HandLogEntry[]> {
+    return this.entries;
+  }
+  async clear(): Promise<void> {
+    this.entries = [];
+  }
+  releaseNextAppend(): void {
+    const resolve = this.pendingResolvers.shift();
+    if (!resolve) {
+      throw new Error('ControllableHandLog: no pending append to release');
+    }
+    resolve();
   }
 }
 
@@ -571,5 +607,159 @@ describe('Table disconnect/reconnect', () => {
 
     expect(table.blackjackRounds.get(0)?.phase).toBe('settled');
     expect(table.activeSeatIndex).toBe(1); // advanced to the next seat
+  });
+
+  it('a disconnect that leaves every remaining connected seat ready starts the hand (closes the ready-gate deadlock, C1)', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+    await table.setReady(0); // alice ready
+    await table.setReady(1); // bob ready; carol has not called ready yet, so the gate stays blocked
+    expect(table.handInProgress).toBe(false);
+
+    table.disconnect(2); // carol disconnects -- every remaining CONNECTED seat (alice, bob) is now ready
+    await wait(10); // let the async startHand chain (handLog.append, etc.) finish
+
+    // Before the fix, only setReady ever re-checked the ready gate, so a
+    // disconnect that completed the "all connected seats ready" condition
+    // would never start the hand -- the table would stall forever.
+    expect(table.handInProgress).toBe(true);
+    expect(table.holdemHand!.players.map((p) => p.playerId).sort()).toEqual(['alice', 'bob']);
+  });
+
+  it('a second disconnect on the same seat clears the previous grace timer instead of leaking it (C3)', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack', reconnectGraceMs: 30 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.activeSeatIndex).toBe(0);
+
+    const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
+    table.disconnect(0);
+    table.disconnect(0); // same seat, no reconnect in between -- must not leak the first timer
+    // The fix clears the stale timer before arming the new one; without it,
+    // this would be 0 and both timers would remain independently scheduled.
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+    clearTimeoutSpy.mockRestore();
+
+    let unhandledRejection: unknown = null;
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledRejection = reason;
+    };
+    process.on('unhandledRejection', onUnhandledRejection);
+    try {
+      await wait(100); // past the grace window -- only one timer should still be armed
+      expect(table.blackjackRounds.get(0)?.phase).toBe('settled'); // alice auto-stood exactly once
+      expect(table.activeSeatIndex).toBe(1); // advanced cleanly to bob, nothing thrown
+      await wait(50); // give a stray leaked timer a chance to misfire before asserting clean
+      expect(unhandledRejection).toBeNull();
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection);
+    }
+  });
+
+  it("leave clears a seat's timed-out flag so a new occupant of the recycled seat index is not auto-acted for (I2/M1)", async () => {
+    const { table } = makeTable({ reconnectGraceMs: 30 });
+    await table.join('bob'); // seat 0
+    await table.join('alice'); // seat 1
+
+    table.disconnect(1); // alice disconnects before any hand starts
+    await wait(100); // past the grace window -- alice (seat 1) is now in timedOutSeats
+
+    table.leave(1); // alice leaves; handInProgress is false, so this is allowed
+    expect(table.seats[1]).toBeNull();
+
+    await table.join('dave'); // recycles seat 1, the lowest empty index
+    expect(table.seats[1]?.displayName).toBe('dave');
+
+    await table.setReady(0); // bob
+    await table.setReady(1); // dave -- hand starts; this is the table's first-ever hand, so
+    // the button defaults to the lowest occupied seat index (bob, seat 0)
+    expect(table.holdemHand!.actingPlayerId).toBe('bob');
+    expect(table.holdemHand!.street).toBe('preflop');
+
+    await table.submitAction(0, 'call'); // bob (button/SB) calls, advancing the turn to dave (BB)
+
+    // Without the I2/M1 fix, seat 1 would still be in timedOutSeats (leaked
+    // from alice's earlier timeout), and the "whose turn is it now" check at
+    // the end of submitAction would auto-act (check, since dave's toCall is
+    // 0) on dave's behalf -- silently ending his BB option and pushing the
+    // hand to the flop, despite dave never having disconnected. Asserting
+    // actingPlayerId alone would not catch this: heads-up, the BB also acts
+    // first postflop, so it lands back on 'dave' either way. `street`
+    // staying at 'preflop' is the assertion that actually distinguishes
+    // fixed from buggy here.
+    expect(table.holdemHand!.street).toBe('preflop');
+    expect(table.holdemHand!.actingPlayerId).toBe('dave');
+    expect(table.handInProgress).toBe(true);
+  });
+});
+
+describe("Table Hold'em settlement concurrency guard (C2)", () => {
+  it('two overlapping calls into settlement apply the payout exactly once instead of doubling it', async () => {
+    const handLog = new ControllableHandLog();
+    const playerStore = new FakePlayerStore(1000);
+    const config: TableConfig = {
+      gameMode: 'holdem',
+      seatCount: 8,
+      smallBlind: 5,
+      bigBlind: 10,
+      blackjackDefaultBet: 25,
+      defaultStartingBalance: 1000,
+      reconnectGraceMs: 50,
+      random: makeDeterministicRandom(2),
+    };
+    const table = new Table(config, { playerStore, handLog, onStateChange: () => {} });
+
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    // Heads-up: alice (button) acts first preflop.
+    expect(table.holdemHand!.actingPlayerId).toBe('alice');
+    const hand = table.holdemHand!;
+
+    // From here on, handLog.append returns a Promise that only resolves when
+    // we explicitly call releaseNextAppend() -- reproducing the real await
+    // point (submitAction's `await handLog.append(...)`) that the production
+    // race suspends on, using the actual code path instead of a synthetic one.
+    handLog.holdAppends = true;
+
+    // Call 1: a real submitAction fold. `hand.act(...)` runs synchronously --
+    // folding heads-up settles the engine-level hand immediately, so
+    // hand.street flips to 'settled' and hand.results is populated -- and
+    // THEN submitAction suspends on the handLog.append await, before it ever
+    // reaches its own `if (hand.street === 'settled') settleHoldem(...)` call.
+    const call1 = table.submitAction(0, 'fold');
+    expect(hand.street).toBe('settled'); // settled by hand.act; call1 has not invoked settleHoldem yet
+
+    // Call 2: directly invoke the private settlement path while call 1 is
+    // still suspended mid-flight. This stands in for the second,
+    // independently-triggered submitAction (e.g. a timer-driven auto-act)
+    // that in production reaches settleHoldem while the first call is still
+    // awaiting handLog.append.
+    await (table as unknown as { settleHoldem(h: typeof hand): Promise<void> }).settleHoldem(hand);
+
+    const aliceAfterCall2 = await playerStore.getBalance('alice');
+    const bobAfterCall2 = await playerStore.getBalance('bob');
+    // The payout was genuinely applied exactly once at this point already:
+    expect(aliceAfterCall2).toBe(995); // alice folded the 5-chip small blind
+    expect(bobAfterCall2).toBe(1005); // bob won alice's small blind
+
+    // Now let call 1 resume. Without the holdemSettled guard, it would reach
+    // its own `settleHoldem(hand)` call and double-apply the same payout.
+    handLog.releaseNextAppend();
+    await call1;
+
+    const aliceFinal = await playerStore.getBalance('alice');
+    const bobFinal = await playerStore.getBalance('bob');
+    // Unchanged by call 1's resumed (guarded, no-op) attempt -- proving the
+    // guard, not just trusting that it exists.
+    expect(aliceFinal).toBe(aliceAfterCall2);
+    expect(bobFinal).toBe(bobAfterCall2);
+    expect(table.handInProgress).toBe(false);
+    expect(table.holdemHand).toBeNull();
   });
 });
