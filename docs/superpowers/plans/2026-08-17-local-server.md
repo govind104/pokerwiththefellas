@@ -1684,7 +1684,7 @@ Add this method to the `Table` class in `packages/server/src/table.ts`:
       this.blackjackRounds = reconstructed;
       this.activeSeatIndex = rounds[0].seatIndex;
       this.handInProgress = true;
-      await this.advancePastSettledBlackjackRounds(rounds.map((r) => r.seatIndex));
+      await this.advancePastSettledBlackjackRounds();
     }
 
     for (const seat of this.seats) {
