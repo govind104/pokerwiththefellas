@@ -149,7 +149,7 @@ export class Table {
         rounds.map((r) => [r.seatIndex, new BlackjackRound(r.initialBet, { shoe: r.shoe })])
       );
       this.activeSeatIndex = rounds[0].seatIndex;
-      await this.advancePastSettledBlackjackRounds(rounds.map((r) => r.seatIndex));
+      await this.advancePastSettledBlackjackRounds();
     }
 
     this.deps.onStateChange();
@@ -188,10 +188,7 @@ export class Table {
       const round = this.blackjackRounds.get(seatIndex)!;
       round.act(action as PlayerAction);
       await this.deps.handLog.append({ type: 'blackjack_action', data: { seatIndex, action } });
-      const seatedIndices = this.seats
-        .filter((s): s is Seat => s !== null)
-        .map((s) => s.seatIndex);
-      await this.advancePastSettledBlackjackRounds(seatedIndices);
+      await this.advancePastSettledBlackjackRounds();
     }
 
     this.deps.onStateChange();
@@ -228,15 +225,16 @@ export class Table {
     await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
   }
 
-  private async advancePastSettledBlackjackRounds(seatedIndices: number[]): Promise<void> {
+  private async advancePastSettledBlackjackRounds(): Promise<void> {
+    const dealtSeatIndices = Array.from(this.blackjackRounds.keys()).sort((a, b) => a - b);
     while (this.activeSeatIndex !== null) {
       const round = this.blackjackRounds.get(this.activeSeatIndex)!;
       if (round.phase !== 'settled') {
         return;
       }
       await this.settleBlackjackSeatIfNeeded(this.activeSeatIndex);
-      const pos = seatedIndices.indexOf(this.activeSeatIndex);
-      this.activeSeatIndex = seatedIndices[pos + 1] ?? null;
+      const pos = dealtSeatIndices.indexOf(this.activeSeatIndex);
+      this.activeSeatIndex = dealtSeatIndices[pos + 1] ?? null;
     }
     await this.finishBlackjackHandIfComplete();
   }

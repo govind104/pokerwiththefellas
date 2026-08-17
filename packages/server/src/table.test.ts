@@ -431,4 +431,28 @@ describe('Table submitAction (Blackjack)', () => {
     ]);
     await expect(playerStore.getBalance('alice')).resolves.toBe(950);
   });
+
+  it('completes cleanly when a third player joins mid-hand instead of crashing', async () => {
+    // A new player sitting down mid-hand is normal, expected behavior (real
+    // tables let people join anytime and wait for the next deal). But the
+    // seat-advancement logic must walk only the seats actually dealt into
+    // this hand, not every currently-seated player -- otherwise, once
+    // alice's and bob's rounds both settle, it would hand carol's un-dealt
+    // seat to blackjackRounds.get(), which returns undefined and throws on
+    // `.phase`, permanently stalling the table (handInProgress stuck true).
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    await table.join('carol');
+
+    await table.submitAction(0, 'stand');
+    await table.submitAction(1, 'stand');
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.blackjackRounds.size).toBe(0);
+    expect(table.activeSeatIndex).toBeNull();
+  });
 });
