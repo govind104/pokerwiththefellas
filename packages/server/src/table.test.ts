@@ -763,3 +763,145 @@ describe("Table Hold'em settlement concurrency guard (C2)", () => {
     expect(table.holdemHand).toBeNull();
   });
 });
+
+describe('Table.recoverFromLog', () => {
+  it('is a no-op when the log is empty', async () => {
+    const { table } = makeTable();
+    await table.recoverFromLog();
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats.every((s) => s === null)).toBe(true);
+  });
+
+  it('reconstructs an in-progress Hold\'em hand and marks recovered seats disconnected', async () => {
+    const { table, handLog, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
+    await playerStore.setBalance('alice', 1000);
+    await playerStore.setBalance('bob', 1000);
+    const { createDeck, shuffle } = await import('@poker-blackjack/game-engine');
+    const config = { smallBlind: 5, bigBlind: 10, buttonIndex: 0, deck: shuffle(createDeck(), Math.random) };
+    await handLog.append({
+      type: 'holdem_hand_started',
+      data: {
+        players: [
+          { playerId: 'alice', stack: 1000 },
+          { playerId: 'bob', stack: 1000 },
+        ],
+        config,
+      },
+    });
+    await handLog.append({
+      type: 'holdem_action',
+      data: { playerId: 'alice', action: 'call' },
+    });
+
+    await table.recoverFromLog();
+
+    expect(table.handInProgress).toBe(true);
+    expect(table.holdemHand).not.toBeNull();
+    expect(table.holdemHand!.actingPlayerId).toBe('bob'); // alice called, action moved to bob
+    expect(table.seats[0]?.displayName).toBe('alice');
+    expect(table.seats[0]?.connected).toBe(false);
+    expect(table.seats[1]?.displayName).toBe('bob');
+    // Recovery starts the same grace-window mechanism as an ordinary disconnect --
+    // reconnect() should succeed for a recovered seat.
+    expect(table.reconnect('alice')).toBe(0);
+  });
+
+  it('discards an already-settled Hold\'em hand instead of re-settling it', async () => {
+    const { table, handLog, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
+    const { createDeck, shuffle } = await import('@poker-blackjack/game-engine');
+    const config = { smallBlind: 5, bigBlind: 10, buttonIndex: 0, deck: shuffle(createDeck(), Math.random) };
+    await handLog.append({
+      type: 'holdem_hand_started',
+      data: {
+        players: [
+          { playerId: 'alice', stack: 1000 },
+          { playerId: 'bob', stack: 1000 },
+        ],
+        config,
+      },
+    });
+    await handLog.append({ type: 'holdem_action', data: { playerId: 'alice', action: 'fold' } });
+
+    await table.recoverFromLog();
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.holdemHand).toBeNull();
+    expect(table.seats.every((s) => s === null)).toBe(true);
+    await expect(handLog.readAll()).resolves.toEqual([]);
+    // No balance write should have been attempted for either player.
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
+  });
+
+  it('reconstructs in-progress Blackjack rounds from hand-crafted shoes', async () => {
+    const { table, handLog } = makeTable({ gameMode: 'blackjack' });
+    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
+    // Neither seat's first two cards are a natural blackjack.
+    const aliceShoe = [card('5', 'clubs'), card('6', 'clubs'), card('7', 'hearts'), card('8', 'hearts'), card('2', 'spades')];
+    const bobShoe = [card('4', 'diamonds'), card('5', 'diamonds'), card('9', 'hearts'), card('10', 'hearts'), card('3', 'spades')];
+    await handLog.append({
+      type: 'blackjack_hand_started',
+      data: {
+        rounds: [
+          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
+          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
+        ],
+      },
+    });
+    await handLog.append({ type: 'blackjack_action', data: { seatIndex: 0, action: 'hit' } });
+
+    await table.recoverFromLog();
+
+    expect(table.handInProgress).toBe(true);
+    expect(table.blackjackRounds.get(0)!.playerHands[0].cards).toHaveLength(3); // 2 dealt + 1 hit
+    expect(table.activeSeatIndex).toBe(0); // seat 0's round is still in progress
+    expect(table.seats[0]?.connected).toBe(false);
+    expect(table.seats[1]?.displayName).toBe('bob');
+  });
+
+  it('auto-settles a round that was already complete at deal time (natural blackjack) during recovery', async () => {
+    const { table, handLog, playerStore } = makeTable({ gameMode: 'blackjack' });
+    await playerStore.setBalance('alice', 1000);
+    await playerStore.setBalance('bob', 1000);
+    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
+    // alice: natural blackjack (settles instantly at construction, no action needed).
+    const aliceShoe = [card('A', 'spades'), card('K', 'hearts'), card('9', 'clubs'), card('9', 'diamonds')];
+    const bobShoe = [card('5', 'diamonds'), card('6', 'diamonds'), card('9', 'hearts'), card('10', 'hearts'), card('3', 'spades')];
+    await handLog.append({
+      type: 'blackjack_hand_started',
+      data: {
+        rounds: [
+          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
+          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
+        ],
+      },
+    });
+
+    await table.recoverFromLog();
+
+    expect(table.activeSeatIndex).toBe(1); // seat 0 auto-settled and skipped
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1037.5); // 25 * 1.5 blackjack payout
+  });
+
+  it('discards already-fully-settled Blackjack rounds instead of re-settling them', async () => {
+    const { table, handLog, playerStore } = makeTable({ gameMode: 'blackjack' });
+    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
+    const aliceShoe = [card('A', 'spades'), card('K', 'hearts'), card('9', 'clubs'), card('9', 'diamonds')];
+    const bobShoe = [card('A', 'diamonds'), card('Q', 'diamonds'), card('9', 'hearts'), card('10', 'hearts')];
+    await handLog.append({
+      type: 'blackjack_hand_started',
+      data: {
+        rounds: [
+          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
+          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
+        ],
+      },
+    });
+
+    await table.recoverFromLog();
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats.every((s) => s === null)).toBe(true);
+    await expect(handLog.readAll()).resolves.toEqual([]);
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1000); // untouched
+  });
+});

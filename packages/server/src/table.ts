@@ -355,4 +355,84 @@ export class Table {
     this.timedOutSeats.clear();
     await this.deps.handLog.clear();
   }
+
+  async recoverFromLog(): Promise<void> {
+    const entries = await this.deps.handLog.readAll();
+    if (entries.length === 0) {
+      return;
+    }
+    const [started, ...rest] = entries;
+
+    if (started.type === 'holdem_hand_started') {
+      const { players, config } = started.data as {
+        players: HoldemPlayerInput[];
+        config: HoldemHandConfig;
+      };
+      const hand = new HoldemHand(players, config);
+      for (const entry of rest) {
+        if (entry.type === 'holdem_action') {
+          const { playerId, action, amount } = entry.data as {
+            playerId: string;
+            action: HoldemAction;
+            amount?: number;
+          };
+          hand.act(playerId, action, amount);
+        }
+      }
+      if (hand.street === 'settled') {
+        await this.deps.handLog.clear();
+        return;
+      }
+      for (let i = 0; i < players.length; i++) {
+        const balance = await this.deps.playerStore.getBalance(players[i].playerId);
+        this.seats[i] = {
+          seatIndex: i,
+          displayName: players[i].playerId,
+          connected: false,
+          ready: false,
+          balance,
+        };
+      }
+      this.holdemHand = hand;
+      this.handInProgress = true;
+    } else if (started.type === 'blackjack_hand_started') {
+      const { rounds } = started.data as {
+        rounds: { seatIndex: number; displayName: string; initialBet: number; shoe: Card[] }[];
+      };
+      const reconstructed = new Map(
+        rounds.map((r) => [r.seatIndex, new BlackjackRound(r.initialBet, { shoe: r.shoe })])
+      );
+      for (const entry of rest) {
+        if (entry.type === 'blackjack_action') {
+          const { seatIndex, action } = entry.data as { seatIndex: number; action: PlayerAction };
+          reconstructed.get(seatIndex)!.act(action);
+        }
+      }
+      const allSettled = [...reconstructed.values()].every((r) => r.phase === 'settled');
+      if (allSettled) {
+        await this.deps.handLog.clear();
+        return;
+      }
+      for (const r of rounds) {
+        const balance = await this.deps.playerStore.getBalance(r.displayName);
+        this.seats[r.seatIndex] = {
+          seatIndex: r.seatIndex,
+          displayName: r.displayName,
+          connected: false,
+          ready: false,
+          balance,
+        };
+      }
+      this.blackjackRounds = reconstructed;
+      this.activeSeatIndex = rounds[0].seatIndex;
+      this.handInProgress = true;
+      await this.advancePastSettledBlackjackRounds();
+    }
+
+    for (const seat of this.seats) {
+      if (seat) {
+        this.disconnect(seat.seatIndex);
+      }
+    }
+  }
 }
