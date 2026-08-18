@@ -973,6 +973,51 @@ describe('Table.recoverFromLog', () => {
     expect(table.handInProgress).toBe(true);
   });
 
+  it('resumes at the still-in-progress seat without re-paying a marked-settled Blackjack seat', async () => {
+    // Complementary case to the "no settlement marker" test above, and the
+    // exact scenario the marker mechanism was built to guard: seat 0's
+    // natural blackjack settled AND was marked (a crash landed after that
+    // payout/marker write fully committed) while seat 1 is still mid-hand
+    // (no action taken yet). Recovery must skip re-paying seat 0 (marker
+    // present) while still correctly resuming play at seat 1 -- not just
+    // correctly skip seat 0 in isolation, and not short-circuit into
+    // full-hand cleanup the way the "every seat marked" test above does,
+    // since seat 1 has not settled.
+    const { table, handLog, playerStore } = makeTable({ gameMode: 'blackjack' });
+    await playerStore.setBalance('alice', 1500); // reflects a payout already applied pre-crash
+    await playerStore.setBalance('bob', 1000);
+    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
+    // alice: natural blackjack (settles instantly at construction, no action needed).
+    const aliceShoe = [card('A', 'spades'), card('K', 'hearts'), card('9', 'clubs'), card('9', 'diamonds')];
+    // bob: not a natural, no action taken -- round stays in progress.
+    const bobShoe = [
+      card('5', 'diamonds'),
+      card('6', 'diamonds'),
+      card('9', 'hearts'),
+      card('10', 'hearts'),
+      card('3', 'spades'),
+    ];
+    await handLog.append({
+      type: 'blackjack_hand_started',
+      data: {
+        rounds: [
+          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
+          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
+        ],
+      },
+    });
+    await handLog.append({ type: 'blackjack_seat_settled', data: { seatIndex: 0 } });
+
+    await table.recoverFromLog();
+
+    // Marker present -> recovery must NOT re-pay seat 0.
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1500);
+    expect(table.handInProgress).toBe(true);
+    // Recovery correctly resumes at the still-in-progress seat, not just
+    // correctly skips the marked one.
+    expect(table.activeSeatIndex).toBe(1);
+  });
+
   it('recovers cleanly from a corrupted/torn log entry instead of crash-looping on every future boot', async () => {
     // Simulates a process killed mid-appendFile leaving a torn final JSONL
     // line: the first entry is missing its `rounds` field entirely, so
