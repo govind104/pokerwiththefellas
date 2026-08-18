@@ -438,7 +438,17 @@ export class Table {
       }
     } catch (err) {
       console.error('Table: failed to recover from hand log, discarding it and starting fresh:', err);
-      await this.deps.handLog.clear();
+      this.seats = new Array(this.config.seatCount).fill(null);
+      this.handInProgress = false;
+      this.holdemHand = null;
+      this.blackjackRounds = new Map();
+      this.blackjackSettledSeats = new Set();
+      this.activeSeatIndex = null;
+      try {
+        await this.deps.handLog.clear();
+      } catch (clearErr) {
+        console.error('Table: failed to clear corrupted hand log after recovery failure:', clearErr);
+      }
     }
   }
 }
