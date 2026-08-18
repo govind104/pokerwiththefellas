@@ -20,7 +20,12 @@ class FakeHandLog implements HandLog {
     this.entries.push(entry);
   }
   async readAll(): Promise<HandLogEntry[]> {
-    return this.entries;
+    // Round-trip through JSON, matching production's JsonlHandLog (which
+    // serializes every entry through JSON.stringify/JSON.parse). Returning
+    // `this.entries` directly would let a writer/reader shape drift (e.g. a
+    // field that doesn't survive JSON serialization) pass every test here
+    // while still breaking in production.
+    return JSON.parse(JSON.stringify(this.entries));
   }
   async clear(): Promise<void> {
     this.entries = [];
@@ -49,7 +54,8 @@ class ControllableHandLog implements HandLog {
     });
   }
   async readAll(): Promise<HandLogEntry[]> {
-    return this.entries;
+    // See FakeHandLog.readAll for why this round-trips through JSON.
+    return JSON.parse(JSON.stringify(this.entries));
   }
   async clear(): Promise<void> {
     this.entries = [];
