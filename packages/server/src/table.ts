@@ -107,6 +107,23 @@ export class Table {
   }
 
   async join(displayName: string): Promise<number> {
+    // Fast-path rejection before paying for the getBalance I/O below -- not
+    // load-bearing for correctness on its own (see the post-await check).
+    if (this.seats.some((s) => s?.displayName === displayName)) {
+      throw new Error(`"${displayName}" is already seated`);
+    }
+    const balance = await this.deps.playerStore.getBalance(displayName);
+    // Re-check after the only await: two join() calls can both pass the
+    // check above and both reach here before either has written to
+    // `this.seats` (same-name double-join), or -- more seriously -- both
+    // compute the same seatIndex and the second write silently clobbers the
+    // first player's seat (different-name race for the same open seat). By
+    // re-deriving both the duplicate check and the seat index after the
+    // await, and writing immediately with no further await in between, the
+    // whole read-check-write sequence runs atomically per JS's
+    // single-threaded microtask semantics: whichever call's continuation
+    // resumes first completes its full check-and-write before the next
+    // call's continuation runs, so the next one always sees up-to-date seats.
     if (this.seats.some((s) => s?.displayName === displayName)) {
       throw new Error(`"${displayName}" is already seated`);
     }
@@ -114,7 +131,6 @@ export class Table {
     if (seatIndex === -1) {
       throw new Error('Table is full');
     }
-    const balance = await this.deps.playerStore.getBalance(displayName);
     this.seats[seatIndex] = { seatIndex, displayName, connected: true, ready: false, balance };
     this.deps.onStateChange();
     return seatIndex;

@@ -69,6 +69,46 @@ class ControllableHandLog implements HandLog {
   }
 }
 
+// Test-local fake used only by the join() concurrency-guard tests below.
+// Unlike FakePlayerStore, `getBalance` can be told (via `holdGetBalance`) to
+// return a Promise that only resolves when the test explicitly calls
+// `releaseNextGetBalance()`. This lets a test suspend two Table.join() calls
+// mid-flight, right at the shared await point
+// (`await this.deps.playerStore.getBalance(...)`) where a real fs-backed
+// PlayerStore would yield to the event loop -- so both calls can be confirmed
+// genuinely in-flight simultaneously, before either has written to
+// `this.seats`, reproducing the interleaving the join() fix guards against
+// instead of just trusting the guard by inspection. Same pattern as
+// ControllableHandLog above, applied to PlayerStore.getBalance instead of
+// HandLog.append.
+class ControllablePlayerStore implements PlayerStore {
+  private balances = new Map<string, number>();
+  holdGetBalance = false;
+  private pendingResolvers: Array<() => void> = [];
+  constructor(private readonly defaultBalance: number) {}
+  async getBalance(displayName: string): Promise<number> {
+    if (this.holdGetBalance) {
+      await new Promise<void>((resolve) => {
+        this.pendingResolvers.push(resolve);
+      });
+    }
+    return this.balances.get(displayName) ?? this.defaultBalance;
+  }
+  async setBalance(displayName: string, balance: number): Promise<void> {
+    this.balances.set(displayName, balance);
+  }
+  get pendingCount(): number {
+    return this.pendingResolvers.length;
+  }
+  releaseNextGetBalance(): void {
+    const resolve = this.pendingResolvers.shift();
+    if (!resolve) {
+      throw new Error('ControllablePlayerStore: no pending getBalance to release');
+    }
+    resolve();
+  }
+}
+
 // Deterministic, reproducible default in place of Math.random: a real
 // shuffle has a ~4.75% chance of dealing a natural blackjack to seat 0, which
 // settles it instantly and advances play past it, flaking any test that
@@ -166,6 +206,86 @@ describe('Table seats', () => {
     expect(getStateChangeCount()).toBe(1);
     table.leave(0);
     expect(getStateChangeCount()).toBe(2);
+  });
+});
+
+describe('Table.join concurrency guard', () => {
+  function makeControllableTable(seatCount: number) {
+    const playerStore = new ControllablePlayerStore(1000);
+    const handLog = new FakeHandLog();
+    const config: TableConfig = {
+      gameMode: 'holdem',
+      seatCount,
+      smallBlind: 5,
+      bigBlind: 10,
+      blackjackDefaultBet: 25,
+      defaultStartingBalance: 1000,
+      reconnectGraceMs: 50,
+      random: makeDeterministicRandom(2),
+    };
+    const table = new Table(config, { playerStore, handLog, onStateChange: () => {} });
+    return { table, playerStore };
+  }
+
+  it('two concurrent join() calls with the same displayName: exactly one resolves with a seat index, the other rejects as already seated', async () => {
+    const { table, playerStore } = makeControllableTable(2);
+
+    playerStore.holdGetBalance = true;
+    const call1 = table.join('alice');
+    const call2 = table.join('alice');
+
+    // Confirm genuine overlap -- both calls are suspended mid-flight at the
+    // shared `await getBalance(...)` point, before either has written to
+    // `this.seats`. Without this check, a bug that accidentally serialized
+    // the two calls (e.g. an await added earlier in join()) could still make
+    // this test pass despite testing nothing concurrent.
+    expect(playerStore.pendingCount).toBe(2);
+
+    // Release in a controlled order: call1's getBalance resolves first, then
+    // call2's, both synchronously back-to-back (no intervening await).
+    playerStore.releaseNextGetBalance();
+    playerStore.releaseNextGetBalance();
+
+    const results = await Promise.allSettled([call1, call2]);
+    const fulfilled = results.filter((r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled');
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0].reason as Error).message).toMatch(/already seated/);
+
+    // The table itself ends up self-consistent: exactly one alice, sitting at
+    // the seat index the winning call actually resolved with.
+    const aliceSeats = table.seats.filter((s) => s?.displayName === 'alice');
+    expect(aliceSeats).toHaveLength(1);
+    expect(aliceSeats[0]?.seatIndex).toBe(fulfilled[0].value);
+  });
+
+  it('two concurrent join() calls with different displayNames racing for the same open seat both resolve with distinct seat indices', async () => {
+    const { table, playerStore } = makeControllableTable(2);
+
+    playerStore.holdGetBalance = true;
+    const call1 = table.join('alice');
+    const call2 = table.join('bob');
+
+    // Confirm genuine overlap before either write happens -- both calls
+    // independently see the identical all-null `this.seats`, which is
+    // exactly the pre-fix condition that made them collide on the same index.
+    expect(playerStore.pendingCount).toBe(2);
+
+    playerStore.releaseNextGetBalance();
+    playerStore.releaseNextGetBalance();
+
+    const [aliceSeatIndex, bobSeatIndex] = await Promise.all([call1, call2]);
+
+    // Distinct seats, not the same index silently overwritten -- this is the
+    // assertion that fails against the pre-fix code (both would resolve with
+    // seatIndex 0).
+    expect(aliceSeatIndex).not.toBe(bobSeatIndex);
+    expect(table.seats[aliceSeatIndex]?.displayName).toBe('alice');
+    expect(table.seats[bobSeatIndex]?.displayName).toBe('bob');
+    // Both players are actually present on the table -- neither call's write
+    // silently clobbered the other's.
+    expect(table.seats.filter((s) => s !== null)).toHaveLength(2);
   });
 });
 
