@@ -5,6 +5,7 @@ export type {
   RoundPhase,
   BlackjackRoundOptions,
 } from './blackjackRound';
+export { createDeck, shuffle } from './deck';
 export type { Card, Suit, Rank, RandomFn } from './deck';
 export type { RoundResult, Outcome } from './payout';
 export { handValue, isBlackjack, isBust } from './handValue';
