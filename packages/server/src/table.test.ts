@@ -1026,6 +1026,62 @@ describe('Table.recoverFromLog', () => {
     expect(table.activeSeatIndex).toBe(1);
   });
 
+  it('writes the settlement marker before committing the balance (write-ahead ordering)', async () => {
+    // Pins the Critical fix from round 2: settleBlackjackSeatIfNeeded must
+    // append the blackjack_seat_settled marker BEFORE calling
+    // playerStore.setBalance, so a crash between the two durable writes
+    // leaves a recoverable "lost payout" rather than a re-payable "double
+    // payout" on the next recovery. Nothing else in the suite observes the
+    // *relative order* of these two calls -- swapping them back would leave
+    // every other test green. Recovery (rather than live play) is used to
+    // exercise the settlement path here because it's the same
+    // settleBlackjackSeatIfNeeded call site either way, and reuses the
+    // existing natural-blackjack recovery fixture.
+    const { table, handLog, playerStore } = makeTable({ gameMode: 'blackjack' });
+    await playerStore.setBalance('alice', 1000);
+    await playerStore.setBalance('bob', 1000);
+    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
+    // alice: natural blackjack (settles instantly at construction, no action needed).
+    const aliceShoe = [card('A', 'spades'), card('K', 'hearts'), card('9', 'clubs'), card('9', 'diamonds')];
+    // bob: not a natural, no action taken -- round stays in progress.
+    const bobShoe = [
+      card('5', 'diamonds'),
+      card('6', 'diamonds'),
+      card('9', 'hearts'),
+      card('10', 'hearts'),
+      card('3', 'spades'),
+    ];
+    await handLog.append({
+      type: 'blackjack_hand_started',
+      data: {
+        rounds: [
+          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
+          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
+        ],
+      },
+    });
+
+    // Attach spies after the setup append above, so only calls made DURING
+    // recoverFromLog() are captured.
+    const appendSpy = vi.spyOn(handLog, 'append');
+    const setBalanceSpy = vi.spyOn(playerStore, 'setBalance');
+
+    await table.recoverFromLog();
+
+    const markerCallIndex = appendSpy.mock.calls.findIndex(
+      ([entry]) => entry.type === 'blackjack_seat_settled'
+    );
+    const balanceCallIndex = setBalanceSpy.mock.calls.findIndex(([name]) => name === 'alice');
+    expect(markerCallIndex).toBeGreaterThanOrEqual(0);
+    expect(balanceCallIndex).toBeGreaterThanOrEqual(0);
+    // invocationCallOrder uses a global counter shared across all mocks, so
+    // comparing across these two different spies genuinely proves relative
+    // call order, not just that both were eventually called.
+    expect(appendSpy.mock.invocationCallOrder[markerCallIndex]).toBeLessThan(
+      setBalanceSpy.mock.invocationCallOrder[balanceCallIndex]
+    );
+  });
+
   it('recovers cleanly from a corrupted/torn log entry instead of crash-looping on every future boot', async () => {
     // Simulates a process killed mid-appendFile leaving a torn final JSONL
     // line: the first entry is missing its `rounds` field entirely, so
