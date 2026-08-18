@@ -972,4 +972,22 @@ describe('Table.recoverFromLog', () => {
     expect(table.activeSeatIndex).toBe(1);
     expect(table.handInProgress).toBe(true);
   });
+
+  it('recovers cleanly from a corrupted/torn log entry instead of crash-looping on every future boot', async () => {
+    // Simulates a process killed mid-appendFile leaving a torn final JSONL
+    // line: the first entry is missing its `rounds` field entirely, so
+    // destructuring it and then calling `rounds.map(...)` during replay
+    // throws a TypeError. Pushed directly into `.entries` (bypassing
+    // `append`) because this stands in for data that already made it onto
+    // disk malformed -- not data Table itself would ever produce.
+    const { table, handLog } = makeTable({ gameMode: 'blackjack' });
+    handLog.entries.push({ type: 'blackjack_hand_started', data: {} });
+
+    await expect(table.recoverFromLog()).resolves.toBeUndefined();
+
+    // The corrupted log must be discarded, not left in place -- otherwise
+    // every subsequent boot would hit the same throw and the server could
+    // never start.
+    await expect(handLog.readAll()).resolves.toEqual([]);
+  });
 });
