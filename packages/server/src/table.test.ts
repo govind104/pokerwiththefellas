@@ -1018,6 +1018,8 @@ describe('Table.recoverFromLog', () => {
 
     // Marker present -> recovery must NOT re-pay seat 0.
     await expect(playerStore.getBalance('alice')).resolves.toBe(1500);
+    // Recovery must not re-append a duplicate marker for the already-marked seat either.
+    expect(handLog.entries.filter((e) => e.type === 'blackjack_seat_settled')).toHaveLength(1);
     expect(table.handInProgress).toBe(true);
     // Recovery correctly resumes at the still-in-progress seat, not just
     // correctly skips the marked one.
