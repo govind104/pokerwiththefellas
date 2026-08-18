@@ -1100,3 +1100,100 @@ describe('Table.recoverFromLog', () => {
     await expect(handLog.readAll()).resolves.toEqual([]);
   });
 });
+
+describe('Table.getStateForSeat', () => {
+  it('hides the dealer hole card in Blackjack until settled', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    const view = table.getStateForSeat(0);
+    expect(view.blackjackRounds![0].dealerUpcard).toBeDefined();
+    expect(view.blackjackRounds![0].dealerCards).toBeNull();
+    expect(view.blackjackRounds![0].results).toBeNull();
+  });
+
+  it('reveals the full dealer hand and results once a round settles', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'stand');
+
+    const view = table.getStateForSeat(0);
+    expect(view.blackjackRounds![0].dealerCards).not.toBeNull();
+    expect(view.blackjackRounds![0].results).not.toBeNull();
+  });
+
+  it('shows a Hold\'em player their own hole cards but not an opponent\'s', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    const aliceView = table.getStateForSeat(0);
+    const alice = aliceView.holdem!.players.find((p) => p.playerId === 'alice')!;
+    const bobFromAliceView = aliceView.holdem!.players.find((p) => p.playerId === 'bob')!;
+    expect(alice.holeCards).not.toBeNull();
+    expect(bobFromAliceView.holeCards).toBeNull();
+  });
+
+  it('reveals hole cards for non-folded players to everyone once the street settles', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    // alice is dealt into a hand and immediately calls, but the simplest way
+    // to reach settled is bob folding after alice acts.
+    await table.submitAction(0, 'call');
+    await table.submitAction(1, 'fold');
+
+    const spectatorView = table.getStateForSeat(null);
+    const alice = spectatorView.holdem!.players.find((p) => p.playerId === 'alice')!;
+    const bob = spectatorView.holdem!.players.find((p) => p.playerId === 'bob')!;
+    expect(alice.holeCards).not.toBeNull(); // alice reached showdown uncontested-favorably, did not fold
+    expect(bob.holeCards).toBeNull(); // bob folded, so his cards stay hidden even though the street settled
+  });
+
+  it('an empty seat has a null displayName and no other identifying data', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    const view = table.getStateForSeat(0);
+    expect(view.seats[1]).toEqual({ seatIndex: 1, displayName: null, balance: 0, connected: false, ready: false });
+  });
+
+  it('keeps the full settled Blackjack table visible via a snapshot after every seat has settled and the live rounds map is cleared', async () => {
+    // Mirrors the Task 4/5 test 'finishes the table hand and commits balances
+    // once every seat's round settles': once BOTH seats settle,
+    // finishBlackjackHandIfComplete() replaces the live this.blackjackRounds
+    // with a fresh empty Map -- so getStateForSeat must fall back to a
+    // snapshot taken just before that replacement, or clients would never
+    // see the final dealer hand/results for a hand that's fully complete
+    // (as opposed to the already-covered case of just one seat settling
+    // while the other is still mid-round, where the live map still holds
+    // the data).
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    await table.submitAction(0, 'stand');
+    await table.submitAction(1, 'stand');
+
+    expect(table.blackjackRounds.size).toBe(0); // live map is cleared, same as the pre-existing test
+    expect(table.handInProgress).toBe(false);
+
+    const view = table.getStateForSeat(null);
+    expect(view.blackjackRounds).not.toBeNull();
+    expect(view.blackjackRounds![0].dealerCards).not.toBeNull();
+    expect(view.blackjackRounds![0].results).not.toBeNull();
+    expect(view.blackjackRounds![1].dealerCards).not.toBeNull();
+    expect(view.blackjackRounds![1].results).not.toBeNull();
+  });
+});

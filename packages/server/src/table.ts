@@ -8,7 +8,9 @@ import {
   type PlayerAction,
   type HoldemAction,
   type Card,
+  type PlayerHand,
 } from '@poker-blackjack/game-engine';
+import type { RoundPhase, RoundResult, HoldemStreet, HoldemResult, Pot } from '@poker-blackjack/game-engine';
 import type { PlayerStore } from './playerStore';
 import type { HandLog } from './handLog';
 
@@ -39,6 +41,49 @@ export interface TableDeps {
   onStateChange: () => void;
 }
 
+export interface SeatView {
+  seatIndex: number;
+  displayName: string | null;
+  balance: number;
+  connected: boolean;
+  ready: boolean;
+}
+
+export interface BlackjackRoundView {
+  phase: RoundPhase;
+  playerHands: PlayerHand[];
+  dealerUpcard: Card;
+  dealerCards: Card[] | null;
+  results: RoundResult[] | null;
+}
+
+export interface HoldemPlayerView {
+  playerId: string;
+  stack: number;
+  streetContributed: number;
+  folded: boolean;
+  isAllIn: boolean;
+  holeCards: [Card, Card] | null;
+}
+
+export interface HoldemView {
+  street: HoldemStreet;
+  communityCards: Card[];
+  actingPlayerId: string | null;
+  pots: Pot[];
+  results: HoldemResult[] | null;
+  players: HoldemPlayerView[];
+}
+
+export interface TableStateView {
+  gameMode: GameMode;
+  handInProgress: boolean;
+  seats: SeatView[];
+  activeSeatIndex: number | null;
+  blackjackRounds: Record<number, BlackjackRoundView> | null;
+  holdem: HoldemView | null;
+}
+
 export class Table {
   seats: (Seat | null)[];
   handInProgress = false;
@@ -51,6 +96,8 @@ export class Table {
   private disconnectTimers: Map<number, NodeJS.Timeout> = new Map();
   private timedOutSeats: Set<number> = new Set();
   private holdemSettled = false;
+  private lastSettledHoldemHand: HoldemHand | null = null;
+  private lastSettledBlackjackRounds: Map<number, BlackjackRound> | null = null;
 
   constructor(
     private readonly config: TableConfig,
@@ -205,6 +252,8 @@ export class Table {
 
   private async startHand(seatedSeats: Seat[]): Promise<void> {
     this.handInProgress = true;
+    this.lastSettledHoldemHand = null;
+    this.lastSettledBlackjackRounds = null;
 
     if (this.config.gameMode === 'holdem') {
       this.buttonSeatIndex = this.nextButtonSeatIndex(seatedSeats);
@@ -308,6 +357,7 @@ export class Table {
       }
     }
     this.handInProgress = false;
+    this.lastSettledHoldemHand = hand;
     this.holdemHand = null;
     for (const seat of this.seats) {
       if (seat) seat.ready = false;
@@ -348,6 +398,7 @@ export class Table {
 
   private async finishBlackjackHandIfComplete(): Promise<void> {
     this.handInProgress = false;
+    this.lastSettledBlackjackRounds = this.blackjackRounds;
     this.blackjackRounds = new Map();
     this.blackjackSettledSeats = new Set();
     for (const seat of this.seats) {
@@ -450,5 +501,63 @@ export class Table {
         console.error('Table: failed to clear corrupted hand log after recovery failure:', clearErr);
       }
     }
+  }
+
+  getStateForSeat(viewerSeatIndex: number | null): TableStateView {
+    const seats: SeatView[] = this.seats.map((s, i) =>
+      s
+        ? { seatIndex: i, displayName: s.displayName, balance: s.balance, connected: s.connected, ready: s.ready }
+        : { seatIndex: i, displayName: null, balance: 0, connected: false, ready: false }
+    );
+
+    let blackjackRounds: Record<number, BlackjackRoundView> | null = null;
+    const roundsSource = this.blackjackRounds.size > 0 ? this.blackjackRounds : this.lastSettledBlackjackRounds;
+    if (this.config.gameMode === 'blackjack' && roundsSource) {
+      blackjackRounds = {};
+      for (const [seatIndex, round] of roundsSource.entries()) {
+        blackjackRounds[seatIndex] = {
+          phase: round.phase,
+          playerHands: round.playerHands,
+          dealerUpcard: round.getDealerUpcard(),
+          dealerCards: round.phase === 'settled' ? round.getDealerCards() : null,
+          results: round.phase === 'settled' ? round.results : null,
+        };
+      }
+    }
+
+    let holdem: HoldemView | null = null;
+    const holdemSource = this.holdemHand ?? this.lastSettledHoldemHand;
+    if (this.config.gameMode === 'holdem' && holdemSource) {
+      const hand = holdemSource;
+      const viewerDisplayName =
+        viewerSeatIndex !== null ? (this.seats[viewerSeatIndex]?.displayName ?? null) : null;
+      holdem = {
+        street: hand.street,
+        communityCards: hand.communityCards,
+        actingPlayerId: hand.actingPlayerId,
+        pots: hand.pots,
+        results: hand.street === 'settled' ? hand.results : null,
+        players: hand.players.map((p) => ({
+          playerId: p.playerId,
+          stack: p.stack,
+          streetContributed: p.streetContributed,
+          folded: p.folded,
+          isAllIn: p.isAllIn,
+          holeCards:
+            p.playerId === viewerDisplayName || (hand.street === 'settled' && !p.folded)
+              ? p.holeCards
+              : null,
+        })),
+      };
+    }
+
+    return {
+      gameMode: this.config.gameMode,
+      handInProgress: this.handInProgress,
+      seats,
+      activeSeatIndex: this.activeSeatIndex,
+      blackjackRounds,
+      holdem,
+    };
   }
 }
