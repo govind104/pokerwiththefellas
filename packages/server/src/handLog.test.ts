@@ -65,4 +65,33 @@ describe('JsonlHandLog', () => {
     await log.append({ type: 'b', data: null });
     await expect(log.readAll()).resolves.toEqual([{ type: 'b', data: null }]);
   });
+
+  it('preserves invocation order under concurrent appends instead of racing on disk', async () => {
+    // Each trial issues its 'a' append call before its 'b' append call, but
+    // neither is awaited before the next is issued -- exactly the shape of
+    // two overlapping Table.submitAction calls both reaching
+    // handLog.append() (e.g. a client acting before its state broadcast
+    // arrives, or the grace-window auto-act timer firing mid-append for
+    // another seat). A bare, unserialized appendFile has no guarantee the
+    // underlying disk writes land in call order; many trials fired
+    // concurrently make that reordering observable if it can happen at all,
+    // rather than relying on a single pair to get unlucky.
+    const log = new JsonlHandLog(filePath);
+    const trials = 25;
+    const calls: Promise<void>[] = [];
+    for (let i = 0; i < trials; i++) {
+      calls.push(log.append({ type: 'a', data: i }));
+      calls.push(log.append({ type: 'b', data: i }));
+    }
+    await Promise.all(calls);
+
+    const entries = await log.readAll();
+    for (let i = 0; i < trials; i++) {
+      const aIndex = entries.findIndex((e) => e.type === 'a' && e.data === i);
+      const bIndex = entries.findIndex((e) => e.type === 'b' && e.data === i);
+      expect(aIndex).toBeGreaterThanOrEqual(0);
+      expect(bIndex).toBeGreaterThanOrEqual(0);
+      expect(aIndex).toBeLessThan(bIndex);
+    }
+  });
 });

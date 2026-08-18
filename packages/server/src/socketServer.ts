@@ -38,6 +38,22 @@ export async function createServer(
       try {
         const existingSeatIndex = table.reconnect(payload.displayName);
         const seatIndex = existingSeatIndex ?? (await table.join(payload.displayName));
+        const previousSeatIndex = seatBySocketId.get(socket.id);
+        if (previousSeatIndex !== undefined && previousSeatIndex !== seatIndex) {
+          // This socket already held a different seat -- e.g. it sent an
+          // earlier `join` that resolved after this one started. Release the
+          // stale seat properly instead of silently orphaning it.
+          table.disconnect(previousSeatIndex);
+        }
+        if (!socket.connected) {
+          // The socket disconnected while this join's await was in flight --
+          // don't register a mapping nothing will ever clean up; instead mark
+          // the seat disconnected immediately so it follows the normal
+          // reconnect/grace-window/timeout path instead of becoming a
+          // permanent connected:true orphan that can never be reached again.
+          table.disconnect(seatIndex);
+          return;
+        }
         seatBySocketId.set(socket.id, seatIndex);
         socket.emit('state', table.getStateForSeat(seatIndex));
       } catch (err) {
