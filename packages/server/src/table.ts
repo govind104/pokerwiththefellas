@@ -328,8 +328,8 @@ export class Table {
     const seat = this.seats[seatIndex]!;
     const totalPayout = round.results.reduce((sum, r) => sum + r.payout, 0);
     seat.balance += totalPayout;
-    await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
     await this.deps.handLog.append({ type: 'blackjack_seat_settled', data: { seatIndex } });
+    await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
   }
 
   private async advancePastSettledBlackjackRounds(): Promise<void> {
