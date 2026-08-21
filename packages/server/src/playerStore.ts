@@ -39,6 +39,24 @@ export class JsonPlayerStore implements PlayerStore {
       // as empty degrades to default balances instead, matching the crash
       // tolerance the transient hand log already has.
       console.error(`PlayerStore: balances file at ${this.filePath} is corrupted, treating as empty:`, err);
+      // Preserve the corrupt bytes before returning empty. Without this, the
+      // very next setBalance reads this empty map, adds the one player being
+      // written, and writeAll's atomic rename drops a fresh file over the
+      // corrupt one -- destroying every other player's balance AND the only
+      // copy anyone could have hand-recovered them from. Degrading
+      // availability must not silently cost durability.
+      //
+      // Best-effort: a failed rename must not stop us returning the empty map,
+      // matching the "recovery cleanup must not itself throw" pattern used in
+      // Table.recoverFromLog's and startHand's catch blocks.
+      try {
+        await rename(this.filePath, `${this.filePath}.corrupt-${Date.now()}`);
+      } catch (renameErr) {
+        console.error(
+          `PlayerStore: failed to move the corrupted balances file at ${this.filePath} aside; it may be overwritten by the next write:`,
+          renameErr
+        );
+      }
       return Object.create(null) as BalanceMap;
     }
   }

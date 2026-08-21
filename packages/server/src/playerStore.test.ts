@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, readdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { JsonPlayerStore } from './playerStore';
@@ -63,6 +63,32 @@ describe('JsonPlayerStore', () => {
     await store.setBalance('alice', 750);
     errorSpy.mockRestore();
     await expect(new JsonPlayerStore(filePath, 1000).getBalance('alice')).resolves.toBe(750);
+  });
+
+  it('preserves the corrupt file instead of letting the next write destroy it', async () => {
+    // The durability half of the corruption story. Returning an empty map on
+    // a parse failure keeps the service up, but the next setBalance then
+    // writes {onlyThisPlayer} and the atomic rename drops it over the corrupt
+    // file -- destroying every other player's balance AND the only bytes
+    // anyone could have hand-recovered them from. Availability must not be
+    // bought with silent, unrecoverable data loss.
+    await writeFile(filePath, '{"alice": 1200, "bob": 8', 'utf-8');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const store = new JsonPlayerStore(filePath, 1000);
+    await expect(store.getBalance('alice')).resolves.toBe(1000);
+    await store.setBalance('carol', 500);
+    errorSpy.mockRestore();
+
+    const files = (await readdir(dir)).sort();
+    const corrupt = files.filter((f) => f.startsWith('balances.json.corrupt-'));
+    expect(corrupt).toHaveLength(1);
+    expect(files).toContain('balances.json');
+
+    // The fresh file holds only the new write...
+    await expect(new JsonPlayerStore(filePath, 1000).getBalance('carol')).resolves.toBe(500);
+    // ...and the original bytes survive verbatim for hand recovery.
+    await expect(readFile(join(dir, corrupt[0]), 'utf-8')).resolves.toBe('{"alice": 1200, "bob": 8');
   });
 
   it('leaves no temp file behind after a write', async () => {
