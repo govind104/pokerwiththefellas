@@ -540,7 +540,7 @@ export class Table {
         await this.settleBlackjackSeatIfNeeded(this.activeSeatIndex);
       } catch (err) {
         console.error(
-          `Table: failed to settle Blackjack seat ${this.activeSeatIndex}; advancing past it so the hand can still finish (a restart will recover the payout):`,
+          `Table: failed to settle Blackjack seat ${this.activeSeatIndex}; advancing past it so the hand can still finish (the payout survives in memory and self-corrects on the next successful write; a restart before then loses it, which is the intended bias over risking a double payment):`,
           err
         );
       }
