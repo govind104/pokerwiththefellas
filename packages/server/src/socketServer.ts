@@ -40,6 +40,14 @@ export async function createServer(
   };
 
   const table = new Table(config, { playerStore, handLog, onStateChange: broadcast });
+  // recoverFromLog() must complete before the connection handler below is
+  // registered, and before any caller of createServer() calls httpServer.listen().
+  // This is more than a documented startup-ordering nicety: Table.recoverFromLog's
+  // own catch block (on a corrupted log) does a wholesale reset of every seat to
+  // null, which is only safe because no socket-to-seat mapping can exist yet at
+  // that point. Reordering registration ahead of recovery, or making recovery
+  // lazy, would silently reopen the class of orphaned-seat bug this file's join
+  // handler was specifically hardened to close.
   await table.recoverFromLog();
 
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
