@@ -74,6 +74,40 @@ export function makeHoldemPreflopState(overrides: Partial<TableStateView> = {}):
   };
 }
 
+export function makeHoldemMyTurnState(overrides: Partial<TableStateView> = {}): TableStateView {
+  return makeHoldemPreflopState({
+    holdem: {
+      street: 'preflop',
+      communityCards: [],
+      actingPlayerId: 'alice',
+      pots: [{ amount: 15, eligiblePlayerIds: ['alice', 'bob'] }],
+      results: null,
+      players: [
+        {
+          playerId: 'alice',
+          stack: 990,
+          streetContributed: 10,
+          folded: false,
+          isAllIn: false,
+          holeCards: [
+            { suit: 'spades', rank: 'A' },
+            { suit: 'hearts', rank: 'K' },
+          ],
+        },
+        {
+          playerId: 'bob',
+          stack: 995,
+          streetContributed: 5,
+          folded: false,
+          isAllIn: false,
+          holeCards: null,
+        },
+      ],
+    },
+    ...overrides,
+  });
+}
+
 export function makeBlackjackPlayingState(overrides: Partial<TableStateView> = {}): TableStateView {
   const blackjackRounds: Record<number, BlackjackRoundView> = {
     0: {
