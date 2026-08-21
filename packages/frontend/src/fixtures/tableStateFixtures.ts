@@ -138,3 +138,22 @@ export function makeBlackjackPlayingState(overrides: Partial<TableStateView> = {
     ...overrides,
   };
 }
+
+export function makeBlackjackSplitHandState(overrides: Partial<TableStateView> = {}): TableStateView {
+  return makeBlackjackPlayingState({
+    activeSeatIndex: 0,
+    blackjackRounds: {
+      0: {
+        phase: 'playing',
+        playerHands: [
+          { cards: [{ suit: 'clubs', rank: '8' }, { suit: 'diamonds', rank: '2' }], bet: 25, doubled: false, done: true },
+          { cards: [{ suit: 'clubs', rank: '8' }, { suit: 'hearts', rank: '5' }], bet: 25, doubled: false, done: false },
+        ],
+        dealerUpcard: { suit: 'spades', rank: '6' },
+        dealerCards: null,
+        results: null,
+      },
+    },
+    ...overrides,
+  });
+}
