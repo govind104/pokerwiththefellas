@@ -16,6 +16,13 @@ and already-fixed Plan 3 Socket.IO server, running locally in development.
   model exactly.
 - Reconnection handling that resumes a seat within the server's existing grace window.
 
+**No game-selection UI, by design:** `GAME_MODE` is fixed per running server instance
+(an env var read once at server startup, in `packages/server/src/index.ts`) — there is
+no server-side concept of a player choosing Poker vs. Blackjack. The client never
+offers this choice either; it simply reads `state.gameMode` off the first `state`
+event and renders accordingly (Section 3.2). Running "the other game" means starting a
+second server instance with a different `GAME_MODE`, not a UI action.
+
 **Explicitly out of scope** (belongs to later plans, not touched here):
 - Authentication. Plan 5 replaces plain display names with Google-OAuth-backed
   accounts; per the Plan 3 status doc, `PlayerStore`'s interface shouldn't need to
