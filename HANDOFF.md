@@ -9,32 +9,35 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 |---|---|---|
 | 1 | Blackjack engine (`packages/game-engine`) | Done, merged to `master` |
 | 2 | Hold'em engine (`packages/game-engine`) | Done, merged to `master` |
-| 3 | Local real-time server (`packages/server`) | **Fix approved — pending PR/merge, see below** |
-| 4 | Frontend | Not started |
+| 3 | Local real-time server (`packages/server`) | Done, merged to `master` |
+| 4 | Frontend (`packages/frontend`) | **All 9 tasks implemented — final whole-branch review pending, see below** |
 | 5 | Accounts (Google OAuth) | Not started |
 | 6 | AWS deployment (DynamoDB, EC2) | Not started |
 
-**Branch `fix/plan3-critical-bugs`** (based on `master`) has all of Plan 3's code plus
-the fix for the 3 Critical + 8 Important bugs a final whole-branch review found after
-Plan 3 was merged with those bugs live (a deliberate, documented decision at the time,
-to unblock a handoff). The fix went through two review-and-fix rounds — round 1
-introduced 2 new Critical + 2 new Important bugs of its own, which round 2 closed — and
-is now **Approved**: 0 Critical, 0 Important findings remain, 236/236 tests passing,
-typecheck clean. The literal next thing to do is open the PR and merge it.
+**Plan 3** is fully merged to `master` (PR #3, merge commit `b1dfae1`), including a
+2-round critical-bug-fix pass. 0 Critical, 0 Important findings remain. Full detail in
+`docs/superpowers/plans/2026-08-17-local-server-progress-ledger.md` and the other
+`2026-08-17-local-server-*.md` files in the same directory (fix spec, final review,
+carried-forward findings) — kept for historical reference.
 
-**Full detail, in `docs/superpowers/plans/`:**
-- `2026-08-17-local-server-STATUS.md` — start here for Plan 3: what's done, the fix
-  round's outcome, exact next steps, and what Plans 4-6 involve.
-- `2026-08-17-local-server-fix-spec.md` — the fix specification that was applied
-  (kept for historical reference; the applied code may differ slightly where the
-  fix round's own re-review found and closed gaps in the original spec).
-- `2026-08-17-local-server-final-review.md` — the original review that found the 3
-  Critical + 8 Important bugs, including how each was empirically proven.
-- `2026-08-17-local-server-carried-forward-findings.md` — 43 lower-priority items
-  (31 from the original 10 tasks + 12 from the fix round), independently triaged,
-  none merge-blocking.
-- `2026-08-17-local-server-progress-ledger.md` — the complete build history: every
-  task, every review round, every design decision, chronologically.
+**Plan 4** has an approved design spec
+(`docs/superpowers/specs/2026-08-21-plan4-frontend-design.md`) and a fully-specified
+9-task implementation plan (`docs/superpowers/plans/2026-08-21-plan4-frontend.md`),
+both committed to `master`. **Branch `feature/plan4-frontend`** (based on `master` @
+`b4fdce0`) has all 9 tasks implemented via `superpowers:subagent-driven-development` —
+every task passed a task-scoped review, either clean or after exactly one
+fix-and-re-review round (never more). 270/270 tests passing, typecheck clean across
+all 3 workspaces. **The final whole-branch review has not been run yet** — that's the
+literal next step. Full detail, including every task's disclosed implementer
+deviations and how each was independently verified, in
+`docs/superpowers/plans/2026-08-21-plan4-progress-ledger.md` — read that file's
+"Status" section at the bottom for the exact resume command.
+
+Known non-blocking issue, tracked separately (not a Plan 4 defect): `packages/server`
+has never been run as a standalone Node process — a pre-existing `pokersolver`
+CJS/ESM interop issue from Plans 1/2 blocks that specific path (automated tests are
+unaffected, since they run through Vitest's own module loader). This blocks a real
+manual browser click-through of the finished Plan 4 frontend until fixed.
 
 ## Running things
 
