@@ -28,10 +28,10 @@ verdict on what's must-fix-before-merge vs. acceptable follow-up.
    reviewers (Task 6 and Task 10) from two different angles — worth resolving, not just
    re-deferring a third time. (Task 6 + Task 10 reviews)
 
-3. **`recoverFromLog` doesn't cross-check the log's entry type against
-   `this.config.gameMode`.** A restart with a reconfigured game mode (e.g. server
-   redeployed with `GAME_MODE=blackjack` env var changed) would attempt to misreplay a
-   Hold'em log against a Blackjack-configured table or vice versa. (Task 6 review)
+3. ~~**`recoverFromLog` doesn't cross-check the log's entry type against
+   `this.config.gameMode`.**~~ **RESOLVED** by the 2026-08-21 fix round's Group 2c
+   (`table.ts`'s `recoverFromLog` now cross-checks `this.config.gameMode` on both
+   branches and clears+warns on any unrecognized-or-mismatched entry). See section H.
 
 4. **`'blackjack_seat_settled'` is a bare string literal**, duplicated across the
    writer, reader, and tests with no shared `const` or `HandLogEntry['type']` union — a
@@ -73,21 +73,15 @@ live at that point rather than staying deferred.**
    `setBalance` call; no error boundary exists on live-play paths generally (same
    deferred class as Task 5's disclosed I1: no error boundary on the fire-and-forget
    auto-act timer chain). (Task 5 + Task 6 reviews)
-9. **`JsonlHandLog.clear()` doesn't participate in the write-serialization queue** added
-   in Task 8's fix (`append()` does, `clear()` still calls `writeFile` directly). No live
-   race today — every reachable `clear()` call site runs only after its own settling
-   call's `append()` has already resolved — but it's an asymmetry worth recording as an
-   explicit invariant given Tasks 9-10 build crash-recovery correctness on this file.
-   (Task 8 round 2 review)
-10. **An unrecognized first log-entry `type`** (well-formed JSON, but neither
-    `holdem_hand_started` nor `blackjack_hand_started`) falls through both
-    `recoverFromLog` branches silently without clearing the log — doesn't throw, so the
-    corrupted-log catch/reset added in Task 6 doesn't cover this specific sub-case.
-    (Task 6 review)
-11. **A rejected hand-start** (e.g. `HoldemHand`'s constructor throwing on a player with
-    `stack <= 0`, a normal/expected outcome, not a bug) permanently bricks the table,
-    since `handInProgress` is never reset on failure. Reviewer explicitly called this
-    "worth a separate ticket," not blocking. (Task 5 review)
+9. ~~**`JsonlHandLog.clear()` doesn't participate in the write-serialization queue**~~
+   **RESOLVED** by the 2026-08-21 fix round's Group 2a (`clear()` now routes through the
+   same synchronous `writeQueue` chain as `append()`). See section H.
+10. ~~**An unrecognized first log-entry `type`**~~ **RESOLVED** by the same Group 2c fix
+    as item 3 above (the new `else` branch warns and clears on any unrecognized entry).
+11. ~~**A rejected hand-start** ... permanently bricks the table~~ **RESOLVED** — this
+    was Critical C1 in the 2026-08-17 final whole-branch review, closed by the
+    2026-08-21 fix round's Group 1 (`eligibleSeatsForHand()` plus `startHand`'s
+    try/catch safety net). See section H.
 
 ## D. Code structure / maintainability
 
@@ -114,14 +108,11 @@ live at that point rather than staying deferred.**
 18. `handLog.test.ts`'s new ordering test (Task 8 fix round) checks that each trial's
     'a' entry precedes its 'b' entry, which would catch a dropped write but not a
     *duplicated* one (uses `findIndex`, which finds the first match either way).
-19. **No integration-level test anywhere in the suite exercises Task 7's per-seat
-    targeted state emit or hole-card filtering.** Every `waitForState`/`waitForEvent` in
-    both `integration.test.ts` and `integration-resilience.test.ts` happens to resolve
-    on a broadcast (`getStateForSeat(null)`, spectator-equivalent) emission rather than
-    the join handler's own per-seat targeted emit, and every assertion used is
-    viewer-independent — valid for what each test asserts, but it means the actual
-    hole-card access-control boundary (the whole point of Task 7) has zero
-    integration-level coverage, only Task 7's own unit tests. (Task 10 review)
+19. ~~**No integration-level test anywhere in the suite exercises Task 7's per-seat
+    targeted state emit or hole-card filtering.**~~ **RESOLVED** by the 2026-08-21 fix
+    round's Group 4 (new assertions in `integration.test.ts` proving each player's own
+    `holeCards` are populated and their opponent's are `null`, over the real socket
+    wire). See section H.
 20. No non-contiguous-seating test exists for the button-index translation logic.
     (Task 3 review)
 
@@ -167,3 +158,90 @@ live at that point rather than staying deferred.**
     files across Tasks 8-10 (`socketServer.test.ts`, `integration.test.ts`,
     `integration-resilience.test.ts`) — traced multiple times, consistently harmless,
     never the cause of a flake, never touched production code.
+
+## H. 2026-08-21 fix round — outcome and new findings
+
+The 3 Critical + 8 Important bugs from the 2026-08-17 final whole-branch review were
+fixed on branch `fix/plan3-critical-bugs` (base `master`/`3f8e7f2`), in two rounds, each
+independently re-reviewed opus-tier:
+
+- **Round 1** (commits `e1de4d1`..`2cfc2f1`, 5 commits, one per fix group): implemented
+  the fix spec's 5 groups. Re-review found the transcription itself was faithful (both
+  hard invariants — write-ahead marker ordering, synchronous `writeQueue`
+  reassignment — verified intact, `recoverFromLog`'s branch bodies byte-identical) but
+  surfaced **2 new Critical + 2 new Important bugs that the fix itself introduced or
+  left open**, all empirically reproduced against the round-1 code.
+- **Round 2** (commits `f973cae`, `784d8a6`, `10cdc49`): fixed all 4. Re-review verified
+  each closed by reproducing it against extracted round-1 source and confirming it no
+  longer reproduces on round-2 (concrete before/after counts in
+  `.superpowers/sdd/progress.md`). **Approved** — 0 Critical, 0 Important remaining.
+
+**Reconciliation, important for anyone reading the review history:** round-1's "2 new
+Criticals" were reported as `blackjackSettledSeats` leaking on a hand-start failure
+(silent skipped payout on a later hand) and unbounded negative Blackjack balances via
+double/split. The implementer's round-2 report raised a good-faith doubt that the first
+one was ever independently live. The round-2 reviewer adjudicated this directly (see
+`.superpowers/sdd/progress.md` for the full trace) and found: **it was one Critical, not
+two** — an uncaught throw escaping `settleBlackjackSeatIfNeeded` inside
+`advancePastSettledBlackjackRounds`, which bricked the table when reached via
+`submitAction` (the "Important 3" framing) and silently skipped a later hand's payout
+when reached via `startHand` (the "Critical 1" framing). Both symptoms shared one root
+cause and one fix (catching at the `advancePastSettledBlackjackRounds` loop level,
+`table.ts:539-546`). Record this as one Critical closed, not two.
+
+**New Minor findings from the two re-reviews** (none merge-blocking, none fixed except
+where noted — carried forward for future attention):
+
+32. `BlackjackRound`'s new server-side affordability check (`assertCanAffordBlackjackAction`,
+    `table.ts:428-453`) derives the active hand via `playerHands.find(h => !h.done)`
+    since `activeHandIndex` is private on the engine class. Verified correct as
+    implemented (round-2 reviewer traced the monotonicity proof), but it's an unpinned
+    cross-module assumption — a public `activeHandIndex` or `exposure` getter on
+    `BlackjackRound` would remove the coupling and let an engine refactor fail loudly
+    instead of silently guarding the wrong hand.
+33. The new `.corrupt-${Date.now()}` rename in `playerStore.ts` shares the same
+    theoretical filename-collision shape as the pre-existing `.tmp` Minor (item 34
+    below) — lower risk (needs two corruption events in the same millisecond vs. two
+    concurrent writes) but the same fix (a unique-suffix helper) would close both.
+34. `writeAll`'s fixed `.tmp` filename converts concurrent `setBalance` calls'
+    previously-benign last-writer-wins into a hard `ENOENT` rejection on the loser's
+    `rename`. Latent — `Table` serializes every `setBalance` call site today.
+35. A conditional test assertion (`table.test.ts:247-249`, guarding a compounding-bet
+    assertion behind `activeSeatIndex === 0 && phase === 'playing'`) could silently
+    degrade to a no-op under a seed or engine change. It is genuinely exercised today
+    (verified), but should assert the precondition directly rather than branch on it.
+36. A stale comment in `playerStore.test.ts`'s corrupted-file test still describes a
+    spy-timing mechanism (`setBalance` reading the still-corrupted file) that the
+    2026-08-21 fix made untrue (the file is now renamed aside on the first read, so
+    `setBalance` sees ENOENT). Comment-only, no behavior implication.
+37. `recoverFromLog`'s replay path (`table.ts:616`) calls `round.act()` directly,
+    bypassing the new affordability check — correct by design (replay reproduces
+    already-validated history), but a hand log written by pre-2026-08-21 code
+    containing an unaffordable double would replay into a negative balance on recovery.
+    Migration-only edge; worth one sentence in the code comment.
+38. `reconnect()`'s new fire-and-forget `startHandIfEveryoneReady()` call (Group 1b)
+    creates a new async edge at the socket join-handler seam. Verified safe as
+    implemented (no `await` exists between seat-mapping registration and the emit that
+    would need it), but worth a two-line comment at the call site rather than relying
+    on the ordering being re-derived correctly by a future reader.
+39. `startHand`'s failure-path catch (Group 1c) doesn't restore `buttonSeatIndex`, so a
+    failed hand start burns a button rotation. Cosmetic.
+40. `settleHoldem`'s trailing `handLog.clear()` (after its `finally` block) is still
+    skippable if `hand.results` itself throws — the stale `holdem_hand_started` entry
+    then survives on disk, mode-appropriate so Group 2c's cross-check doesn't rescue it,
+    and a later `recoverFromLog` replays the wrong (already-settled) hand before
+    discarding the real one. Same failure family as the now-resolved item 10, narrower
+    trigger (an engine getter throwing).
+41. `handLog.ts`'s torn-trailing-line tolerance (Group 2b) never repairs the file on
+    disk — if the torn line was the *only* line, `readAll` returns `[]` and
+    `recoverFromLog` sees zero entries without clearing, so the garbage line persists
+    and poisons the next hand's recovery the same way item 10 (now resolved) did for a
+    different reason.
+42. `isValidDisplayName` (Group 3) trims to test emptiness but seats the untrimmed
+    value, so `"alice"` and `"  alice"` are distinct player identities. Free fix:
+    normalize (`.trim()`) before passing to `Table`.
+43. No type validation on parsed balance values in `playerStore.ts` — a hand-edited
+    `balances.json` containing `{"alice": "500"}` (a string, not a number) still returns
+    a non-number from `getBalance` today. Same bug *class* as the now-resolved
+    prototype-pollution Critical, reached via the file rather than the prototype chain
+    (not socket-reachable, hence Minor).
