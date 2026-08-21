@@ -11,6 +11,15 @@ export interface CreateServerResult {
   table: Table;
 }
 
+// Defense in depth alongside JsonPlayerStore's null-prototype balance map:
+// the design spec requires malformed or unexpected socket payloads to be
+// rejected before reaching the engine at all, and a display name arriving off
+// the wire is entirely attacker-controlled. The 32-character bound is a
+// judgment call, not a spec requirement.
+function isValidDisplayName(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 32;
+}
+
 export async function createServer(
   config: TableConfig,
   playerStore: PlayerStore,
@@ -31,10 +40,22 @@ export async function createServer(
   };
 
   const table = new Table(config, { playerStore, handLog, onStateChange: broadcast });
+  // recoverFromLog() must complete before the connection handler below is
+  // registered, and before any caller of createServer() calls httpServer.listen().
+  // This is more than a documented startup-ordering nicety: Table.recoverFromLog's
+  // own catch block (on a corrupted log) does a wholesale reset of every seat to
+  // null, which is only safe because no socket-to-seat mapping can exist yet at
+  // that point. Reordering registration ahead of recovery, or making recovery
+  // lazy, would silently reopen the class of orphaned-seat bug this file's join
+  // handler was specifically hardened to close.
   await table.recoverFromLog();
 
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
     socket.on('join', async (payload: JoinPayload) => {
+      if (!isValidDisplayName(payload?.displayName)) {
+        socket.emit('error', { message: 'Invalid display name' });
+        return;
+      }
       try {
         const existingSeatIndex = table.reconnect(payload.displayName);
         const seatIndex = existingSeatIndex ?? (await table.join(payload.displayName));

@@ -9,28 +9,30 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 |---|---|---|
 | 1 | Blackjack engine (`packages/game-engine`) | Done, merged to `master` |
 | 2 | Hold'em engine (`packages/game-engine`) | Done, merged to `master` |
-| 3 | Local real-time server (`packages/server`) | **Implemented, blocked on a fix — see below** |
+| 3 | Local real-time server (`packages/server`) | **Fix approved — pending PR/merge, see below** |
 | 4 | Frontend | Not started |
 | 5 | Accounts (Google OAuth) | Not started |
 | 6 | AWS deployment (DynamoDB, EC2) | Not started |
 
-**Branch `local-server`** has all of Plan 3's code (10 tasks, 24 commits) and passes
-199/199 tests — but a final whole-branch review found 3 Critical bugs (money-integrity
-and service-availability issues, none caught by any earlier task-level review since
-each only becomes reachable once the whole system is wired together). **A complete,
-ready-to-implement fix already exists but has not been applied yet** — three attempts
-to apply it all failed on transient Anthropic-side infrastructure errors before any
-code was touched. This is the literal next thing to do before this branch can merge.
+**Branch `fix/plan3-critical-bugs`** (based on `master`) has all of Plan 3's code plus
+the fix for the 3 Critical + 8 Important bugs a final whole-branch review found after
+Plan 3 was merged with those bugs live (a deliberate, documented decision at the time,
+to unblock a handoff). The fix went through two review-and-fix rounds — round 1
+introduced 2 new Critical + 2 new Important bugs of its own, which round 2 closed — and
+is now **Approved**: 0 Critical, 0 Important findings remain, 236/236 tests passing,
+typecheck clean. The literal next thing to do is open the PR and merge it.
 
 **Full detail, in `docs/superpowers/plans/`:**
-- `2026-08-17-local-server-STATUS.md` — start here for Plan 3: what's done, what's
-  blocking, exact next steps, and what Plans 4-6 involve.
-- `2026-08-17-local-server-fix-spec.md` — the exact fix (code + tests) for the 3
-  Critical + 8 Important bugs. Not yet applied.
-- `2026-08-17-local-server-final-review.md` — the full review that found them, including
-  how each was empirically proven.
-- `2026-08-17-local-server-carried-forward-findings.md` — 31 additional lower-priority
-  items surfaced across the plan, independently triaged, none merge-blocking.
+- `2026-08-17-local-server-STATUS.md` — start here for Plan 3: what's done, the fix
+  round's outcome, exact next steps, and what Plans 4-6 involve.
+- `2026-08-17-local-server-fix-spec.md` — the fix specification that was applied
+  (kept for historical reference; the applied code may differ slightly where the
+  fix round's own re-review found and closed gaps in the original spec).
+- `2026-08-17-local-server-final-review.md` — the original review that found the 3
+  Critical + 8 Important bugs, including how each was empirically proven.
+- `2026-08-17-local-server-carried-forward-findings.md` — 43 lower-priority items
+  (31 from the original 10 tasks + 12 from the fix round), independently triaged,
+  none merge-blocking.
 - `2026-08-17-local-server-progress-ledger.md` — the complete build history: every
   task, every review round, every design decision, chronologically.
 

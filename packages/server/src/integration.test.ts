@@ -98,9 +98,36 @@ describe('integration: happy path', () => {
 
     alice.emit('ready');
     await waitForEvent(alice, 'state');
+    // Capture the hand-started state on BOTH sockets: every `state` event is
+    // computed per-socket from that socket's own mapped seat index, so this
+    // is the only place the per-viewer hole-card filtering can be observed
+    // end-to-end over the real Socket.IO wire rather than by calling
+    // getStateForSeat directly.
+    const aliceHandStarted = waitForState(alice, (s) => s.handInProgress && s.holdem !== null);
     const handStarted = waitForState(bob, (s) => s.handInProgress);
     bob.emit('ready');
-    await handStarted;
+    const aliceView = await aliceHandStarted;
+    const bobView = await handStarted;
+
+    // Each player sees their own hole cards and not their opponent's, while
+    // the hand is still live (pre-showdown).
+    expect(aliceView.holdem!.street).not.toBe('settled');
+    expect(bobView.holdem!.street).not.toBe('settled');
+    const aliceOwn = aliceView.holdem!.players.find((p) => p.playerId === 'alice')!;
+    const bobFromAlice = aliceView.holdem!.players.find((p) => p.playerId === 'bob')!;
+    expect(aliceOwn.holeCards).not.toBeNull();
+    expect(aliceOwn.holeCards).toHaveLength(2);
+    expect(bobFromAlice.holeCards).toBeNull();
+
+    const bobOwn = bobView.holdem!.players.find((p) => p.playerId === 'bob')!;
+    const aliceFromBob = bobView.holdem!.players.find((p) => p.playerId === 'alice')!;
+    expect(bobOwn.holeCards).not.toBeNull();
+    expect(bobOwn.holeCards).toHaveLength(2);
+    expect(aliceFromBob.holeCards).toBeNull();
+
+    // Neither player was simply shown the other's cards under a different
+    // label: the two sockets genuinely received different card data.
+    expect(aliceOwn.holeCards).not.toEqual(bobOwn.holeCards);
 
     const bobTurn = waitForState(bob, (s) => s.holdem?.actingPlayerId === 'bob');
     alice.emit('action', { action: 'all-in' });
@@ -108,7 +135,16 @@ describe('integration: happy path', () => {
 
     const settled = waitForState(alice, (s) => s.handInProgress === false);
     bob.emit('action', { action: 'all-in' });
-    await settled;
+    const settledView = await settled;
+
+    // The complement of the filtering above: once the hand reaches showdown,
+    // every non-folded player's cards are revealed to everyone -- proving the
+    // opponent's null above is a live-hand access control, not a field that
+    // is simply never populated for anyone but the viewer.
+    for (const p of settledView.holdem!.players) {
+      expect(p.folded).toBe(false);
+      expect(p.holeCards).not.toBeNull();
+    }
 
     const freshStore = new JsonPlayerStore(balancesPath, 1000);
     const aliceBalance = await freshStore.getBalance('alice');

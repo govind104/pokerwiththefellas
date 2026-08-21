@@ -1,101 +1,74 @@
 # Plan 3 (local-server) — Status
 
-**Last updated:** 2026-08-18
-**Branch:** `local-server` (not merged to `master`)
-**HEAD:** `76d6dee` — "test(server): add resilience integration tests (reconnect, timeout, restart, crash recovery)"
+**Last updated:** 2026-08-21
+**Branch:** `fix/plan3-critical-bugs` (based on `master` at `3f8e7f2`, not yet merged)
+**HEAD:** `10cdc49` — "fix(server): correct misleading restart-recovery claim in settlement log"
 
 ## One-line summary
 
-All 10 planned tasks are implemented, tested, and individually reviewed. The final
-whole-branch review found 3 Critical + 8 Important bugs (a well-specified fix exists —
-see below — but has not yet been applied to the code). **The branch is not mergeable
-as-is.** The immediate next step is: apply the fix, verify, re-review, then open the PR.
+All 10 planned tasks are implemented and individually reviewed (merged to `master` on
+2026-08-18 with 3 known Critical bugs, by explicit deliberate decision to unblock a
+handoff). Those bugs are now fixed, in two review-and-fix rounds, both opus-tier
+re-reviewed. **The fix is Approved — 0 Critical, 0 Important findings remain.** The
+literal next step is opening the PR (`fix/plan3-critical-bugs` → `master`) and merging.
 
 ## What's done
 
 `packages/server` (a Socket.IO server wiring the already-merged `@poker-blackjack/game-engine`
 to real network connections, with local JSON-file persistence and crash recovery) is
-fully built across 10 tasks:
+fully built across 10 tasks — see `2026-08-17-local-server-progress-ledger.md` for that
+history — and merged to `master`.
 
-1. `PlayerStore` (balance persistence)
-2. `HandLog` (append-only crash-recovery log)
-3. `Table` seats/dealing (both games)
-4. `Table` actions/settlement
-5. Disconnect/reconnect with a grace window
-6. Crash recovery (`Table.recoverFromLog`)
-7. `Table.getStateForSeat` (per-viewer state projection, hole-card/dealer-card access control)
-8. Socket.IO wiring (`socketServer.ts`, `protocol.ts`, `index.ts`)
-9. Integration tests, happy path (both games, real socket.io-client connections)
-10. Integration tests, resilience (reconnect, disconnect-timeout, restart, crash recovery)
+### The fix (this document's main update)
 
-Every task went through at least one task-scoped review (spec compliance + code
-quality); several needed opus-tier review and multiple fix rounds because they touch
-timing/concurrency/crash-recovery logic. Full history — including three genuinely
-subtle bugs the team found and fixed mid-plan (a Blackjack double-payment gap, a
-Socket.IO join-handler seat-orphan race that could deadlock the whole table, and an
-unserialized hand-log write race) — is in
-`2026-08-17-local-server-progress-ledger.md` in this folder. That file is the complete,
-chronological record of every task, every review round, and every design decision;
-treat it as the definitive "why was it built this way" reference.
+The 2026-08-17 final whole-branch review found 3 Critical + 8 Important bugs (full
+detail: `2026-08-17-local-server-final-review.md`). The fix, designed in
+`2026-08-17-local-server-fix-spec.md`, was applied on 2026-08-21 across two rounds:
 
-Test baseline at HEAD: monorepo 199/199 (115 `game-engine` + 84 `server`), typecheck
-clean in both workspaces.
+- **Round 1** (5 commits, one per fix group): faithful transcription of all 5 groups —
+  both hard invariants (write-ahead marker ordering, synchronous `writeQueue`
+  reassignment) verified intact by the re-reviewer. But the re-review found **2 new
+  Critical + 2 new Important bugs the fix itself introduced or left open**:
+  `blackjackSettledSeats` leaking on a hand-start failure (silent skipped payout on a
+  later hand), Blackjack balances still going negative through an ordinary
+  double-down/split (the original C2 was only partially closed), an uncaught
+  write-ahead marker write reproducing the original brick, and a corrupted
+  `balances.json` being silently destroyed (not just tolerated) by the next write.
+- **Round 2** (3 commits): fixed all 4. Re-review verified each closed by reproducing it
+  against the round-1 code and confirming it no longer reproduces. **Approved.**
+
+One nuance worth knowing before reading the review history: round-1's "2 new
+Criticals" were actually one root cause (an uncaught throw escaping
+`settleBlackjackSeatIfNeeded`) surfacing as two symptoms depending on which caller
+reached it. See section H of `2026-08-17-local-server-carried-forward-findings.md` for
+the full reconciliation and the 12 new Minor findings from this fix round (none
+merge-blocking).
+
+Test baseline at HEAD: monorepo 236/236 (115 `game-engine` + 121 `server`, up from 199 at
+the original merge — +30 regression tests in round 1, +7 in round 2), typecheck clean in
+both workspaces.
 
 ## What's blocking merge
 
-The final whole-branch review (full text: `2026-08-17-local-server-final-review.md`)
-found 3 Critical bugs, none of which any of the 19 task-level review rounds caught,
-because each only becomes reachable once multiple tasks compose together:
+Nothing outstanding from the review process. The literal next step is opening the PR
+(`fix/plan3-critical-bugs` → `master`) via `superpowers:finishing-a-development-branch`,
+and getting the user's explicit go-ahead to merge (never auto-merged, per standing
+process).
 
-- **A 0-chip player permanently bricks the Hold'em table.** Normal outcome of an
-  all-in hand (the branch's own integration test proves it happens); nothing resets
-  `handInProgress` when `HoldemHand`'s constructor rejects a busted player, and every
-  recovery path then throws. Only a server restart clears it.
-- **Blackjack has no affordability check at all** — balances go unbounded negative,
-  silently, with no error.
-- **An unvalidated display name hits the JavaScript prototype chain** (`"constructor"`,
-  `"__proto__"`, etc. as a display name) and bricks the table the same way — reachable
-  from any unauthenticated browser tab given the server's open CORS policy, not just a
-  deliberately malicious client.
+Worth a skim before or shortly after merging:
+`2026-08-17-local-server-carried-forward-findings.md` — now 43 items (31 from the
+original 10 tasks + 12 new from this fix round), all independently triaged, none
+merge-blocking. A few (the `Table` teardown API, the Hold'em/Blackjack seat-index
+fidelity mismatch, the `activeHandIndex` cross-module coupling) are more
+architecturally significant than "Minor" implies.
 
-Plus 8 Important findings (durability gaps that can silently disable crash recovery or
-leave the table permanently stuck via a rejected disk write, and zero integration-level
-proof that hole-card access control actually holds over the real network). Full detail,
-including the exact empirical reproductions the reviewer used to prove each one, is in
-the final-review document.
+## Exact next steps
 
-**The fix for all of this is fully designed and ready to implement** —
-`2026-08-17-local-server-fix-spec.md` in this folder has the exact code for every
-change, grouped by shared root cause, plus the specific regression tests each one
-needs. It was dispatched to an implementer three times and failed all three times on
-Anthropic-side `529 Overloaded` infrastructure errors before any code was touched — so
-**nothing in the fix spec has been applied yet.** This is the literal next thing to do.
-
-Also worth reading before finishing this plan: `2026-08-17-local-server-carried-forward-findings.md`
-lists 31 additional Minor/deferred items the reviewers found across all 10 tasks and the
-final review — none block a merge, all were independently triaged, but they're worth a
-skim before or shortly after merging (a few, like the missing `Table` teardown API and
-a Hold'em/Blackjack seat-index inconsistency in recovery, are more architecturally
-significant than "Minor" implies and are flagged as such in that document).
-
-## Exact next steps to get this merged
-
-1. Implement `2026-08-17-local-server-fix-spec.md`'s 5 fix groups exactly as specified,
-   including all listed regression tests.
-2. Run the full verification checklist at the end of that document (server suite, full
-   monorepo, typecheck).
-3. Generate a review package for just the fix commit and get it reviewed — ideally
-   opus-tier, given the money-integrity/availability stakes. If continuing via Claude
-   Code with the `superpowers:subagent-driven-development` skill, the pattern used for
-   every one of this plan's fix rounds is in the progress ledger; it generalizes
-   directly.
-4. Once that review is clean (or only Minor findings remain), use
-   `superpowers:finishing-a-development-branch` (or just open a PR manually) —
-   `local-server` → `master`. Review the PR thoroughly before merging; this is a
-   sizeable branch (24 commits, ~all of `packages/server`) even before the fix commit
-   lands on top.
-5. After merge: Plans 1-3 are then all complete and merged. See "What's next after
-   Plan 3" below.
+1. Open a PR: `fix/plan3-critical-bugs` → `master`.
+2. Get explicit user go-ahead before merging (branch contains real behavioral changes
+   to money-handling code — do not merge on implicit authorization).
+3. After merge: Plans 1-3 are then all complete and merged. See "What's next after
+   Plan 3" below (unchanged from the prior version of this document).
 
 ## What's next after Plan 3 (for whoever picks this up)
 
@@ -106,7 +79,7 @@ original full-app vision spec that all 6 plans implement pieces of):
 - **Plan 1 — Blackjack engine** (`packages/game-engine`): done, merged to `master`.
 - **Plan 2 — Hold'em engine** (`packages/game-engine`): done, merged to `master`.
 - **Plan 3 — Local real-time server** (`packages/server`, this plan): implemented,
-  blocked on the fix above.
+  fixed, approved — pending PR/merge.
 - **Plan 4 — Frontend.** Not started. The first plan where a human actually clicks
   through a hand — everything so far is proven only by scripted `socket.io-client`
   tests. Will consume the Socket.IO protocol Plan 3 defines (`join`/`ready`/`action`/

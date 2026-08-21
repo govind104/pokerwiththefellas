@@ -129,6 +129,34 @@ describe('socketServer', () => {
     expect(bobGotError).toBe(true);
     expect(aliceGotError).toBe(false);
   });
+
+  it.each([
+    ['an empty string', ''],
+    ['a whitespace-only string', '   '],
+    ['a non-string value', 42],
+    ['null', null],
+    ['a name longer than the 32-character bound', 'x'.repeat(33)],
+  ])('rejects a join whose displayName is %s without consuming a seat', async (_label, displayName) => {
+    // Defense in depth at the network boundary: the design spec requires
+    // malformed socket payloads to be rejected before reaching the engine at
+    // all. Pre-fix, any value at all was passed straight through to
+    // table.reconnect()/table.join() and became a seated player's identity.
+    const socket = connect();
+    const errorPromise = waitForEvent<{ message: string }>(socket, 'error');
+    socket.emit('join', { displayName } as never);
+    const err = await errorPromise;
+    expect(err.message).toBe('Invalid display name');
+    // No seat was consumed -- the payload never reached the Table at all.
+    expect(server.table.seats.every((s) => s === null)).toBe(true);
+  });
+
+  it('rejects a join with a missing payload instead of throwing in the handler', async () => {
+    const socket = connect();
+    const errorPromise = waitForEvent<{ message: string }>(socket, 'error');
+    socket.emit('join', undefined as never);
+    const err = await errorPromise;
+    expect(err.message).toBe('Invalid display name');
+  });
 });
 
 // Test-local fake used only by the seat-orphan regression tests below. Same
