@@ -1470,6 +1470,82 @@ describe('Table.recoverFromLog', () => {
     // never start.
     await expect(handLog.readAll()).resolves.toEqual([]);
   });
+
+  it("discards a Hold'em log rather than replaying it into a Blackjack-configured table (I3)", async () => {
+    // A restart reconfigured to the other game mode finds the previous mode's
+    // log still on disk. Pre-fix the branch matched on entry type alone, so a
+    // Blackjack table happily replayed a Hold'em hand -- seating players and
+    // setting handInProgress against a mode that has no way to act on it.
+    const { table, handLog } = makeTable({ gameMode: 'blackjack' });
+    const { createDeck, shuffle } = await import('@poker-blackjack/game-engine');
+    await handLog.append({
+      type: 'holdem_hand_started',
+      data: {
+        players: [
+          { playerId: 'alice', stack: 1000 },
+          { playerId: 'bob', stack: 1000 },
+        ],
+        config: { smallBlind: 5, bigBlind: 10, buttonIndex: 0, deck: shuffle(createDeck(), Math.random) },
+      },
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await table.recoverFromLog();
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.holdemHand).toBeNull();
+    expect(table.blackjackRounds.size).toBe(0);
+    expect(table.seats.every((s) => s === null)).toBe(true);
+    // Cleared, not left in place: otherwise the mismatched entry would poison
+    // every future boot permanently -- this failure mode survives a restart.
+    await expect(handLog.readAll()).resolves.toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("discards a Blackjack log rather than replaying it into a Hold'em-configured table (I3)", async () => {
+    const { table, handLog } = makeTable({ gameMode: 'holdem' });
+    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
+    await handLog.append({
+      type: 'blackjack_hand_started',
+      data: {
+        rounds: [
+          {
+            seatIndex: 0,
+            displayName: 'alice',
+            initialBet: 25,
+            shoe: [card('5', 'clubs'), card('6', 'clubs'), card('7', 'hearts'), card('8', 'hearts'), card('2', 'spades')],
+          },
+        ],
+      },
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await table.recoverFromLog();
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.blackjackRounds.size).toBe(0);
+    expect(table.seats.every((s) => s === null)).toBe(true);
+    await expect(handLog.readAll()).resolves.toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('discards a log whose first entry is an unrecognized type instead of leaving it to poison every boot (I4)', async () => {
+    const { table, handLog } = makeTable();
+    handLog.entries.push({ type: 'some_future_entry_type', data: { anything: true } });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await table.recoverFromLog();
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats.every((s) => s === null)).toBe(true);
+    // Pre-fix this fell through the if/else-if with no else: nothing replayed,
+    // and critically nothing cleared, so the same entry re-ran forever.
+    await expect(handLog.readAll()).resolves.toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
 });
 
 describe('Table.getStateForSeat', () => {

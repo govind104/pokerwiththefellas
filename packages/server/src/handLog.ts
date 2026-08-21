@@ -47,13 +47,39 @@ export class JsonlHandLog implements HandLog {
       }
       throw err;
     }
-    return raw
-      .split('\n')
-      .filter((line) => line.trim().length > 0)
-      .map((line) => JSON.parse(line) as HandLogEntry);
+    const lines = raw.split('\n').filter((line) => line.trim().length > 0);
+    const entries: HandLogEntry[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      try {
+        entries.push(JSON.parse(lines[i]) as HandLogEntry);
+      } catch (err) {
+        // A torn *trailing* line is the canonical artifact of a crash
+        // mid-appendFile, and dropping it loses at most the single in-flight
+        // action the design spec already allows for. A malformed *interior*
+        // line is not that -- it means genuine corruption of data that was
+        // fully written, so replaying around it would silently reconstruct a
+        // different hand than the one that was played. That still throws.
+        if (i !== lines.length - 1) {
+          throw err;
+        }
+        console.warn(
+          `JsonlHandLog: dropping unparseable trailing line in ${this.filePath} (likely a torn crash-time write):`,
+          err
+        );
+      }
+    }
+    return entries;
   }
 
-  async clear(): Promise<void> {
-    await writeFile(this.filePath, '', 'utf-8');
+  // Deliberately not `async`, and deliberately no `await this.writeQueue`:
+  // the reassignment below must be synchronous for exactly the reason
+  // append()'s comment explains. A clear() that bypassed the queue (as this
+  // one used to) could truncate the file out from under an append for the
+  // *next* hand -- the hand log's `hand_started` entry silently vanishing
+  // because the previous hand's settlement clear landed late.
+  clear(): Promise<void> {
+    const write = this.writeQueue.then(() => writeFile(this.filePath, '', 'utf-8'));
+    this.writeQueue = write.catch(() => {});
+    return write;
   }
 }

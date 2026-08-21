@@ -509,7 +509,7 @@ export class Table {
       }
       const [started, ...rest] = entries;
 
-      if (started.type === 'holdem_hand_started') {
+      if (started.type === 'holdem_hand_started' && this.config.gameMode === 'holdem') {
         const { players, config } = started.data as {
           players: HoldemPlayerInput[];
           config: HoldemHandConfig;
@@ -541,7 +541,7 @@ export class Table {
         }
         this.holdemHand = hand;
         this.handInProgress = true;
-      } else if (started.type === 'blackjack_hand_started') {
+      } else if (started.type === 'blackjack_hand_started' && this.config.gameMode === 'blackjack') {
         const { rounds } = started.data as {
           rounds: { seatIndex: number; displayName: string; initialBet: number; shoe: Card[] }[];
         };
@@ -573,6 +573,17 @@ export class Table {
         this.activeSeatIndex = rounds[0].seatIndex;
         this.handInProgress = true;
         await this.advancePastSettledBlackjackRounds();
+      } else {
+        // Without this branch, an unrecognized entry type -- or a log written
+        // by the other game mode after a reconfigured restart -- fell through
+        // silently, replaying nothing AND never clearing the log, so the same
+        // stale entry poisoned every future boot permanently.
+        console.warn(
+          `Table: hand log's first entry (type "${started.type}") is not a recognized, mode-appropriate ` +
+          `hand start for gameMode "${this.config.gameMode}" -- discarding it.`
+        );
+        await this.deps.handLog.clear();
+        return;
       }
 
       for (const seat of this.seats) {
