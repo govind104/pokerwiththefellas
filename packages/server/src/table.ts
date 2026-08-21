@@ -167,11 +167,28 @@ export class Table {
     await this.startHandIfEveryoneReady();
   }
 
+  // A seat that cannot afford to be dealt in is excluded from the hand
+  // entirely: it is not counted toward the "at least 2 players" threshold, it
+  // does not have to be `ready` for a hand to start, and it is not passed to
+  // startHand. It stays visibly connected and seated rather than being kicked
+  // -- "effectively out for the session", per the design spec. Without this,
+  // a 0-stack Hold'em player made HoldemHand's constructor throw on every
+  // start attempt, permanently bricking the table, and Blackjack had no
+  // affordability check at all.
+  private eligibleSeatsForHand(): Seat[] {
+    return this.seats.filter((s): s is Seat => {
+      if (s === null || !s.connected) {
+        return false;
+      }
+      return this.config.gameMode === 'holdem' ? s.balance > 0 : s.balance >= this.config.blackjackDefaultBet;
+    });
+  }
+
   private async startHandIfEveryoneReady(): Promise<void> {
-    const connectedSeats = this.seats.filter((s): s is Seat => s !== null && s.connected);
-    const allReady = connectedSeats.length >= 2 && connectedSeats.every((s) => s.ready);
+    const eligibleSeats = this.eligibleSeatsForHand();
+    const allReady = eligibleSeats.length >= 2 && eligibleSeats.every((s) => s.ready);
     if (allReady && !this.handInProgress) {
-      await this.startHand(connectedSeats);
+      await this.startHand(eligibleSeats);
     }
   }
 
@@ -212,6 +229,15 @@ export class Table {
     this.timedOutSeats.delete(seat.seatIndex);
     seat.connected = true;
     this.deps.onStateChange();
+
+    // A seat that was already `ready` before it dropped comes back still
+    // `ready`, so reconnecting can be the event that completes the ready gate.
+    // Without re-checking here, both seats can show connected+ready with no
+    // hand in progress and nothing left to trigger one -- a real deadlock.
+    this.startHandIfEveryoneReady().catch((err) => {
+      console.error(`Table: error starting hand after seat ${seat.seatIndex} reconnected:`, err);
+    });
+
     return seat.seatIndex;
   }
 
@@ -271,41 +297,61 @@ export class Table {
     this.lastSettledHoldemHand = null;
     this.lastSettledBlackjackRounds = null;
 
-    if (this.config.gameMode === 'holdem') {
-      this.buttonSeatIndex = this.nextButtonSeatIndex(seatedSeats);
-      const buttonIndex = seatedSeats.findIndex((s) => s.seatIndex === this.buttonSeatIndex);
+    // Independent safety net, on top of eligibleSeatsForHand() already
+    // removing the one known cause of a throw here: any failure to construct
+    // or log a hand must not leave `handInProgress` stuck true, which would
+    // make every subsequent submitAction/leave throw forever.
+    try {
+      if (this.config.gameMode === 'holdem') {
+        this.buttonSeatIndex = this.nextButtonSeatIndex(seatedSeats);
+        const buttonIndex = seatedSeats.findIndex((s) => s.seatIndex === this.buttonSeatIndex);
 
-      const players: HoldemPlayerInput[] = seatedSeats.map((s) => ({
-        playerId: s.displayName,
-        stack: s.balance,
-      }));
-      const holdemConfig: HoldemHandConfig = {
-        smallBlind: this.config.smallBlind,
-        bigBlind: this.config.bigBlind,
-        buttonIndex,
-        deck: this.buildShuffledDeck(1),
-      };
+        const players: HoldemPlayerInput[] = seatedSeats.map((s) => ({
+          playerId: s.displayName,
+          stack: s.balance,
+        }));
+        const holdemConfig: HoldemHandConfig = {
+          smallBlind: this.config.smallBlind,
+          bigBlind: this.config.bigBlind,
+          buttonIndex,
+          deck: this.buildShuffledDeck(1),
+        };
 
-      await this.deps.handLog.append({
-        type: 'holdem_hand_started',
-        data: { players, config: holdemConfig },
-      });
-      this.holdemHand = new HoldemHand(players, holdemConfig);
-      this.holdemSettled = false;
-    } else {
-      const rounds = seatedSeats.map((s) => ({
-        seatIndex: s.seatIndex,
-        displayName: s.displayName,
-        initialBet: this.config.blackjackDefaultBet,
-        shoe: this.buildShuffledDeck(6),
-      }));
+        await this.deps.handLog.append({
+          type: 'holdem_hand_started',
+          data: { players, config: holdemConfig },
+        });
+        this.holdemHand = new HoldemHand(players, holdemConfig);
+        this.holdemSettled = false;
+      } else {
+        const rounds = seatedSeats.map((s) => ({
+          seatIndex: s.seatIndex,
+          displayName: s.displayName,
+          initialBet: this.config.blackjackDefaultBet,
+          shoe: this.buildShuffledDeck(6),
+        }));
 
-      await this.deps.handLog.append({ type: 'blackjack_hand_started', data: { rounds } });
-      this.blackjackRounds = new Map(
-        rounds.map((r) => [r.seatIndex, new BlackjackRound(r.initialBet, { shoe: r.shoe })])
-      );
-      this.activeSeatIndex = rounds[0].seatIndex;
-      await this.advancePastSettledBlackjackRounds();
+        await this.deps.handLog.append({ type: 'blackjack_hand_started', data: { rounds } });
+        this.blackjackRounds = new Map(
+          rounds.map((r) => [r.seatIndex, new BlackjackRound(r.initialBet, { shoe: r.shoe })])
+        );
+        this.activeSeatIndex = rounds[0].seatIndex;
+        await this.advancePastSettledBlackjackRounds();
+      }
+    } catch (err) {
+      console.error('Table: failed to start hand, reverting to no hand in progress:', err);
+      this.handInProgress = false;
+      this.holdemHand = null;
+      this.blackjackRounds = new Map();
+      this.activeSeatIndex = null;
+      try {
+        await this.deps.handLog.clear();
+      } catch (clearErr) {
+        console.error('Table: failed to clear hand log after a failed hand start:', clearErr);
+      }
+      // No broadcast: nothing observable changed from any connected client's
+      // perspective, and no broadcast happened during the failed attempt either.
+      return;
     }
 
     this.deps.onStateChange();
@@ -365,20 +411,37 @@ export class Table {
       return;
     }
     this.holdemSettled = true;
-    for (const result of hand.results) {
-      const seat = this.seats.find((s) => s?.displayName === result.playerId);
-      if (seat) {
-        seat.balance += result.payout;
-        await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
+    // The in-memory balance is always updated; only the durable write is
+    // best-effort per player (self-correcting on the next successful write).
+    // A rejection here used to propagate out of settleHoldem with
+    // `holdemSettled` already true but `handInProgress` still true and the
+    // hand settled-but-non-null -- bricking every later submitAction/leave.
+    // The `finally` guarantees the state transition regardless, and the
+    // per-player catch keeps one failed write from skipping the others.
+    try {
+      for (const result of hand.results) {
+        const seat = this.seats.find((s) => s?.displayName === result.playerId);
+        if (seat) {
+          seat.balance += result.payout;
+          try {
+            await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
+          } catch (err) {
+            console.error(
+              `Table: failed to persist balance for ${seat.displayName} after Hold'em settlement (will retry on next successful write):`,
+              err
+            );
+          }
+        }
       }
+    } finally {
+      this.handInProgress = false;
+      this.lastSettledHoldemHand = hand;
+      this.holdemHand = null;
+      for (const seat of this.seats) {
+        if (seat) seat.ready = false;
+      }
+      this.timedOutSeats.clear();
     }
-    this.handInProgress = false;
-    this.lastSettledHoldemHand = hand;
-    this.holdemHand = null;
-    for (const seat of this.seats) {
-      if (seat) seat.ready = false;
-    }
-    this.timedOutSeats.clear();
     await this.deps.handLog.clear();
   }
 
@@ -394,8 +457,22 @@ export class Table {
     const seat = this.seats[seatIndex]!;
     const totalPayout = round.results.reduce((sum, r) => sum + r.payout, 0);
     seat.balance += totalPayout;
+    // Write-ahead marker BEFORE the balance write: a crash between the two
+    // durable writes must leave a recoverable "lost payout", never a
+    // re-payable "double payout". Do not reorder these.
     await this.deps.handLog.append({ type: 'blackjack_seat_settled', data: { seatIndex } });
-    await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
+    // Best-effort durable write, same rationale as settleHoldem: a rejection
+    // here used to propagate out through advancePastSettledBlackjackRounds,
+    // leaving activeSeatIndex pinned to an already-'settled' round and
+    // handInProgress stuck true forever.
+    try {
+      await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
+    } catch (err) {
+      console.error(
+        `Table: failed to persist balance for seat ${seatIndex} after Blackjack settlement (will retry on next successful write):`,
+        err
+      );
+    }
   }
 
   private async advancePastSettledBlackjackRounds(): Promise<void> {

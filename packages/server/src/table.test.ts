@@ -109,6 +109,28 @@ class ControllablePlayerStore implements PlayerStore {
   }
 }
 
+// Test-local fake whose setBalance can be made to reject for specific display
+// names, and which records every setBalance call it was asked to make
+// (including the ones it then rejected). Used by the settlement-resilience
+// tests below to prove that one player's failed durable write neither skips
+// another player's write nor leaves the table stuck mid-hand.
+class FlakyPlayerStore implements PlayerStore {
+  private balances = new Map<string, number>();
+  rejectSetBalanceFor = new Set<string>();
+  setBalanceCalls: Array<{ displayName: string; balance: number }> = [];
+  constructor(private readonly defaultBalance: number) {}
+  async getBalance(displayName: string): Promise<number> {
+    return this.balances.get(displayName) ?? this.defaultBalance;
+  }
+  async setBalance(displayName: string, balance: number): Promise<void> {
+    this.setBalanceCalls.push({ displayName, balance });
+    if (this.rejectSetBalanceFor.has(displayName)) {
+      throw new Error(`simulated persist failure for ${displayName}`);
+    }
+    this.balances.set(displayName, balance);
+  }
+}
+
 // Deterministic, reproducible default in place of Math.random: a real
 // shuffle has a ~4.75% chance of dealing a natural blackjack to seat 0, which
 // settles it instantly and advances play past it, flaking any test that
@@ -887,6 +909,235 @@ describe("Table Hold'em settlement concurrency guard (C2)", () => {
     expect(bobFinal).toBe(bobAfterCall2);
     expect(table.handInProgress).toBe(false);
     expect(table.holdemHand).toBeNull();
+  });
+});
+
+describe('Table hand eligibility (C1/C2)', () => {
+  it("excludes a 0-balance Hold'em seat from the hand instead of bricking the table", async () => {
+    // Pre-fix, carol was passed to HoldemHand with stack 0, whose constructor
+    // throws -- and because handInProgress was already true by then, the throw
+    // escaped setReady and left the table permanently unable to start, act, or
+    // let anyone leave. She must simply not be dealt in.
+    const { table, playerStore } = makeTable();
+    await playerStore.setBalance('carol', 0);
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+
+    // carol readies first, so if she were still counted the "everyone ready"
+    // gate would be satisfied by all three and she would be dealt in.
+    await table.setReady(2);
+    await table.setReady(0);
+    await table.setReady(1);
+
+    expect(table.handInProgress).toBe(true);
+    expect(table.holdemHand!.players.map((p) => p.playerId).sort()).toEqual(['alice', 'bob']);
+    // Not kicked -- still seated and visibly connected, just out of the hand.
+    expect(table.seats[2]?.displayName).toBe('carol');
+    expect(table.seats[2]?.connected).toBe(true);
+    expect(table.seats[2]?.balance).toBe(0);
+  });
+
+  it("simply never starts a hand when only one of two Hold'em seats can afford to play", async () => {
+    const { table, playerStore } = makeTable();
+    await playerStore.setBalance('bob', 0);
+    await table.join('alice');
+    await table.join('bob');
+
+    await table.setReady(0);
+    await table.setReady(1);
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.holdemHand).toBeNull();
+    // And the table is not bricked: with no hand in progress, leave() works.
+    expect(() => table.leave(0)).not.toThrow();
+  });
+
+  it('excludes a Blackjack seat that cannot cover the default bet', async () => {
+    // Blackjack had no affordability check at all pre-fix: carol was dealt in
+    // and settled against a bet she could not cover, driving her balance
+    // negative.
+    const { table, playerStore } = makeTable({ gameMode: 'blackjack', blackjackDefaultBet: 25 });
+    await playerStore.setBalance('carol', 20);
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+
+    await table.setReady(2);
+    await table.setReady(0);
+    await table.setReady(1);
+
+    expect(table.handInProgress).toBe(true);
+    expect(table.blackjackRounds.size).toBe(2);
+    expect(table.blackjackRounds.has(2)).toBe(false);
+
+    // Play the hand out; carol's balance must be untouched by a hand she was
+    // never dealt into, and certainly never negative.
+    await table.submitAction(0, 'stand');
+    await table.submitAction(1, 'stand');
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats[2]?.balance).toBe(20);
+    await expect(playerStore.getBalance('carol')).resolves.toBe(20);
+    for (const seat of table.seats) {
+      if (seat) expect(seat.balance).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('treats a Blackjack balance exactly equal to the default bet as eligible', async () => {
+    // The affordability bound is `>=`, not `>`: a player with exactly one
+    // bet left is still allowed to play it.
+    const { table, playerStore } = makeTable({ gameMode: 'blackjack', blackjackDefaultBet: 25 });
+    await playerStore.setBalance('bob', 25);
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    expect(table.handInProgress).toBe(true);
+    expect(table.blackjackRounds.has(1)).toBe(true);
+  });
+});
+
+describe('Table reconnect re-checks the ready gate (I1)', () => {
+  it('starts a hand on reconnect when the returning seat was already ready', async () => {
+    // Pre-fix deadlock: bob readies, drops, and comes back still flagged
+    // ready. Both seats then show connected+ready with no hand in progress,
+    // and nothing is left to trigger one -- no client message changes that.
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+
+    await table.setReady(1);
+    table.disconnect(1);
+    await table.setReady(0);
+    expect(table.handInProgress).toBe(false); // bob is away; only one eligible seat
+
+    expect(table.reconnect('bob')).toBe(1);
+    await wait(0); // reconnect fires the ready-gate re-check without awaiting it
+
+    expect(table.handInProgress).toBe(true);
+    expect(table.holdemHand).not.toBeNull();
+  });
+});
+
+describe('Table startHand failure safety net (C1 residual)', () => {
+  it('reverts to no-hand-in-progress and clears the log when starting a hand throws', async () => {
+    const { table, handLog } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+
+    // A hand-start failure unrelated to the now-filtered 0-balance case: the
+    // durable write of the hand's opening entry rejects. Pre-fix this escaped
+    // startHand with handInProgress already true, bricking the table.
+    const appendSpy = vi.spyOn(handLog, 'append').mockRejectedValue(new Error('simulated disk failure'));
+    const clearSpy = vi.spyOn(handLog, 'clear');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await table.setReady(0);
+    await expect(table.setReady(1)).resolves.toBeUndefined();
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.holdemHand).toBeNull();
+    expect(table.activeSeatIndex).toBeNull();
+    expect(table.blackjackRounds.size).toBe(0);
+    expect(clearSpy).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+
+    appendSpy.mockRestore();
+    errorSpy.mockRestore();
+
+    // The table is genuinely usable again, not just superficially reset.
+    await table.setReady(0);
+    expect(table.handInProgress).toBe(true);
+  });
+});
+
+describe('Table settlement survives a rejected balance write (I6)', () => {
+  function makeFlakyTable(overrides: Partial<TableConfig> = {}) {
+    const config: TableConfig = {
+      gameMode: 'holdem',
+      seatCount: 8,
+      smallBlind: 5,
+      bigBlind: 10,
+      blackjackDefaultBet: 25,
+      defaultStartingBalance: 1000,
+      reconnectGraceMs: 50,
+      random: makeDeterministicRandom(2),
+      ...overrides,
+    };
+    const playerStore = new FlakyPlayerStore(config.defaultStartingBalance);
+    const handLog = new FakeHandLog();
+    const table = new Table(config, { playerStore, handLog, onStateChange: () => {} });
+    return { table, playerStore, handLog };
+  }
+
+  it("Hold'em: one player's failed persist blocks neither the other player's write nor the table", async () => {
+    const { table, playerStore, handLog } = makeFlakyTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    playerStore.rejectSetBalanceFor.add('alice');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    // Heads-up: alice (button) acts first preflop; folding settles the hand.
+    await expect(table.submitAction(0, 'fold')).resolves.toBeUndefined();
+
+    // Both writes were attempted regardless of which one the results loop
+    // reached first -- the rejection did not abort the loop.
+    const attempted = playerStore.setBalanceCalls.map((c) => c.displayName);
+    expect(attempted).toContain('alice');
+    expect(attempted).toContain('bob');
+    // bob's durable write still landed.
+    await expect(playerStore.getBalance('bob')).resolves.toBe(1005);
+    // alice's did not, but her in-memory balance is still correct and
+    // self-corrects on the next successful write.
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
+    expect(table.seats[0]?.balance).toBe(995);
+
+    // The table completed its state transition instead of sticking mid-hand.
+    expect(table.handInProgress).toBe(false);
+    expect(table.holdemHand).toBeNull();
+    expect(table.seats.every((s) => s === null || !s.ready)).toBe(true);
+    await expect(handLog.readAll()).resolves.toEqual([]);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+
+    // ...and can start the next hand.
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(true);
+  });
+
+  it('Blackjack: a failed persist does not pin activeSeatIndex to an already-settled round', async () => {
+    const { table, playerStore } = makeFlakyTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    playerStore.rejectSetBalanceFor.add('alice');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(table.submitAction(0, 'stand')).resolves.toBeUndefined();
+    // Pre-fix, the rejection propagated out of
+    // advancePastSettledBlackjackRounds' while-loop, leaving activeSeatIndex
+    // stuck on seat 0 whose round is already 'settled' -- so every further
+    // action on it threw and the hand could never finish.
+    expect(table.activeSeatIndex).toBe(1);
+
+    await expect(table.submitAction(1, 'stand')).resolves.toBeUndefined();
+    expect(table.handInProgress).toBe(false);
+    expect(table.blackjackRounds.size).toBe(0);
+
+    // bob's seat settled and persisted normally despite alice's failure.
+    expect(playerStore.setBalanceCalls.map((c) => c.displayName)).toContain('bob');
+    await expect(playerStore.getBalance('bob')).resolves.toBe(table.seats[1]!.balance);
+    // alice's durable write never landed; her in-memory balance is authoritative.
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });
 
