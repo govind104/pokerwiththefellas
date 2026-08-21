@@ -22,6 +22,17 @@ let originalServerUrl: string | undefined;
 let App: typeof AppComponent;
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
+// Same generator as packages/server/src/integration.test.ts's own
+// makeDeterministicRandom (that file isn't exported from, so reimplemented
+// here rather than reaching into its internals).
+function makeDeterministicRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state * 1103515245 + 12345) % 2147483648;
+    return state / 2147483648;
+  };
+}
+
 beforeEach(async () => {
   // Alice's socket receives real, independent server broadcasts (her own
   // join response, and later bob's join/ready) that update SocketProvider's
@@ -49,7 +60,22 @@ beforeEach(async () => {
     blackjackDefaultBet: 25,
     defaultStartingBalance: 1000,
     reconnectGraceMs: 120_000,
-    random: Math.random,
+    // NOT Math.random: Table.startHand deals blackjack seat-by-seat in seat
+    // order (alice/seat 0 first), and BlackjackRound gives any two-card 21
+    // `done: true` at construction, auto-settling the round before any
+    // action. Once settled, Table's state view reveals the FULL dealer hand
+    // instead of just the upcard (see packages/server/src/table.ts around
+    // getStateForSeat's blackjack branch), which would make this test's
+    // `dealer-hand` assertion below (expects exactly 1 card, i.e. upcard
+    // only) fail on the ~1-in-20 hands where alice is dealt a natural. Seed 2
+    // is verified (via a standalone script replaying Table.startHand's exact
+    // buildShuffledDeck(6)-per-seat-in-order sequence against this test's own
+    // config) to deal alice a 14 and bob a 19 -- neither a natural blackjack
+    // -- so the round for seat 0 stays in 'playing' phase and only the
+    // upcard is exposed, matching what this test asserts. This mirrors
+    // packages/server/src/integration.test.ts's own reason for using a
+    // seeded RNG instead of Math.random in its Blackjack test.
+    random: makeDeterministicRandom(2),
   };
   const playerStore = new JsonPlayerStore(join(tmpDir, 'balances.json'), config.defaultStartingBalance);
   const handLog = new JsonlHandLog(join(tmpDir, 'hand.jsonl'));
