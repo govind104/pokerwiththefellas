@@ -343,6 +343,12 @@ export class Table {
       this.handInProgress = false;
       this.holdemHand = null;
       this.blackjackRounds = new Map();
+      // Must be reset alongside the rounds themselves: advancePastSettledBlackjackRounds
+      // runs inside the try above, and settleBlackjackSeatIfNeeded adds a seat to this
+      // set *before* its durable writes. A stale entry surviving into a later, unrelated
+      // hand makes that seat's settlement early-return -- silently skipping its entire
+      // payout with no error and no log.
+      this.blackjackSettledSeats = new Set();
       this.activeSeatIndex = null;
       try {
         await this.deps.handLog.clear();
@@ -388,6 +394,7 @@ export class Table {
         throw new Error(`It is not seat ${seatIndex}'s turn`);
       }
       const round = this.blackjackRounds.get(seatIndex)!;
+      this.assertCanAffordBlackjackAction(seat, round, action as PlayerAction);
       round.act(action as PlayerAction);
       await this.deps.handLog.append({ type: 'blackjack_action', data: { seatIndex, action } });
       await this.advancePastSettledBlackjackRounds();
@@ -403,6 +410,45 @@ export class Table {
       if (nextSeatIndex !== undefined && nextSeatIndex !== null) {
         await this.autoActIfSeatIsUpAndTimedOut(nextSeatIndex);
       }
+    }
+  }
+
+  // eligibleSeatsForHand() only gates the *initial* bet. `double` and `split`
+  // each raise a seat's exposure by the active hand's current bet on top of
+  // whatever is already at risk -- and via split-then-double-both-hands that
+  // reaches 4x the default bet. Blackjack payouts are net (the balance is only
+  // touched at settlement), so total exposure is the seat's worst-case loss:
+  // allowing an action the balance can't cover is what let a settled seat go
+  // negative and persist a negative balance, contradicting the design spec's
+  // "a player whose balance reaches 0 can't place a bet".
+  //
+  // Rejected before round.act(), so an unaffordable action leaves the round
+  // completely unchanged and nothing is written to the hand log -- the same
+  // shape as the engine's own illegal-action rejections.
+  private assertCanAffordBlackjackAction(
+    seat: Seat,
+    round: BlackjackRound,
+    action: PlayerAction
+  ): void {
+    if (action !== 'double' && action !== 'split') {
+      return;
+    }
+    // The engine's activeHandIndex is private, but it always points at the
+    // first not-yet-done hand: advanceIfNeeded() only ever moves it forward
+    // past done hands, a done hand never becomes undone, and split inserts
+    // its new hand *after* the active index.
+    const activeHand = round.playerHands.find((h) => !h.done);
+    if (!activeHand) {
+      return; // Round is finished; round.act() will reject on its own.
+    }
+    const currentExposure = round.playerHands.reduce((sum, h) => sum + h.bet, 0);
+    // Both actions add exactly the active hand's current bet: `double` doubles
+    // that hand's bet, `split` opens a second hand at the same bet.
+    const requiredExposure = currentExposure + activeHand.bet;
+    if (seat.balance < requiredExposure) {
+      throw new Error(
+        `Insufficient balance to ${action}: ${seat.displayName} has ${seat.balance} but would risk ${requiredExposure}`
+      );
     }
   }
 
@@ -482,7 +528,22 @@ export class Table {
       if (round.phase !== 'settled') {
         return;
       }
-      await this.settleBlackjackSeatIfNeeded(this.activeSeatIndex);
+      // Caught here rather than inside settleBlackjackSeatIfNeeded on purpose.
+      // The write-ahead marker append must NOT be swallowed down there: if it
+      // fails, the setBalance after it has to be skipped, or a crash would
+      // leave a persisted payout with no marker and recovery would pay it
+      // twice. But that throw must not escape this loop either -- it would
+      // leave activeSeatIndex pinned to an already-'settled' round, so every
+      // later submitAction/leave throws and the hand can never finish. So:
+      // let the settlement abort, log loudly, and still advance.
+      try {
+        await this.settleBlackjackSeatIfNeeded(this.activeSeatIndex);
+      } catch (err) {
+        console.error(
+          `Table: failed to settle Blackjack seat ${this.activeSeatIndex}; advancing past it so the hand can still finish (a restart will recover the payout):`,
+          err
+        );
+      }
       const pos = dealtSeatIndices.indexOf(this.activeSeatIndex);
       this.activeSeatIndex = dealtSeatIndices[pos + 1] ?? null;
     }
