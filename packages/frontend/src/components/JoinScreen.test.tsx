@@ -50,4 +50,16 @@ describe('JoinScreen', () => {
     renderWithContext({ errorMessage: 'Invalid display name' });
     expect(screen.getByRole('alert')).toHaveTextContent('Invalid display name');
   });
+
+  it('links the error message to the display name input via aria-describedby', () => {
+    renderWithContext({ errorMessage: 'Invalid display name' });
+    const input = screen.getByLabelText(/display name/i);
+    const alert = screen.getByRole('alert');
+    expect(input).toHaveAttribute('aria-describedby', alert.id);
+  });
+
+  it('does not set aria-describedby when there is no error', () => {
+    renderWithContext();
+    expect(screen.getByLabelText(/display name/i)).not.toHaveAttribute('aria-describedby');
+  });
 });

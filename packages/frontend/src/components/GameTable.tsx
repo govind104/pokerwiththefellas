@@ -8,6 +8,7 @@ export interface GameTableProps {
   mySeatIndex: number | null;
   connectionStatus: ConnectionStatus;
   handInProgress: boolean;
+  errorMessage?: string | null;
   onReady: () => void;
   onLeave: () => void;
   seatContent?: Partial<Record<number, ReactNode>>;
@@ -20,6 +21,7 @@ export function GameTable({
   mySeatIndex,
   connectionStatus,
   handInProgress,
+  errorMessage,
   onReady,
   onLeave,
   seatContent,
@@ -29,11 +31,18 @@ export function GameTable({
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center bg-emerald-900 p-8 text-white">
-      {connectionStatus === 'reconnecting' && (
-        <div role="status" className="absolute top-4 rounded-md bg-amber-600 px-4 py-2 font-medium">
-          Reconnecting…
-        </div>
-      )}
+      <div className="absolute top-4 flex flex-col items-center gap-2">
+        {connectionStatus === 'reconnecting' && (
+          <div role="status" className="rounded-md bg-amber-600 px-4 py-2 font-medium">
+            Reconnecting…
+          </div>
+        )}
+        {errorMessage && (
+          <div role="alert" className="rounded-md bg-red-600 px-4 py-2 font-medium">
+            {errorMessage}
+          </div>
+        )}
+      </div>
       <div className="relative flex h-[28rem] w-[36rem] items-center justify-center rounded-full border-4 border-emerald-700 bg-emerald-800">
         {seats.map((seat, i) => {
           const angle = (i / seats.length) * 2 * Math.PI;
@@ -67,9 +76,11 @@ export function GameTable({
           Ready
         </button>
       )}
-      <button onClick={onLeave} className="mt-2 text-sm text-slate-300 underline">
-        Leave table
-      </button>
+      {!handInProgress && (
+        <button onClick={onLeave} className="mt-2 text-sm text-slate-300 underline">
+          Leave table
+        </button>
+      )}
     </div>
   );
 }

@@ -6,18 +6,20 @@ import { BlackjackTable } from './components/BlackjackTable';
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:3000';
 
 function AppContent() {
-  const { status, state, displayName, sendReady, sendAction, leave } = useSocket();
+  const { status, state, errorMessage, displayName, sendReady, sendAction, leave } = useSocket();
 
   if (!state || status === 'entering-name' || status === 'connecting' || status === 'error') {
     return <JoinScreen />;
   }
 
-  const mySeatIndex = state.seats.find((s) => s.displayName === displayName)?.seatIndex ?? null;
+  const mySeatIndex =
+    state.seats.find((s) => s.displayName !== null && s.displayName === displayName)?.seatIndex ?? null;
   const sharedProps = {
     seats: state.seats,
     mySeatIndex,
     connectionStatus: status,
     handInProgress: state.handInProgress,
+    errorMessage,
     onReady: sendReady,
     onLeave: leave,
   };

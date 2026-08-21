@@ -48,6 +48,33 @@ describe('GameTable', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/reconnecting/i);
   });
 
+  it('shows an error banner only when an errorMessage is provided', () => {
+    const { rerender } = render(<GameTable {...baseProps}>{null}</GameTable>);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    rerender(
+      <GameTable {...baseProps} errorMessage="It is not alice's turn">
+        {null}
+      </GameTable>
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent("It is not alice's turn");
+  });
+
+  it('hides the Leave table button while a hand is in progress, and shows it otherwise', () => {
+    const { rerender } = render(
+      <GameTable {...baseProps} handInProgress={true}>
+        {null}
+      </GameTable>
+    );
+    expect(screen.queryByRole('button', { name: /leave table/i })).not.toBeInTheDocument();
+
+    rerender(
+      <GameTable {...baseProps} handInProgress={false}>
+        {null}
+      </GameTable>
+    );
+    expect(screen.getByRole('button', { name: /leave table/i })).toBeInTheDocument();
+  });
+
   it('shows a Ready button only for my own not-yet-ready seat with no hand in progress', () => {
     const { rerender } = render(
       <GameTable {...baseProps} handInProgress={false} seats={[makeSeat({ seatIndex: 0, ready: false })]} mySeatIndex={0}>

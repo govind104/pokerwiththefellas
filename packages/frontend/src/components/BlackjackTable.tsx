@@ -11,6 +11,7 @@ export interface BlackjackTableProps {
   mySeatIndex: number | null;
   connectionStatus: ConnectionStatus;
   handInProgress: boolean;
+  errorMessage?: string | null;
   onReady: () => void;
   onLeave: () => void;
   blackjackRounds: Record<number, BlackjackRoundView> | null;
@@ -23,6 +24,7 @@ export function BlackjackTable({
   mySeatIndex,
   connectionStatus,
   handInProgress,
+  errorMessage,
   onReady,
   onLeave,
   blackjackRounds,
@@ -56,6 +58,7 @@ export function BlackjackTable({
       mySeatIndex={mySeatIndex}
       connectionStatus={connectionStatus}
       handInProgress={handInProgress}
+      errorMessage={errorMessage}
       onReady={onReady}
       onLeave={onLeave}
       seatContent={seatContent}

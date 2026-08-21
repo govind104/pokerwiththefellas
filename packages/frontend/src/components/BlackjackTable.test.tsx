@@ -66,4 +66,19 @@ describe('BlackjackTable', () => {
     );
     expect(screen.getByText(/waiting for hand to start/i)).toBeInTheDocument();
   });
+
+  it('forwards errorMessage to the shared error banner', () => {
+    const state = makeBlackjackPlayingState();
+    render(
+      <BlackjackTable
+        {...baseProps}
+        seats={state.seats}
+        activeSeatIndex={0}
+        mySeatIndex={0}
+        blackjackRounds={state.blackjackRounds}
+        errorMessage="Not your turn"
+      />
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Not your turn');
+  });
 });

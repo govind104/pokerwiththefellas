@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { SeatView, HoldemView } from '@poker-blackjack/server/src/table';
 import type { HoldemAction } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
@@ -10,13 +10,11 @@ export interface PokerTableProps {
   mySeatIndex: number | null;
   connectionStatus: ConnectionStatus;
   handInProgress: boolean;
+  errorMessage?: string | null;
   onReady: () => void;
   onLeave: () => void;
   holdem: HoldemView | null;
   onAction: (action: HoldemAction, amount?: number) => void;
-  // Accepted (and ignored) so callers may pass JSX children; PokerTable builds
-  // its own children internally and forwards them to GameTable.
-  children?: ReactNode;
 }
 
 export function PokerTable({
@@ -24,6 +22,7 @@ export function PokerTable({
   mySeatIndex,
   connectionStatus,
   handInProgress,
+  errorMessage,
   onReady,
   onLeave,
   holdem,
@@ -35,6 +34,14 @@ export function PokerTable({
     ? (seats.find((s) => s.displayName === holdem.actingPlayerId)?.seatIndex ?? null)
     : null;
   const isMyTurn = mySeatIndex !== null && mySeatIndex === activeSeatIndex;
+  const myPlayer = holdem ? (holdem.players.find((p) => p.playerId === holdem.actingPlayerId) ?? null) : null;
+
+  // A value typed into the raise field on one street/turn must not leak into
+  // the next -- reset whenever the street or the acting player changes (a new
+  // street, a new turn, or a new hand entirely).
+  useEffect(() => {
+    setRaiseAmount(0);
+  }, [holdem?.street, holdem?.actingPlayerId]);
 
   const seatContent: Partial<Record<number, ReactNode>> = {};
   if (holdem) {
@@ -57,6 +64,7 @@ export function PokerTable({
       mySeatIndex={mySeatIndex}
       connectionStatus={connectionStatus}
       handInProgress={handInProgress}
+      errorMessage={errorMessage}
       onReady={onReady}
       onLeave={onLeave}
       seatContent={seatContent}
@@ -85,6 +93,9 @@ export function PokerTable({
                 value={raiseAmount}
                 onChange={(event) => setRaiseAmount(Number(event.target.value))}
                 aria-label="Raise amount"
+                min={1}
+                step={1}
+                max={myPlayer ? myPlayer.stack : undefined}
                 className="w-20 rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-white"
               />
               <button

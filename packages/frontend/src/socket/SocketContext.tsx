@@ -43,6 +43,16 @@ export function SocketProvider({
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const displayNameRef = useRef<string | null>(null);
   const statusRef = useRef<ConnectionStatus>('entering-name');
+  // Guards the 'disconnect' handler below: socket.io-client's disconnect()
+  // fires this socket's own 'disconnect' handler synchronously, before
+  // returning to the caller -- so a leave() in progress would otherwise race
+  // its own setStatus('entering-name') against the handler's
+  // setStatus('reconnecting'), landing on whichever happened to run last.
+  // Setting this ref (not state) at the very start of leave() makes the
+  // handler's early-return unconditionally correct regardless of batching or
+  // call order. Reset on every fresh connect() so a later, unrelated
+  // disconnect (e.g. the server going away) still surfaces normally.
+  const leavingRef = useRef(false);
   const [status, setStatus] = useState<ConnectionStatus>('entering-name');
   const [state, setState] = useState<TableStateView | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -67,6 +77,7 @@ export function SocketProvider({
   }, []);
 
   function connect(name: string) {
+    leavingRef.current = false;
     displayNameRef.current = name;
     setDisplayName(name);
     setErrorMessage(null);
@@ -83,6 +94,10 @@ export function SocketProvider({
       setState(nextState);
       setStatus('at-table');
       sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, name);
+      // A fresh state push means the table has moved on (an action was
+      // accepted, another player acted, etc.) -- any previously-shown
+      // in-game error is now stale and is superseded by this update.
+      setErrorMessage(null);
     });
 
     socket.on('error', (payload: ErrorPayload) => {
@@ -100,6 +115,9 @@ export function SocketProvider({
     });
 
     socket.on('disconnect', () => {
+      if (leavingRef.current) {
+        return;
+      }
       if (statusRef.current === 'at-table') {
         setStatus('reconnecting');
       }
@@ -122,6 +140,18 @@ export function SocketProvider({
   }
 
   function leave() {
+    // Defense in depth alongside GameTable's own !handInProgress button gate:
+    // the server rejects `leave` mid-hand ('Cannot leave while a hand is in
+    // progress', table.ts) and this function has no way to await that
+    // rejection (no ack protocol) before it has already torn the socket and
+    // session down -- so refuse locally, before emitting anything, whenever
+    // we already know a hand is in progress. This keeps the session-resume
+    // key and local state intact for the one caller path we can't otherwise
+    // protect against a lost/rejected leave.
+    if (state?.handInProgress) {
+      return;
+    }
+    leavingRef.current = true;
     socketRef.current?.emit('leave');
     socketRef.current?.disconnect();
     socketRef.current = null;
