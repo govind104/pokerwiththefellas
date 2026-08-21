@@ -261,24 +261,49 @@ Full suite after all of the above: frontend 49/49 (up from 34 — Finding 4's 2
 new tests + this fix round's various test additions), game-engine 115/115,
 server 121/121.
 
-## Status: final review clean, Task 10 in progress.
+## Task 10: complete (commit `e9c135c..bdeb136`, task-scoped review clean, no fix round)
 
-**NEXT STEP:** Task 10 — render hand results (who won, payout), per-hand
-Blackjack bust/blackjack/stand/push status, and bet amounts on both
-`PokerTable` and `BlackjackTable`. Data already exists in the server's view
-types (`HoldemResult.payout`, `BlackjackRoundView.results[].outcome`,
-`PlayerHand.bet`) — this is a rendering-only gap, no server or game-engine
-change needed. Dispatch as a standard implementer + task-scoped review, same
-as Tasks 1-9, then a final targeted review of just Task 10's diff (the
-whole-branch review already ran; Task 10 doesn't need another full
-whole-branch pass, just its own task-scoped one) before
-`superpowers:finishing-a-development-branch` opens the PR.
+Added showdown results to `PokerTable` (`holdem.results`, keyed by
+`playerId` rather than array index — a better choice than index correlation
+given `HoldemResult` already carries its own `playerId`) and bet
+amounts + settlement-outcome badges to `BlackjackTable`
+(`results[i]` ↔ `playerHands[i]`, verified structurally guaranteed by
+reading `blackjackRound.ts`'s own `this.results = this.playerHands.map(...)`
+construction, not just assumed).
 
-Explicitly out of Task 10's scope, flagged separately by the final
-reviewer, not yet actioned: `PokerTable`'s raise control is a bare number
-input; design spec §3.2 asked for "a slider plus preset amount buttons."
-Worth a follow-up, not bundled into Task 10 without separate sign-off since
-the user's Task 10 approval was scoped specifically to results/status/bets.
+The `Outcome`-has-no-`'stand'` judgment call (design spec's literal wording
+is "bust/blackjack/stand indicators", but the type is `'blackjack' | 'win' |
+'push' | 'lose' | 'bust'`) was independently re-verified by the task
+reviewer against `payout.ts` and `blackjackRound.ts` rather than accepted
+from the implementer's report — confirmed no dedicated "stood" signal
+exists in the data model (`PlayerHand.done` is shared by stand/bust/double/
+split-derived-natural, not stand-specific), so satisfying the spec's intent
+via the settled outcome badge (rather than fabricating a signal that isn't
+there) is the correct call, not a shortcut.
+
+New fixtures (`makeHoldemSettledState`, `makeBlackjackSettledState`) with
+genuine positive AND negative test coverage (`queryByTestId(...).not.toBe
+InTheDocument()` proving results/badges don't render pre-settlement, not
+just asserted). Both integration test files confirmed byte-for-byte
+unmodified via `git diff --stat` and still passing. 2 Minor, cosmetic-only,
+not actioned: "split even" wording for a `payout === 0` case is slightly
+presumptuous (a fold-then-break-even reads as a literal split, which it may
+not be — "even"/"tied" would be more neutral); one negative test's name
+implies it covers the `results` half of a compound guard but actually
+re-exercises the same `street` half as another test.
+
+Full suite: frontend 55/55 (was 49), game-engine 115/115, server 121/121 =
+**291/291**. typecheck clean across all 3 workspaces.
+
+Explicitly deferred, not part of Task 10's scope (flagged by the whole-branch
+reviewer, not bundled in without separate sign-off): `PokerTable`'s raise
+control is a bare number input; design spec §3.2 asked for "a slider plus
+preset amount buttons." Worth a follow-up.
+
+## Status: ALL WORK COMPLETE (9 plan tasks + final whole-branch review +
+fix/re-review + Task 10 + Task 10's own clean review). Ready for
+`superpowers:finishing-a-development-branch` — open PR
+`feature/plan4-frontend` → `master`, do not auto-merge.
 
 Known, separately-tracked, non-blocking items:
 - `task_50961db9` (background task, already queued): `packages/server`
