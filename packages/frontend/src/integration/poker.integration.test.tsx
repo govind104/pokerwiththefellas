@@ -8,18 +8,20 @@ import { setupIntegrationServer } from './integrationTestServer';
 // Mirrors packages/server/src/integration.test.ts's own setup pattern -- see
 // integrationTestServer.ts for the shared fixture this and
 // blackjack.integration.test.tsx both use.
-const config: TableConfig = {
-  gameMode: 'holdem',
-  seatCount: 8,
-  smallBlind: 5,
-  bigBlind: 10,
-  blackjackDefaultBet: 25,
-  defaultStartingBalance: 1000,
-  reconnectGraceMs: 120_000,
-  random: Math.random,
-};
+function buildConfig(): TableConfig {
+  return {
+    gameMode: 'holdem',
+    seatCount: 8,
+    smallBlind: 5,
+    bigBlind: 10,
+    blackjackDefaultBet: 25,
+    defaultStartingBalance: 1000,
+    reconnectGraceMs: 120_000,
+    random: Math.random,
+  };
+}
 
-const ctx = setupIntegrationServer(config, 'frontend-poker-integration-');
+const ctx = setupIntegrationServer(buildConfig, 'frontend-poker-integration-');
 
 describe('Poker end-to-end via App', () => {
   it('two players join, ready up, and see the hand start with correct hole-card visibility', async () => {

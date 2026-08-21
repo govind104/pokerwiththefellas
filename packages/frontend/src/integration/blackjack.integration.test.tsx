@@ -20,33 +20,42 @@ function makeDeterministicRandom(seed: number): () => number {
   };
 }
 
-const config: TableConfig = {
-  gameMode: 'blackjack',
-  seatCount: 8,
-  smallBlind: 5,
-  bigBlind: 10,
-  blackjackDefaultBet: 25,
-  defaultStartingBalance: 1000,
-  reconnectGraceMs: 120_000,
-  // NOT Math.random: Table.startHand deals blackjack seat-by-seat in seat
-  // order (alice/seat 0 first), and BlackjackRound gives any two-card 21
-  // `done: true` at construction, auto-settling the round before any
-  // action. Once settled, Table's state view reveals the FULL dealer hand
-  // instead of just the upcard (see packages/server/src/table.ts around
-  // getStateForSeat's blackjack branch), which would make this test's
-  // `dealer-hand` assertion below (expects exactly 1 card, i.e. upcard
-  // only) fail on the ~1-in-20 hands where alice is dealt a natural. Seed 2
-  // is verified (via a standalone script replaying Table.startHand's exact
-  // buildShuffledDeck(6)-per-seat-in-order sequence against this test's own
-  // config) to deal alice a 14 and bob a 19 -- neither a natural blackjack
-  // -- so the round for seat 0 stays in 'playing' phase and only the
-  // upcard is exposed, matching what this test asserts. This mirrors
-  // packages/server/src/integration.test.ts's own reason for using a
-  // seeded RNG instead of Math.random in its Blackjack test.
-  random: makeDeterministicRandom(2),
-};
+function buildConfig(): TableConfig {
+  return {
+    gameMode: 'blackjack',
+    seatCount: 8,
+    smallBlind: 5,
+    bigBlind: 10,
+    blackjackDefaultBet: 25,
+    defaultStartingBalance: 1000,
+    reconnectGraceMs: 120_000,
+    // NOT Math.random: Table.startHand deals blackjack seat-by-seat in seat
+    // order (alice/seat 0 first), and BlackjackRound gives any two-card 21
+    // `done: true` at construction, auto-settling the round before any
+    // action. Once settled, Table's state view reveals the FULL dealer hand
+    // instead of just the upcard (see packages/server/src/table.ts around
+    // getStateForSeat's blackjack branch), which would make this test's
+    // `dealer-hand` assertion below (expects exactly 1 card, i.e. upcard
+    // only) fail on the ~1-in-20 hands where alice is dealt a natural. Seed 2
+    // is verified (via a standalone script replaying Table.startHand's exact
+    // buildShuffledDeck(6)-per-seat-in-order sequence against this test's own
+    // config) to deal alice a 14 and bob a 19 -- neither a natural blackjack
+    // -- so the round for seat 0 stays in 'playing' phase and only the
+    // upcard is exposed, matching what this test asserts. This mirrors
+    // packages/server/src/integration.test.ts's own reason for using a
+    // seeded RNG instead of Math.random in its Blackjack test.
+    //
+    // random is re-created (not reused) on every call: setupIntegrationServer
+    // invokes this factory fresh in each test's beforeEach, so a file with
+    // more than one test still gets this exact seed-2 determinism per test
+    // rather than one test consuming the shared generator's state and the
+    // next test silently drawing from wherever seed 2 left off
+    // (final-review Minor: RNG-sharing trap).
+    random: makeDeterministicRandom(2),
+  };
+}
 
-const ctx = setupIntegrationServer(config, 'frontend-blackjack-integration-');
+const ctx = setupIntegrationServer(buildConfig, 'frontend-blackjack-integration-');
 
 describe('Blackjack end-to-end via App', () => {
   it('two players join and ready up, and each sees their own hand and the shared dealer up-card', async () => {

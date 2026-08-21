@@ -33,7 +33,10 @@ export interface IntegrationTestContext {
   readonly App: typeof AppComponent;
 }
 
-export function setupIntegrationServer(config: TableConfig, tmpDirPrefix: string): IntegrationTestContext {
+export function setupIntegrationServer(
+  configFactory: () => TableConfig,
+  tmpDirPrefix: string
+): IntegrationTestContext {
   let tmpDir: string;
   let httpServer: import('node:http').Server;
   let serverUrl = '';
@@ -78,6 +81,13 @@ export function setupIntegrationServer(config: TableConfig, tmpDirPrefix: string
       realConsoleError(...args);
     });
 
+    // Re-invoked per test rather than reusing a module-scoped TableConfig:
+    // a config whose `random` is a stateful seeded-RNG closure (see
+    // blackjack.integration.test.tsx) must get a freshly-seeded generator
+    // each test, or a documented single-hand-determinism invariant silently
+    // stops holding from the second test onward in a file that shares this
+    // fixture (final-review Minor: RNG-sharing trap).
+    const config = configFactory();
     tmpDir = mkdtempSync(join(tmpdir(), tmpDirPrefix));
     const playerStore = new JsonPlayerStore(join(tmpDir, 'balances.json'), config.defaultStartingBalance);
     const handLog = new JsonlHandLog(join(tmpDir, 'hand.jsonl'));
