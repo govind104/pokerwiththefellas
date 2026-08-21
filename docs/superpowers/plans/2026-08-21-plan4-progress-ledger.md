@@ -193,44 +193,112 @@ literal duplicated code.
 Full suite: frontend 34/34, game-engine 115/115, server 121/121 = **270/270**.
 typecheck clean across all 3 workspaces.
 
-## Status: ALL 9 TASKS COMPLETE. Final whole-branch review not yet run.
+## Final whole-branch review: complete (commits `a12dfbe..9905cec`)
 
-Every task landed with either a clean review or one fix-and-re-review round;
-no task needed more than one fix round. Every disclosed implementer
-deviation from the brief's literal code was independently verified by a task
-reviewer, not just trusted — including two genuine, correctly-diagnosed
-architectural findings (Task 1's tsconfig contradiction, Task 9's
-module-load-time env var timing) and one real flaky-test risk (Task 9's
-unseeded RNG) that was fixed and then independently re-derived by the
-reviewer from scratch, not just re-checked.
+Dispatched on opus per plan. Both architectural invariants (`GameTable`
+purity, Hold'em/Blackjack `activeSeatIndex` asymmetry) independently
+re-verified intact end-to-end, not just re-trusted from task reviews. All 5
+carried-forward Minor findings triaged individually (2 fixed, 3 deferred with
+reasoning). The reviewer also ran `npm run build` for the first time in the
+whole plan (no task ever had), closing a gap Task 1 had explicitly flagged as
+unverified — it succeeds.
 
-**NEXT STEP:** dispatch the final whole-branch code review (most capable
-model available, e.g. opus) via `superpowers:requesting-code-review`'s
-`code-reviewer.md` template. Generate the package first:
+0 Critical. 4 Important, all genuine cross-task composition defects invisible
+to any single task's isolated review:
+1. `errorMessage` was produced by `SocketContext` and consumed by
+   `JoinScreen` only — every at-table server rejection (illegal action, etc.)
+   was silently discarded, and action controls did zero legality filtering,
+   so a rejected click looked like a frozen app.
+2. `GameTable`'s Leave button was unconditionally visible; the server throws
+   on a mid-hand leave. `SocketContext.leave()` was fully optimistic
+   (disconnects, clears `sessionStorage`, resets state) before any server
+   response, so a mid-hand click destroyed the session-resume path while the
+   server never actually processed the leave.
+3. Integration tests' `bobSocket` leaked on any assertion failure (only
+   disconnected on the happy path), risking a hung `afterEach`.
+4. Zero end-to-end coverage existed for `sendAction`'s wire payload or
+   `leave` — the exact protocol surface the integration suite's own stated
+   purpose (§4 of the design spec) is to catch mismatches on.
 
-```bash
-cd /path/to/PokerorBlackjack
-git merge-base master feature/plan4-frontend   # should print b4fdce0
-"$(claude plugin cache path)/superpowers-dev/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package" b4fdce0 HEAD
-```
+Plus one plan-level (not implementation) gap: neither table ever renders
+hand results, per-hand bust/blackjack/stand status, or bet amounts — design
+spec §3.2 asked for these but no task's brief ever specified them. **User
+decision: add a Task 10 to close this before merge** (see below), rather
+than deferring as a follow-up.
 
-(Adjust the skill script path if the plugin cache version has changed.) Pass
-the printed diff-package path, this ledger, the plan file, and the design
-spec to the final reviewer as context. If the review comes back clean or
-Minor-only, proceed to `superpowers:finishing-a-development-branch` — open a
-PR `feature/plan4-frontend` → `master`. **Do NOT auto-merge** — this
-project's established pattern (Plan 2/3) is to always ask before merging,
-regardless of how clean the review comes back.
+**Fix round (commits `a07d803`, `aea8c38`, sonnet):** all 4 Important + 2 of
+the 5 Minor triage items (dead `children` prop, `aria-describedby`) + 3 new
+cheap Minors found alongside (raiseAmount hygiene, `App.tsx` null-guard,
+`leavingRef` ordering guard) fixed in one bundled dispatch, not one fixer per
+finding. Notably surfaced and fixed two dormant test-infrastructure bugs
+invisible with only one test per file (Vitest module-cache staleness needing
+`vi.resetModules()`; jsdom's shared `sessionStorage` needing an explicit
+`.clear()`) — found only because Finding 4's new tests pushed
+`poker.integration.test.tsx` from 1 test to 3.
+
+**Re-review (same reviewer agent, resumed via SendMessage, not
+fresh-dispatched):** all 4 Important findings confirmed genuinely closed at
+the root-cause level — re-verified against `packages/server` source, not the
+fix report's narrative (e.g. confirmed the new clear-on-state rule for
+`errorMessage` cannot wipe a banner it just raised, by reading
+`table.ts`'s throw-before-broadcast ordering). 1 new Minor found: the fix
+round's own test-fixture consolidation introduced a latent RNG-sharing trap
+(blackjack integration config's seeded `random` closure was hoisted to
+module scope, so multiple tests in that file would share one generator's
+state instead of each getting a fresh seed-2 generator) — ironic given the
+same fix round had just correctly fixed two other instances of this exact
+shared-state class. **Verdict: Ready to merge — Yes**, with this one Minor
+recommended-but-not-blocking.
+
+**Trivial one-line fix applied directly (commit `9905cec`, no subagent
+needed):** `setupIntegrationServer` now takes a config factory invoked fresh
+in each `beforeEach` instead of a module-scoped `TableConfig`, closing the
+RNG-sharing trap. 49/49 frontend tests, typecheck clean, re-verified
+directly rather than via another review round (mechanical, matched the
+reviewer's exact prescribed fix).
+
+Full suite after all of the above: frontend 49/49 (up from 34 — Finding 4's 2
+new tests + this fix round's various test additions), game-engine 115/115,
+server 121/121.
+
+## Status: final review clean, Task 10 in progress.
+
+**NEXT STEP:** Task 10 — render hand results (who won, payout), per-hand
+Blackjack bust/blackjack/stand/push status, and bet amounts on both
+`PokerTable` and `BlackjackTable`. Data already exists in the server's view
+types (`HoldemResult.payout`, `BlackjackRoundView.results[].outcome`,
+`PlayerHand.bet`) — this is a rendering-only gap, no server or game-engine
+change needed. Dispatch as a standard implementer + task-scoped review, same
+as Tasks 1-9, then a final targeted review of just Task 10's diff (the
+whole-branch review already ran; Task 10 doesn't need another full
+whole-branch pass, just its own task-scoped one) before
+`superpowers:finishing-a-development-branch` opens the PR.
+
+Explicitly out of Task 10's scope, flagged separately by the final
+reviewer, not yet actioned: `PokerTable`'s raise control is a bare number
+input; design spec §3.2 asked for "a slider plus preset amount buttons."
+Worth a follow-up, not bundled into Task 10 without separate sign-off since
+the user's Task 10 approval was scoped specifically to results/status/bets.
 
 Known, separately-tracked, non-blocking items:
 - `task_50961db9` (background task, already queued): `packages/server`
   cannot currently run as a standalone Node process — a pre-existing
   `pokersolver` CJS/ESM interop issue from Plans 1/2, not introduced by
   Plan 4. This blocks a real manual browser click-through of the finished
-  frontend (Task 9's real-server *automated* integration tests are
-  unaffected, since they run through Vitest's own module loader). The
-  plan's own Final Verification section documents this explicitly — report
-  it, don't silently treat the automated tests as sufficient for a full
-  manual pass.
-- The Minor findings listed per-task above, none merge-blocking, worth a
-  triage pass during the final whole-branch review same as Plan 3's pattern.
+  frontend (all automated tests, including Task 9's real-server integration
+  tests, are unaffected — they run through Vitest's own module loader). The
+  final reviewer flagged this again independently: the new error banner and
+  the disappearing Leave button are both visual behaviors currently proven
+  only by DOM assertions, never seen rendered. Report this, don't silently
+  treat the automated tests as sufficient for a full manual pass.
+- 3 of the original 5 carried-forward Minor findings, deferred with
+  reasoning during the final review (SVG metadata provenance note, seat-ring
+  `NaN` on an unreachable empty-seats case, `dealerRound` "arbitrary" seat
+  pick — actually deterministic, ledger note only needed correcting).
+- New Minors found during the final review + re-review, not yet actioned:
+  raise input's `min`/`step`/`max` don't stop a 0-amount submit (button
+  isn't disabled, no `<form>` validation runs — now merely ugly rather than
+  invisible, thanks to the error banner fix); Leave button is hidden rather
+  than disabled mid-hand (no explanation shown to the user); error banner
+  has no minimum display time (a fast-arriving next `state` event can wipe
+  it before it's read).
