@@ -2,7 +2,12 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { BlackjackTable } from './BlackjackTable';
-import { makeSeat, makeBlackjackPlayingState, makeBlackjackSplitHandState } from '../fixtures/tableStateFixtures';
+import {
+  makeSeat,
+  makeBlackjackPlayingState,
+  makeBlackjackSplitHandState,
+  makeBlackjackSettledState,
+} from '../fixtures/tableStateFixtures';
 
 const baseProps = {
   connectionStatus: 'at-table' as const,
@@ -80,5 +85,61 @@ describe('BlackjackTable', () => {
       />
     );
     expect(screen.getByRole('alert')).toHaveTextContent('Not your turn');
+  });
+
+  it("renders each hand's bet amount at all times a hand exists", () => {
+    const playing = makeBlackjackPlayingState();
+    const { rerender } = render(
+      <BlackjackTable
+        {...baseProps}
+        seats={playing.seats}
+        activeSeatIndex={0}
+        mySeatIndex={0}
+        blackjackRounds={playing.blackjackRounds}
+      />
+    );
+    expect(screen.getByTestId('hand-bet-0-0')).toHaveTextContent(/25/);
+
+    const settled = makeBlackjackSettledState();
+    rerender(
+      <BlackjackTable
+        {...baseProps}
+        seats={settled.seats}
+        activeSeatIndex={null}
+        mySeatIndex={0}
+        blackjackRounds={settled.blackjackRounds}
+      />
+    );
+    expect(screen.getByTestId('hand-bet-0-0')).toHaveTextContent(/25/);
+    expect(screen.getByTestId('hand-bet-0-1')).toHaveTextContent(/25/);
+  });
+
+  it('renders a per-hand outcome status once the round settles', () => {
+    const state = makeBlackjackSettledState();
+    render(
+      <BlackjackTable
+        {...baseProps}
+        seats={state.seats}
+        activeSeatIndex={null}
+        mySeatIndex={0}
+        blackjackRounds={state.blackjackRounds}
+      />
+    );
+    expect(screen.getByTestId('hand-result-0-0')).toHaveTextContent(/bust/i);
+    expect(screen.getByTestId('hand-result-0-1')).toHaveTextContent(/blackjack/i);
+  });
+
+  it('does not render an outcome status before the round settles', () => {
+    const state = makeBlackjackPlayingState();
+    render(
+      <BlackjackTable
+        {...baseProps}
+        seats={state.seats}
+        activeSeatIndex={0}
+        mySeatIndex={0}
+        blackjackRounds={state.blackjackRounds}
+      />
+    );
+    expect(screen.queryByTestId('hand-result-0-0')).not.toBeInTheDocument();
   });
 });

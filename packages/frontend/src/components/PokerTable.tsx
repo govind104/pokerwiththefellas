@@ -77,6 +77,19 @@ export function PokerTable({
             ))}
           </div>
           <p>Pot: {holdem.pots.reduce((sum, pot) => sum + pot.amount, 0)}</p>
+          {holdem.street === 'settled' && holdem.results && (
+            <div className="flex flex-col items-center gap-1" data-testid="holdem-results">
+              {holdem.results.map((result) => (
+                <p key={result.playerId} data-testid={`holdem-result-${result.playerId}`}>
+                  {result.payout > 0
+                    ? `${result.playerId} won ${result.payout}`
+                    : result.payout < 0
+                      ? `${result.playerId} lost ${Math.abs(result.payout)}`
+                      : `${result.playerId} split even`}
+                </p>
+              ))}
+            </div>
+          )}
           {isMyTurn && (
             <div className="flex items-center gap-2">
               <button onClick={() => onAction('fold')} className="rounded-md bg-red-600 px-3 py-1">

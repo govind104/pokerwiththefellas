@@ -1,9 +1,17 @@
 import type { ReactNode } from 'react';
 import type { SeatView, BlackjackRoundView } from '@poker-blackjack/server/src/table';
-import type { PlayerAction } from '@poker-blackjack/game-engine';
+import type { PlayerAction, Outcome } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
 import { Card } from './Card';
 import { GameTable } from './GameTable';
+
+const OUTCOME_LABELS: Record<Outcome, string> = {
+  blackjack: 'Blackjack!',
+  bust: 'Bust',
+  win: 'Win',
+  lose: 'Lose',
+  push: 'Push',
+};
 
 export interface BlackjackTableProps {
   seats: SeatView[];
@@ -40,10 +48,20 @@ export function BlackjackTable({
       seatContent[seatIndex] = (
         <div className="flex flex-col gap-1" data-testid={`hands-${seatIndex}`}>
           {round.playerHands.map((hand, i) => (
-            <div key={i} className="flex gap-1">
-              {hand.cards.map((card, j) => (
-                <Card key={j} card={card} />
-              ))}
+            <div key={i} className="flex flex-col items-center gap-1">
+              <div className="flex gap-1">
+                {hand.cards.map((card, j) => (
+                  <Card key={j} card={card} />
+                ))}
+              </div>
+              <p className="text-xs text-slate-400" data-testid={`hand-bet-${seatIndex}-${i}`}>
+                Bet: {hand.bet}
+              </p>
+              {round.phase === 'settled' && round.results && (
+                <p className="text-xs font-semibold" data-testid={`hand-result-${seatIndex}-${i}`}>
+                  {OUTCOME_LABELS[round.results[i].outcome]}
+                </p>
+              )}
             </div>
           ))}
         </div>

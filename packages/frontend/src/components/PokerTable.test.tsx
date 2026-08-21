@@ -2,7 +2,12 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { PokerTable } from './PokerTable';
-import { makeSeat, makeHoldemPreflopState, makeHoldemMyTurnState } from '../fixtures/tableStateFixtures';
+import {
+  makeSeat,
+  makeHoldemPreflopState,
+  makeHoldemMyTurnState,
+  makeHoldemSettledState,
+} from '../fixtures/tableStateFixtures';
 
 const baseProps = {
   connectionStatus: 'at-table' as const,
@@ -112,5 +117,41 @@ describe('PokerTable', () => {
     rerender(<PokerTable {...baseProps} seats={nextStreetState.seats} mySeatIndex={0} holdem={nextStreetState.holdem} />);
 
     expect(screen.getByLabelText(/raise amount/i)).toHaveValue(0);
+  });
+
+  it('renders showdown results with per-player payouts once the street is settled', () => {
+    const state = makeHoldemSettledState();
+    render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    const results = screen.getByTestId('holdem-results');
+    expect(results).toBeInTheDocument();
+    expect(screen.getByTestId('holdem-result-alice')).toHaveTextContent(/alice won 20/i);
+    expect(screen.getByTestId('holdem-result-bob')).toHaveTextContent(/bob lost 20/i);
+    expect(screen.getByTestId('holdem-result-carol')).toHaveTextContent(/carol/i);
+    expect(screen.getByTestId('holdem-result-carol')).toHaveTextContent(/split|even|push/i);
+  });
+
+  it('does not render showdown results before the street is settled', () => {
+    const state = makeHoldemPreflopState();
+    render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    expect(screen.queryByTestId('holdem-results')).not.toBeInTheDocument();
+  });
+
+  it('does not render showdown results on a settled-adjacent street fixture with results still null', () => {
+    const state = makeHoldemPreflopState({
+      holdem: {
+        street: 'flop',
+        communityCards: [
+          { suit: 'clubs', rank: '2' },
+          { suit: 'diamonds', rank: '7' },
+          { suit: 'hearts', rank: 'Q' },
+        ],
+        actingPlayerId: 'bob',
+        pots: [{ amount: 15, eligiblePlayerIds: ['alice', 'bob'] }],
+        results: null,
+        players: makeHoldemPreflopState().holdem!.players,
+      },
+    });
+    render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    expect(screen.queryByTestId('holdem-results')).not.toBeInTheDocument();
   });
 });
