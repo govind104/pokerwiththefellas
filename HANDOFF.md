@@ -10,7 +10,7 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 | 1 | Blackjack engine (`packages/game-engine`) | Done, merged to `master` |
 | 2 | Hold'em engine (`packages/game-engine`) | Done, merged to `master` |
 | 3 | Local real-time server (`packages/server`) | Done, merged to `master` |
-| 4 | Frontend (`packages/frontend`) | **Done — final whole-branch review + Task 10 both clean, PR pending** |
+| 4 | Frontend (`packages/frontend`) | Done, merged to `master` |
 | 5 | Accounts (Google OAuth) | Not started |
 | 6 | AWS deployment (DynamoDB, EC2) | Not started |
 
@@ -20,29 +20,31 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 `2026-08-17-local-server-*.md` files in the same directory (fix spec, final review,
 carried-forward findings) — kept for historical reference.
 
-**Plan 4** has an approved design spec
-(`docs/superpowers/specs/2026-08-21-plan4-frontend-design.md`) and a fully-specified
-9-task implementation plan (`docs/superpowers/plans/2026-08-21-plan4-frontend.md`),
-both committed to `master`. **Branch `feature/plan4-frontend`** (based on `master` @
-`b4fdce0`) has all 9 tasks implemented via `superpowers:subagent-driven-development`,
-each passing a task-scoped review clean or after one fix round. The **final
-whole-branch review** then ran (opus) and found 0 Critical / 4 Important
-cross-task composition defects invisible to any single task's review (silently
-discarded in-game server errors, a mid-hand Leave button the server would reject,
-a test-teardown leak, and missing action-path test coverage) — all fixed and the
-same reviewer's re-review came back "Ready to merge: Yes". That review also
-surfaced a design-spec gap the plan itself never specified (hand results / bust /
-blackjack / win-lose-push status / bet amounts never rendered); a **Task 10** closed
-it, task-scoped review clean. 291/291 tests passing, typecheck clean across all 3
-workspaces. **All implementation and review work is done — PR opening is the
-literal next step.** Full detail in
+**Plan 4** is fully merged to `master` (PR #4, merge commit `a7afc82`). Implemented via
+`superpowers:subagent-driven-development` across 9 tasks, each passing a task-scoped
+review clean or after one fix round. The **final whole-branch review** (opus) found
+0 Critical / 4 Important cross-task composition defects invisible to any single
+task's review (silently discarded in-game server errors, a mid-hand Leave button the
+server would reject, a test-teardown leak, and missing action-path test coverage) —
+all fixed, and the same reviewer's re-review came back "Ready to merge: Yes". That
+review also surfaced a design-spec gap the plan itself never specified (hand results
+/ bust/blackjack/win-lose-push status / bet amounts never rendered); a **Task 10**
+closed it, task-scoped review clean. Full detail, every task's disclosed deviations,
+and the complete final-review/fix/re-review trail:
 `docs/superpowers/plans/2026-08-21-plan4-progress-ledger.md`.
 
-Known non-blocking issue, tracked separately (not a Plan 4 defect): `packages/server`
-has never been run as a standalone Node process — a pre-existing `pokersolver`
-CJS/ESM interop issue from Plans 1/2 blocks that specific path (automated tests are
-unaffected, since they run through Vitest's own module loader). This blocks a real
-manual browser click-through of the finished Plan 4 frontend until fixed.
+A separate, pre-existing issue (not a Plan 4 defect, tracked since Plans 1/2) blocked
+`packages/server` from ever running as a standalone Node process — fixed in
+**PR #5** (merge commit `0d24f29`). It was actually two compounding bugs: the
+server's bundler-style `moduleResolution` had no compatible runner outside Vite/Vitest
+(fixed with `tsx` + `dev`/`start` scripts), and `import { Hand } from 'pokersolver'`
+is a genuine CJS/ESM interop failure under native Node (pokersolver assigns exports
+dynamically, so Node's `cjs-module-lexer` can't statically detect the named export —
+fixed with a default-import-then-destructure workaround). Verified via a real
+two-browser-tab manual click-through against the live server, not just tests. The app
+is now testable locally end to end.
+
+291/291 tests passing, typecheck clean across all 3 workspaces.
 
 ## Running things
 
@@ -54,6 +56,14 @@ npm run typecheck      # both workspaces
 
 Per-workspace: `npm run test --workspace=@poker-blackjack/game-engine` /
 `--workspace=@poker-blackjack/server`.
+
+**To run the app locally:** start the backend (`npm run dev --workspace=@poker-blackjack/server`,
+listens on port 3000 by default — see `packages/server/src/index.ts` for the
+`GAME_MODE`/`PORT`/etc. env vars it reads), then in a second terminal start the
+frontend (`npm run dev --workspace=@poker-blackjack/frontend`, Vite on port 5173,
+defaults to talking to `http://localhost:3000` unless `VITE_SERVER_URL` is set).
+Open multiple browser tabs/windows against `http://localhost:5173` to play as
+different seats.
 
 ## How this was built
 
