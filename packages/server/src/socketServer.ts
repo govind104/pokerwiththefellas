@@ -11,6 +11,15 @@ export interface CreateServerResult {
   table: Table;
 }
 
+// Defense in depth alongside JsonPlayerStore's null-prototype balance map:
+// the design spec requires malformed or unexpected socket payloads to be
+// rejected before reaching the engine at all, and a display name arriving off
+// the wire is entirely attacker-controlled. The 32-character bound is a
+// judgment call, not a spec requirement.
+function isValidDisplayName(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 32;
+}
+
 export async function createServer(
   config: TableConfig,
   playerStore: PlayerStore,
@@ -35,6 +44,10 @@ export async function createServer(
 
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
     socket.on('join', async (payload: JoinPayload) => {
+      if (!isValidDisplayName(payload?.displayName)) {
+        socket.emit('error', { message: 'Invalid display name' });
+        return;
+      }
       try {
         const existingSeatIndex = table.reconnect(payload.displayName);
         const seatIndex = existingSeatIndex ?? (await table.join(payload.displayName));
