@@ -1,4 +1,12 @@
-import { Hand } from 'pokersolver';
+// Default-import-then-destructure rather than `import { Hand } from 'pokersolver'`:
+// pokersolver assigns its exports dynamically through a helper function rather
+// than as statically-analyzable `exports.Hand = ...` lines, so Node's ESM loader
+// (cjs-module-lexer) can't detect `Hand` as a named export at runtime -- a plain
+// named import works under Vite/Vitest's esbuild-based resolution (which doesn't
+// have this limitation) but throws under native `node` (see packages/server's
+// standalone-run scripts). This form works under both.
+import pokersolverPkg from 'pokersolver';
+const { Hand } = pokersolverPkg;
 import { Card, Rank, Suit } from './deck';
 
 const SUIT_CODES: Record<Suit, string> = {
