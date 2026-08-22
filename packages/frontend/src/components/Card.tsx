@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { Card as CardModel, Rank } from '@poker-blackjack/game-engine';
 
 // Confirmed against the actual vendored filenames from Task 3, Step 1:
@@ -30,20 +31,41 @@ export interface CardProps {
 }
 
 export function Card({ card, faceDown = false }: CardProps) {
+  const patternId = useId();
+
   if (faceDown || !card) {
     return (
-      <div
-        role="img"
-        aria-label="face-down card"
-        className="h-24 w-16 rounded-md border border-slate-600 bg-slate-700"
-      />
+      <svg role="img" aria-label="face-down card" viewBox="0 0 64 96" className="h-24 w-16 rounded-md">
+        <defs>
+          <pattern
+            id={`card-back-lattice-${patternId}`}
+            width="10"
+            height="10"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width="10" height="10" fill="var(--ink)" />
+            <path d="M5,1 L9,5 L5,9 L1,5 Z" fill="none" stroke="var(--brass)" strokeWidth="0.75" opacity="0.6" />
+          </pattern>
+        </defs>
+        <rect
+          x="1"
+          y="1"
+          width="62"
+          height="94"
+          rx="4"
+          fill={`url(#card-back-lattice-${patternId})`}
+          stroke="var(--brass)"
+          strokeWidth="2"
+        />
+      </svg>
     );
   }
   return (
     <img
       src={assetUrl(card)}
       alt={`${card.rank} of ${card.suit}`}
-      className="h-24 w-16 rounded-md border border-slate-300 bg-white"
+      className="h-24 w-16 rounded-md border-2 border-brass bg-parchment shadow-md"
     />
   );
 }
