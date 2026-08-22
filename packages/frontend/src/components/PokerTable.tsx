@@ -76,29 +76,57 @@ export function PokerTable({
               <Card key={i} card={card} />
             ))}
           </div>
-          <p>Pot: {holdem.pots.reduce((sum, pot) => sum + pot.amount, 0)}</p>
+          <div
+            data-testid="pot"
+            className="flex items-center gap-1.5 rounded-md border border-wood-grain bg-surface px-3 py-1 font-utility text-sm text-brass-bright"
+          >
+            <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden="true">
+              <circle cx="10" cy="10" r="9" fill="var(--brass)" stroke="var(--ink)" strokeWidth="1" />
+              <circle cx="10" cy="10" r="5.5" fill="none" stroke="var(--ink)" strokeWidth="0.75" strokeDasharray="1.5 2" />
+            </svg>
+            Pot: {holdem.pots.reduce((sum, pot) => sum + pot.amount, 0)}
+          </div>
           {holdem.street === 'settled' && holdem.results && (
             <div className="flex flex-col items-center gap-1" data-testid="holdem-results">
               {holdem.results.map((result) => (
-                <p key={result.playerId} data-testid={`holdem-result-${result.playerId}`}>
+                <div
+                  key={result.playerId}
+                  data-testid={`holdem-result-${result.playerId}`}
+                  className={`rounded-md border border-wood-grain bg-surface px-3 py-1 font-body text-sm ${
+                    result.payout > 0
+                      ? 'text-win-bright'
+                      : result.payout < 0
+                        ? 'text-ember-text'
+                        : 'text-parchment-dim'
+                  }`}
+                >
                   {result.payout > 0
                     ? `${result.playerId} won ${result.payout}`
                     : result.payout < 0
                       ? `${result.playerId} lost ${Math.abs(result.payout)}`
                       : `${result.playerId} split even`}
-                </p>
+                </div>
               ))}
             </div>
           )}
           {isMyTurn && (
             <div className="flex items-center gap-2">
-              <button onClick={() => onAction('fold')} className="rounded-md bg-red-600 px-3 py-1">
+              <button
+                onClick={() => onAction('fold')}
+                className="rounded-md border border-ember bg-surface px-3 py-1 text-ember-text hover:bg-surface-raised"
+              >
                 Fold
               </button>
-              <button onClick={() => onAction('check')} className="rounded-md bg-slate-600 px-3 py-1">
+              <button
+                onClick={() => onAction('check')}
+                className="rounded-md border border-wood-grain bg-surface px-3 py-1 text-fg hover:bg-surface-raised"
+              >
                 Check
               </button>
-              <button onClick={() => onAction('call')} className="rounded-md bg-slate-600 px-3 py-1">
+              <button
+                onClick={() => onAction('call')}
+                className="rounded-md border border-wood-grain bg-surface px-3 py-1 text-fg hover:bg-surface-raised"
+              >
                 Call
               </button>
               <input
@@ -109,22 +137,25 @@ export function PokerTable({
                 min={1}
                 step={1}
                 max={myPlayer ? myPlayer.stack : undefined}
-                className="w-20 rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-white"
+                className="w-20 rounded-md border border-wood-grain bg-surface px-2 py-1 text-fg"
               />
               <button
                 onClick={() => onAction('raise', raiseAmount)}
-                className="rounded-md bg-emerald-600 px-3 py-1"
+                className="rounded-md border border-brass-bright bg-brass px-3 py-1 text-ink hover:bg-brass-bright"
               >
                 Raise
               </button>
-              <button onClick={() => onAction('all-in')} className="rounded-md bg-amber-600 px-3 py-1">
+              <button
+                onClick={() => onAction('all-in')}
+                className="rounded-md border border-ember-bright bg-surface px-3 py-1 text-ember-text hover:bg-surface-raised"
+              >
                 All In
               </button>
             </div>
           )}
         </div>
       ) : (
-        <p>Waiting for hand to start…</p>
+        <div className="rounded-md border border-wood-grain bg-surface px-3 py-1 text-fg-dim">Waiting for hand to start…</div>
       )}
     </GameTable>
   );

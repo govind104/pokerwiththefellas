@@ -154,4 +154,11 @@ describe('PokerTable', () => {
     render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
     expect(screen.queryByTestId('holdem-results')).not.toBeInTheDocument();
   });
+
+  it('renders a decorative chip icon next to the pot total', () => {
+    const state = makeHoldemPreflopState();
+    render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    expect(screen.getByTestId('pot').querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByTestId('pot')).toHaveTextContent(/pot: 15/i);
+  });
 });
