@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import type { SeatView, BlackjackRoundView } from '@poker-blackjack/server/src/table';
 import type { PlayerAction, Outcome } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
@@ -58,91 +57,123 @@ export function BlackjackTable({
   const isMyTurn = mySeatIndex !== null && mySeatIndex === activeSeatIndex;
   const dealerRound = blackjackRounds ? Object.values(blackjackRounds)[0] : undefined;
 
-  const seatContent: Partial<Record<number, ReactNode>> = {};
-  if (blackjackRounds) {
-    for (const [seatIndexStr, round] of Object.entries(blackjackRounds)) {
-      const seatIndex = Number(seatIndexStr);
-      seatContent[seatIndex] = (
-        <div className="flex flex-col gap-1" data-testid={`hands-${seatIndex}`}>
-          {round.playerHands.map((hand, i) => {
-            const outcome = round.phase === 'settled' && round.results ? round.results[i].outcome : null;
-            const polarity = outcome ? OUTCOME_POLARITY[outcome] : null;
-            return (
-              <div key={i} className="flex flex-col items-center gap-1">
-                <div className="flex gap-1">
-                  {hand.cards.map((card, j) => (
-                    <Card key={`${card.rank}-${card.suit}-${j}`} card={card} />
-                  ))}
-                </div>
-                <div
-                  data-testid={`hand-bet-${seatIndex}-${i}`}
-                  aria-label={`Bet: ${hand.bet}`}
-                  className={PANEL_CLASS_SM}
-                >
-                  <Chip
-                    key={`${hand.bet}-${hand.cards.map((c) => `${c.rank}${c.suit}`).join('')}`}
-                    value={hand.bet}
-                  />
-                </div>
-                {outcome && polarity && (
-                  <div
-                    className={`${PANEL_CLASS_SM} font-body text-xs font-semibold ${OUTCOME_COLOR[polarity]}`}
-                    data-testid={`hand-result-${seatIndex}-${i}`}
-                    data-outcome={polarity}
-                  >
-                    {OUTCOME_LABELS[outcome]}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-  }
+  const players = seats.filter((s) => s.displayName).sort((a, b) => a.seatIndex - b.seatIndex);
 
   return (
     <GameTable
       seats={seats}
-      activeSeatIndex={activeSeatIndex}
       mySeatIndex={mySeatIndex}
       connectionStatus={connectionStatus}
       handInProgress={handInProgress}
       errorMessage={errorMessage}
       onReady={onReady}
       onLeave={onLeave}
-      seatContent={seatContent}
     >
-      {blackjackRounds ? (
-        <div className="flex flex-col items-center gap-2" data-testid="dealer-hand">
-          <p className={`${PANEL_CLASS} font-utility text-xs uppercase tracking-wide text-brass-bright`}>
-            Dealer
-          </p>
-          <div className="flex gap-1">
-            {dealerRound?.dealerCards
-              ? dealerRound.dealerCards.map((card, i) => <Card key={i} card={card} />)
-              : dealerRound && <Card card={dealerRound.dealerUpcard} />}
-          </div>
-          {isMyTurn && (
-            <div className="flex gap-2">
-              <Button variant="neutral" onClick={() => onAction('hit')}>
-                Hit
-              </Button>
-              <Button variant="neutral" onClick={() => onAction('stand')}>
-                Stand
-              </Button>
-              <Button variant="primary" onClick={() => onAction('double')}>
-                Double
-              </Button>
-              <Button variant="danger" onClick={() => onAction('split')}>
-                Split
-              </Button>
+      <div className="flex h-full flex-col items-center justify-between gap-2 py-2">
+        {blackjackRounds ? (
+          <div className="flex flex-col items-center gap-1" data-testid="dealer-hand">
+            <p className={`${PANEL_CLASS} font-utility text-xs uppercase tracking-wide text-brass-bright`}>Dealer</p>
+            <div className="flex gap-1">
+              {dealerRound?.dealerCards
+                ? dealerRound.dealerCards.map((card, i) => <Card key={i} card={card} />)
+                : dealerRound && <Card card={dealerRound.dealerUpcard} />}
             </div>
-          )}
+          </div>
+        ) : (
+          <div className={`${PANEL_CLASS} text-fg-dim`}>Waiting for hand to start…</div>
+        )}
+
+        <div className="flex flex-1 items-center justify-center gap-3">
+          {players.map((seat) => {
+            const round = blackjackRounds?.[seat.seatIndex];
+            const isActive = seat.seatIndex === activeSeatIndex;
+            const isMe = seat.seatIndex === mySeatIndex;
+            const totalBet = round ? round.playerHands.reduce((sum, hand) => sum + hand.bet, 0) : 0;
+
+            let status: string;
+            if (!round) {
+              status = seat.connected ? (seat.ready ? 'Ready' : 'Not ready') : 'Disconnected';
+            } else if (isMe && isActive) {
+              status = 'Your turn';
+            } else {
+              status = `Bet ${totalBet}`;
+            }
+
+            return (
+              <div
+                key={seat.seatIndex}
+                data-testid={`player-${seat.seatIndex}`}
+                data-active={isActive ? 'true' : 'false'}
+                className="flex flex-col items-center gap-1.5"
+              >
+                {round && (
+                  <div className="flex gap-3">
+                    {round.playerHands.map((hand, i) => {
+                      const outcome = round.phase === 'settled' && round.results ? round.results[i].outcome : null;
+                      const polarity = outcome ? OUTCOME_POLARITY[outcome] : null;
+                      return (
+                        <div key={i} className="flex flex-col items-center gap-1">
+                          <div className="flex gap-1">
+                            {hand.cards.map((card, j) => (
+                              <Card key={`${card.rank}-${card.suit}-${j}`} card={card} />
+                            ))}
+                          </div>
+                          <div
+                            data-testid={`hand-bet-${seat.seatIndex}-${i}`}
+                            aria-label={`Bet: ${hand.bet}`}
+                            className={PANEL_CLASS_SM}
+                          >
+                            <Chip
+                              key={`${hand.bet}-${hand.cards.map((c) => `${c.rank}${c.suit}`).join('')}`}
+                              value={hand.bet}
+                            />
+                          </div>
+                          {outcome && polarity && (
+                            <div
+                              className={`${PANEL_CLASS_SM} font-body text-xs font-semibold ${OUTCOME_COLOR[polarity]}`}
+                              data-testid={`hand-result-${seat.seatIndex}-${i}`}
+                              data-outcome={polarity}
+                            >
+                              {OUTCOME_LABELS[outcome]}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div
+                  className={`flex flex-col items-center gap-0.5 rounded-md border px-3 py-1.5 ${
+                    isActive ? 'border-brass-bright bg-surface-raised seat-active-glow' : 'border-wood-grain bg-surface'
+                  }`}
+                >
+                  <span className="text-sm font-semibold text-parchment">
+                    {seat.displayName} &middot; {seat.balance}
+                  </span>
+                  <span className={`text-xs ${isActive ? 'text-brass-bright' : 'text-fg-dim'}`}>{status}</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      ) : (
-        <div className={`${PANEL_CLASS} text-fg-dim`}>Waiting for hand to start…</div>
-      )}
+
+        {isMyTurn && (
+          <div className="flex gap-2">
+            <Button variant="neutral" onClick={() => onAction('hit')}>
+              Hit
+            </Button>
+            <Button variant="neutral" onClick={() => onAction('stand')}>
+              Stand
+            </Button>
+            <Button variant="primary" onClick={() => onAction('double')}>
+              Double
+            </Button>
+            <Button variant="danger" onClick={() => onAction('split')}>
+              Split
+            </Button>
+          </div>
+        )}
+      </div>
     </GameTable>
   );
 }

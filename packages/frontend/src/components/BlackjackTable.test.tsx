@@ -31,8 +31,41 @@ describe('BlackjackTable', () => {
     render(
       <BlackjackTable {...baseProps} seats={state.seats} activeSeatIndex={0} mySeatIndex={0} blackjackRounds={state.blackjackRounds} />
     );
-    const hands = screen.getByTestId('hands-0');
-    expect(hands.querySelectorAll('img')).toHaveLength(4);
+    const player = screen.getByTestId('player-0');
+    expect(player.querySelectorAll('img')).toHaveLength(4);
+  });
+
+  it('shows a player\'s name, balance, and bet status beneath their hand', () => {
+    const state = makeBlackjackPlayingState();
+    render(
+      <BlackjackTable {...baseProps} seats={state.seats} activeSeatIndex={0} mySeatIndex={1} blackjackRounds={state.blackjackRounds} />
+    );
+    expect(screen.getByTestId('player-0')).toHaveTextContent(/alice/i);
+    expect(screen.getByTestId('player-0')).toHaveTextContent(/975/);
+    expect(screen.getByTestId('player-0')).toHaveTextContent(/bet 25/i);
+  });
+
+  it('shows Ready/Not ready/Disconnected for a seated player before a round starts', () => {
+    const seats = [makeSeat({ seatIndex: 0, displayName: 'alice', ready: false })];
+    render(
+      <BlackjackTable {...baseProps} seats={seats} activeSeatIndex={null} mySeatIndex={0} blackjackRounds={null} />
+    );
+    expect(screen.getByTestId('player-0')).toHaveTextContent(/not ready/i);
+  });
+
+  it("shows 'Your turn' and data-active on my own box when it's my turn, not on other players'", () => {
+    const state = makeBlackjackPlayingState({
+      seats: [
+        makeSeat({ seatIndex: 0, displayName: 'alice', balance: 975 }),
+        makeSeat({ seatIndex: 1, displayName: 'bob', balance: 1000 }),
+      ],
+    });
+    render(
+      <BlackjackTable {...baseProps} seats={state.seats} activeSeatIndex={0} mySeatIndex={0} blackjackRounds={state.blackjackRounds} />
+    );
+    expect(screen.getByTestId('player-0')).toHaveTextContent(/your turn/i);
+    expect(screen.getByTestId('player-0')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('player-1')).toHaveAttribute('data-active', 'false');
   });
 
   it('shows action controls only when it is my seat\'s turn', () => {
@@ -154,7 +187,6 @@ describe('BlackjackTable', () => {
         blackjackRounds={state.blackjackRounds}
       />
     );
-    // makeBlackjackSettledState's hand 0 busts, hand 1 gets blackjack.
     expect(screen.getByTestId('hand-result-0-0')).toHaveAttribute('data-outcome', 'lose');
     expect(screen.getByTestId('hand-result-0-1')).toHaveAttribute('data-outcome', 'win');
   });
