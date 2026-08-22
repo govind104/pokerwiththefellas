@@ -29,4 +29,11 @@ describe('Card', () => {
     });
     expect(new Set(sources).size).toBe(ranks.length);
   });
+
+  it('renders a repeating lattice pattern (not the old plain placeholder) when face down', () => {
+    render(<Card faceDown />);
+    const svg = screen.getByRole('img', { name: /face-down/i });
+    expect(svg.tagName.toLowerCase()).toBe('svg');
+    expect(svg.querySelector('pattern')).toBeInTheDocument();
+  });
 });

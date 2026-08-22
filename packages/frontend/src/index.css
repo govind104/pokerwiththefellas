@@ -1,3 +1,47 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --bg: #140f0a;
+  --surface: #1c1611;
+  --surface-raised: #241c15;
+  --wood: #4a2f1c;
+  --wood-dark: #2c1c10;
+  --wood-grain: #5e3d25;
+  --felt: #2f4a3a;
+  --felt-hi: #3c5c48;
+  --brass: #b8863b;
+  --brass-bright: #ddb15c;
+  --parchment: #e8d9b5;
+  --parchment-dim: #cdbb8f;
+  --ink: #1a130d;
+  --fg: #ede1c4;
+  --fg-dim: #b8a988;
+  --fg-faint: #8a7a5f;
+  --ember: #a8452e;
+  --ember-bright: #c85a3c;
+  --ember-text: #d97a5c;
+  --win: #5f7a4a;
+  --win-bright: #7a9c5e;
+}
+
+@keyframes seat-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px 2px rgba(221, 177, 92, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px rgba(221, 177, 92, 0.65);
+  }
+}
+
+.seat-active-glow {
+  animation: seat-pulse 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-active-glow {
+    animation: none;
+  }
+}

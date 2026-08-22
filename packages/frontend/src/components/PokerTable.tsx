@@ -4,6 +4,16 @@ import type { HoldemAction } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
 import { Card } from './Card';
 import { GameTable } from './GameTable';
+import { Button } from './Button';
+import { PANEL_CLASS } from './panelStyles';
+
+type ResultPolarity = 'win' | 'lose' | 'push';
+
+const RESULT_COLOR: Record<ResultPolarity, string> = {
+  win: 'text-win-bright',
+  lose: 'text-ember-text',
+  push: 'text-parchment-dim',
+};
 
 export interface PokerTableProps {
   seats: SeatView[];
@@ -50,8 +60,16 @@ export function PokerTable({
       if (!seat) continue;
       seatContent[seat.seatIndex] = (
         <div className="flex gap-1" data-testid={`hole-cards-${seat.seatIndex}`}>
-          <Card card={player.holeCards?.[0]} faceDown={player.holeCards === null} />
-          <Card card={player.holeCards?.[1]} faceDown={player.holeCards === null} />
+          <Card
+            key={player.holeCards ? `${player.holeCards[0].rank}${player.holeCards[0].suit}` : 'hidden-0'}
+            card={player.holeCards?.[0]}
+            faceDown={player.holeCards === null}
+          />
+          <Card
+            key={player.holeCards ? `${player.holeCards[1].rank}${player.holeCards[1].suit}` : 'hidden-1'}
+            card={player.holeCards?.[1]}
+            faceDown={player.holeCards === null}
+          />
         </div>
       );
     }
@@ -76,31 +94,49 @@ export function PokerTable({
               <Card key={i} card={card} />
             ))}
           </div>
-          <p>Pot: {holdem.pots.reduce((sum, pot) => sum + pot.amount, 0)}</p>
+          <div
+            data-testid="pot"
+            className={`${PANEL_CLASS} flex items-center gap-1.5 font-utility text-sm text-brass-bright`}
+          >
+            <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden="true">
+              <circle cx="10" cy="10" r="9" fill="var(--brass)" stroke="var(--ink)" strokeWidth="1" />
+              <circle cx="10" cy="10" r="5.5" fill="none" stroke="var(--ink)" strokeWidth="0.75" strokeDasharray="1.5 2" />
+            </svg>
+            Pot: {holdem.pots.reduce((sum, pot) => sum + pot.amount, 0)}
+          </div>
           {holdem.street === 'settled' && holdem.results && (
             <div className="flex flex-col items-center gap-1" data-testid="holdem-results">
-              {holdem.results.map((result) => (
-                <p key={result.playerId} data-testid={`holdem-result-${result.playerId}`}>
-                  {result.payout > 0
-                    ? `${result.playerId} won ${result.payout}`
-                    : result.payout < 0
-                      ? `${result.playerId} lost ${Math.abs(result.payout)}`
-                      : `${result.playerId} split even`}
-                </p>
-              ))}
+              {holdem.results.map((result) => {
+                const polarity: ResultPolarity =
+                  result.payout > 0 ? 'win' : result.payout < 0 ? 'lose' : 'push';
+                return (
+                  <div
+                    key={result.playerId}
+                    data-testid={`holdem-result-${result.playerId}`}
+                    data-outcome={polarity}
+                    className={`${PANEL_CLASS} font-body text-sm ${RESULT_COLOR[polarity]}`}
+                  >
+                    {result.payout > 0
+                      ? `${result.playerId} won ${result.payout}`
+                      : result.payout < 0
+                        ? `${result.playerId} lost ${Math.abs(result.payout)}`
+                        : `${result.playerId} split even`}
+                  </div>
+                );
+              })}
             </div>
           )}
           {isMyTurn && (
             <div className="flex items-center gap-2">
-              <button onClick={() => onAction('fold')} className="rounded-md bg-red-600 px-3 py-1">
+              <Button variant="danger" onClick={() => onAction('fold')}>
                 Fold
-              </button>
-              <button onClick={() => onAction('check')} className="rounded-md bg-slate-600 px-3 py-1">
+              </Button>
+              <Button variant="neutral" onClick={() => onAction('check')}>
                 Check
-              </button>
-              <button onClick={() => onAction('call')} className="rounded-md bg-slate-600 px-3 py-1">
+              </Button>
+              <Button variant="neutral" onClick={() => onAction('call')}>
                 Call
-              </button>
+              </Button>
               <input
                 type="number"
                 value={raiseAmount}
@@ -109,22 +145,19 @@ export function PokerTable({
                 min={1}
                 step={1}
                 max={myPlayer ? myPlayer.stack : undefined}
-                className="w-20 rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-white"
+                className="w-20 rounded-md border border-wood-grain bg-surface px-2 py-1 text-fg"
               />
-              <button
-                onClick={() => onAction('raise', raiseAmount)}
-                className="rounded-md bg-emerald-600 px-3 py-1"
-              >
+              <Button variant="primary" onClick={() => onAction('raise', raiseAmount)}>
                 Raise
-              </button>
-              <button onClick={() => onAction('all-in')} className="rounded-md bg-amber-600 px-3 py-1">
+              </Button>
+              <Button variant="danger" onClick={() => onAction('all-in')}>
                 All In
-              </button>
+              </Button>
             </div>
           )}
         </div>
       ) : (
-        <p>Waiting for hand to start…</p>
+        <div className={`${PANEL_CLASS} text-fg-dim`}>Waiting for hand to start…</div>
       )}
     </GameTable>
   );

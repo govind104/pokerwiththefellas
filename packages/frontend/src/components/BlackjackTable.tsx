@@ -3,7 +3,10 @@ import type { SeatView, BlackjackRoundView } from '@poker-blackjack/server/src/t
 import type { PlayerAction, Outcome } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
 import { Card } from './Card';
+import { Chip } from './Chip';
 import { GameTable } from './GameTable';
+import { Button } from './Button';
+import { PANEL_CLASS, PANEL_CLASS_SM } from './panelStyles';
 
 const OUTCOME_LABELS: Record<Outcome, string> = {
   blackjack: 'Blackjack!',
@@ -11,6 +14,20 @@ const OUTCOME_LABELS: Record<Outcome, string> = {
   win: 'Win',
   lose: 'Lose',
   push: 'Push',
+};
+
+const OUTCOME_POLARITY: Record<Outcome, 'win' | 'lose' | 'push'> = {
+  blackjack: 'win',
+  win: 'win',
+  bust: 'lose',
+  lose: 'lose',
+  push: 'push',
+};
+
+const OUTCOME_COLOR: Record<'win' | 'lose' | 'push', string> = {
+  win: 'text-win-bright',
+  lose: 'text-ember-text',
+  push: 'text-parchment-dim',
 };
 
 export interface BlackjackTableProps {
@@ -47,23 +64,38 @@ export function BlackjackTable({
       const seatIndex = Number(seatIndexStr);
       seatContent[seatIndex] = (
         <div className="flex flex-col gap-1" data-testid={`hands-${seatIndex}`}>
-          {round.playerHands.map((hand, i) => (
-            <div key={i} className="flex flex-col items-center gap-1">
-              <div className="flex gap-1">
-                {hand.cards.map((card, j) => (
-                  <Card key={j} card={card} />
-                ))}
+          {round.playerHands.map((hand, i) => {
+            const outcome = round.phase === 'settled' && round.results ? round.results[i].outcome : null;
+            const polarity = outcome ? OUTCOME_POLARITY[outcome] : null;
+            return (
+              <div key={i} className="flex flex-col items-center gap-1">
+                <div className="flex gap-1">
+                  {hand.cards.map((card, j) => (
+                    <Card key={`${card.rank}-${card.suit}-${j}`} card={card} />
+                  ))}
+                </div>
+                <div
+                  data-testid={`hand-bet-${seatIndex}-${i}`}
+                  aria-label={`Bet: ${hand.bet}`}
+                  className={PANEL_CLASS_SM}
+                >
+                  <Chip
+                    key={`${hand.bet}-${hand.cards.map((c) => `${c.rank}${c.suit}`).join('')}`}
+                    value={hand.bet}
+                  />
+                </div>
+                {outcome && polarity && (
+                  <div
+                    className={`${PANEL_CLASS_SM} font-body text-xs font-semibold ${OUTCOME_COLOR[polarity]}`}
+                    data-testid={`hand-result-${seatIndex}-${i}`}
+                    data-outcome={polarity}
+                  >
+                    {OUTCOME_LABELS[outcome]}
+                  </div>
+                )}
               </div>
-              <p className="text-xs text-slate-400" data-testid={`hand-bet-${seatIndex}-${i}`}>
-                Bet: {hand.bet}
-              </p>
-              {round.phase === 'settled' && round.results && (
-                <p className="text-xs font-semibold" data-testid={`hand-result-${seatIndex}-${i}`}>
-                  {OUTCOME_LABELS[round.results[i].outcome]}
-                </p>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       );
     }
@@ -83,7 +115,9 @@ export function BlackjackTable({
     >
       {blackjackRounds ? (
         <div className="flex flex-col items-center gap-2" data-testid="dealer-hand">
-          <p>Dealer</p>
+          <p className={`${PANEL_CLASS} font-utility text-xs uppercase tracking-wide text-brass-bright`}>
+            Dealer
+          </p>
           <div className="flex gap-1">
             {dealerRound?.dealerCards
               ? dealerRound.dealerCards.map((card, i) => <Card key={i} card={card} />)
@@ -91,23 +125,23 @@ export function BlackjackTable({
           </div>
           {isMyTurn && (
             <div className="flex gap-2">
-              <button onClick={() => onAction('hit')} className="rounded-md bg-slate-600 px-3 py-1">
+              <Button variant="neutral" onClick={() => onAction('hit')}>
                 Hit
-              </button>
-              <button onClick={() => onAction('stand')} className="rounded-md bg-slate-600 px-3 py-1">
+              </Button>
+              <Button variant="neutral" onClick={() => onAction('stand')}>
                 Stand
-              </button>
-              <button onClick={() => onAction('double')} className="rounded-md bg-emerald-600 px-3 py-1">
+              </Button>
+              <Button variant="primary" onClick={() => onAction('double')}>
                 Double
-              </button>
-              <button onClick={() => onAction('split')} className="rounded-md bg-amber-600 px-3 py-1">
+              </Button>
+              <Button variant="danger" onClick={() => onAction('split')}>
                 Split
-              </button>
+              </Button>
             </div>
           )}
         </div>
       ) : (
-        <p>Waiting for hand to start…</p>
+        <div className={`${PANEL_CLASS} text-fg-dim`}>Waiting for hand to start…</div>
       )}
     </GameTable>
   );
