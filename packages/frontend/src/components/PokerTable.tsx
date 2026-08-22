@@ -4,6 +4,16 @@ import type { HoldemAction } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
 import { Card } from './Card';
 import { GameTable } from './GameTable';
+import { Button } from './Button';
+import { PANEL_CLASS } from './panelStyles';
+
+type ResultPolarity = 'win' | 'lose' | 'push';
+
+const RESULT_COLOR: Record<ResultPolarity, string> = {
+  win: 'text-win-bright',
+  lose: 'text-ember-text',
+  push: 'text-parchment-dim',
+};
 
 export interface PokerTableProps {
   seats: SeatView[];
@@ -50,8 +60,16 @@ export function PokerTable({
       if (!seat) continue;
       seatContent[seat.seatIndex] = (
         <div className="flex gap-1" data-testid={`hole-cards-${seat.seatIndex}`}>
-          <Card card={player.holeCards?.[0]} faceDown={player.holeCards === null} />
-          <Card card={player.holeCards?.[1]} faceDown={player.holeCards === null} />
+          <Card
+            key={player.holeCards ? `${player.holeCards[0].rank}${player.holeCards[0].suit}` : 'hidden-0'}
+            card={player.holeCards?.[0]}
+            faceDown={player.holeCards === null}
+          />
+          <Card
+            key={player.holeCards ? `${player.holeCards[1].rank}${player.holeCards[1].suit}` : 'hidden-1'}
+            card={player.holeCards?.[1]}
+            faceDown={player.holeCards === null}
+          />
         </div>
       );
     }
@@ -78,7 +96,7 @@ export function PokerTable({
           </div>
           <div
             data-testid="pot"
-            className="flex items-center gap-1.5 rounded-md border border-wood-grain bg-surface px-3 py-1 font-utility text-sm text-brass-bright"
+            className={`${PANEL_CLASS} flex items-center gap-1.5 font-utility text-sm text-brass-bright`}
           >
             <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden="true">
               <circle cx="10" cy="10" r="9" fill="var(--brass)" stroke="var(--ink)" strokeWidth="1" />
@@ -88,47 +106,37 @@ export function PokerTable({
           </div>
           {holdem.street === 'settled' && holdem.results && (
             <div className="flex flex-col items-center gap-1" data-testid="holdem-results">
-              {holdem.results.map((result) => (
-                <div
-                  key={result.playerId}
-                  data-testid={`holdem-result-${result.playerId}`}
-                  className={`rounded-md border border-wood-grain bg-surface px-3 py-1 font-body text-sm ${
-                    result.payout > 0
-                      ? 'text-win-bright'
+              {holdem.results.map((result) => {
+                const polarity: ResultPolarity =
+                  result.payout > 0 ? 'win' : result.payout < 0 ? 'lose' : 'push';
+                return (
+                  <div
+                    key={result.playerId}
+                    data-testid={`holdem-result-${result.playerId}`}
+                    data-outcome={polarity}
+                    className={`${PANEL_CLASS} font-body text-sm ${RESULT_COLOR[polarity]}`}
+                  >
+                    {result.payout > 0
+                      ? `${result.playerId} won ${result.payout}`
                       : result.payout < 0
-                        ? 'text-ember-text'
-                        : 'text-parchment-dim'
-                  }`}
-                >
-                  {result.payout > 0
-                    ? `${result.playerId} won ${result.payout}`
-                    : result.payout < 0
-                      ? `${result.playerId} lost ${Math.abs(result.payout)}`
-                      : `${result.playerId} split even`}
-                </div>
-              ))}
+                        ? `${result.playerId} lost ${Math.abs(result.payout)}`
+                        : `${result.playerId} split even`}
+                  </div>
+                );
+              })}
             </div>
           )}
           {isMyTurn && (
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => onAction('fold')}
-                className="rounded-md border border-ember bg-surface px-3 py-1 text-ember-text hover:bg-surface-raised"
-              >
+              <Button variant="danger" onClick={() => onAction('fold')}>
                 Fold
-              </button>
-              <button
-                onClick={() => onAction('check')}
-                className="rounded-md border border-wood-grain bg-surface px-3 py-1 text-fg hover:bg-surface-raised"
-              >
+              </Button>
+              <Button variant="neutral" onClick={() => onAction('check')}>
                 Check
-              </button>
-              <button
-                onClick={() => onAction('call')}
-                className="rounded-md border border-wood-grain bg-surface px-3 py-1 text-fg hover:bg-surface-raised"
-              >
+              </Button>
+              <Button variant="neutral" onClick={() => onAction('call')}>
                 Call
-              </button>
+              </Button>
               <input
                 type="number"
                 value={raiseAmount}
@@ -139,23 +147,17 @@ export function PokerTable({
                 max={myPlayer ? myPlayer.stack : undefined}
                 className="w-20 rounded-md border border-wood-grain bg-surface px-2 py-1 text-fg"
               />
-              <button
-                onClick={() => onAction('raise', raiseAmount)}
-                className="rounded-md border border-brass-bright bg-brass px-3 py-1 text-ink hover:bg-brass-bright"
-              >
+              <Button variant="primary" onClick={() => onAction('raise', raiseAmount)}>
                 Raise
-              </button>
-              <button
-                onClick={() => onAction('all-in')}
-                className="rounded-md border border-ember-bright bg-surface px-3 py-1 text-ember-text hover:bg-surface-raised"
-              >
+              </Button>
+              <Button variant="danger" onClick={() => onAction('all-in')}>
                 All In
-              </button>
+              </Button>
             </div>
           )}
         </div>
       ) : (
-        <div className="rounded-md border border-wood-grain bg-surface px-3 py-1 text-fg-dim">Waiting for hand to start…</div>
+        <div className={`${PANEL_CLASS} text-fg-dim`}>Waiting for hand to start…</div>
       )}
     </GameTable>
   );

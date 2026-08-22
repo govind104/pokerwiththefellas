@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { SeatView } from '@poker-blackjack/server/src/table';
 import type { ConnectionStatus } from '../socket/SocketContext';
+import { Button } from './Button';
 
 export interface GameTableProps {
   seats: SeatView[];
@@ -58,7 +59,7 @@ export function GameTable({
                 className={`absolute flex flex-col items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors ${
                   isActive
                     ? 'border-brass-bright bg-surface-raised text-parchment seat-active-glow'
-                    : 'border-wood-grain bg-surface/80 text-fg-dim'
+                    : 'border-wood-grain bg-surface text-fg-dim'
                 }`}
                 style={{ left: `${x}%`, top: `${y}%`, transform: 'translate(-50%, -50%)' }}
               >
@@ -77,12 +78,9 @@ export function GameTable({
         </div>
       </div>
       {mySeat && !handInProgress && !mySeat.ready && (
-        <button
-          onClick={onReady}
-          className="mt-4 rounded-md border border-brass-bright bg-brass px-4 py-2 font-medium text-ink hover:bg-brass-bright"
-        >
+        <Button variant="primary" size="md" onClick={onReady} className="mt-4 font-medium">
           Ready
-        </button>
+        </Button>
       )}
       {!handInProgress && (
         <button onClick={onLeave} className="mt-2 text-sm text-fg-dim underline hover:text-parchment">

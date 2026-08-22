@@ -5,6 +5,8 @@ import type { ConnectionStatus } from '../socket/SocketContext';
 import { Card } from './Card';
 import { Chip } from './Chip';
 import { GameTable } from './GameTable';
+import { Button } from './Button';
+import { PANEL_CLASS, PANEL_CLASS_SM } from './panelStyles';
 
 const OUTCOME_LABELS: Record<Outcome, string> = {
   blackjack: 'Blackjack!',
@@ -69,18 +71,22 @@ export function BlackjackTable({
               <div key={i} className="flex flex-col items-center gap-1">
                 <div className="flex gap-1">
                   {hand.cards.map((card, j) => (
-                    <Card key={j} card={card} />
+                    <Card key={`${card.rank}-${card.suit}-${j}`} card={card} />
                   ))}
                 </div>
                 <div
                   data-testid={`hand-bet-${seatIndex}-${i}`}
-                  className="rounded-md border border-wood-grain bg-surface px-2 py-0.5"
+                  aria-label={`Bet: ${hand.bet}`}
+                  className={PANEL_CLASS_SM}
                 >
-                  <Chip value={hand.bet} />
+                  <Chip
+                    key={`${hand.bet}-${hand.cards.map((c) => `${c.rank}${c.suit}`).join('')}`}
+                    value={hand.bet}
+                  />
                 </div>
                 {outcome && polarity && (
                   <div
-                    className={`rounded-md border border-wood-grain bg-surface px-2 py-0.5 font-body text-xs font-semibold ${OUTCOME_COLOR[polarity]}`}
+                    className={`${PANEL_CLASS_SM} font-body text-xs font-semibold ${OUTCOME_COLOR[polarity]}`}
                     data-testid={`hand-result-${seatIndex}-${i}`}
                     data-outcome={polarity}
                   >
@@ -109,7 +115,7 @@ export function BlackjackTable({
     >
       {blackjackRounds ? (
         <div className="flex flex-col items-center gap-2" data-testid="dealer-hand">
-          <p className="rounded-md border border-wood-grain bg-surface px-3 py-1 font-utility text-xs uppercase tracking-wide text-brass-bright">
+          <p className={`${PANEL_CLASS} font-utility text-xs uppercase tracking-wide text-brass-bright`}>
             Dealer
           </p>
           <div className="flex gap-1">
@@ -119,35 +125,23 @@ export function BlackjackTable({
           </div>
           {isMyTurn && (
             <div className="flex gap-2">
-              <button
-                onClick={() => onAction('hit')}
-                className="rounded-md border border-wood-grain bg-surface px-3 py-1 text-fg hover:bg-surface-raised"
-              >
+              <Button variant="neutral" onClick={() => onAction('hit')}>
                 Hit
-              </button>
-              <button
-                onClick={() => onAction('stand')}
-                className="rounded-md border border-wood-grain bg-surface px-3 py-1 text-fg hover:bg-surface-raised"
-              >
+              </Button>
+              <Button variant="neutral" onClick={() => onAction('stand')}>
                 Stand
-              </button>
-              <button
-                onClick={() => onAction('double')}
-                className="rounded-md border border-brass-bright bg-brass px-3 py-1 text-ink hover:bg-brass-bright"
-              >
+              </Button>
+              <Button variant="primary" onClick={() => onAction('double')}>
                 Double
-              </button>
-              <button
-                onClick={() => onAction('split')}
-                className="rounded-md border border-ember-bright bg-surface px-3 py-1 text-ember-text hover:bg-surface-raised"
-              >
+              </Button>
+              <Button variant="danger" onClick={() => onAction('split')}>
                 Split
-              </button>
+              </Button>
             </div>
           )}
         </div>
       ) : (
-        <div className="rounded-md border border-wood-grain bg-surface px-3 py-1 text-fg-dim">Waiting for hand to start…</div>
+        <div className={`${PANEL_CLASS} text-fg-dim`}>Waiting for hand to start…</div>
       )}
     </GameTable>
   );

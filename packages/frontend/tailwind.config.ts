@@ -4,6 +4,10 @@ export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      // These colors resolve to `var(--x)` CSS custom properties, so Tailwind's
+      // `/opacity` modifier syntax (e.g. `bg-surface/80`) does NOT work on them --
+      // it silently emits no CSS. Use the solid token, or a dedicated `--x-transparent`
+      // custom property, instead.
       colors: {
         bg: 'var(--bg)',
         surface: 'var(--surface)',
@@ -28,6 +32,8 @@ export default {
         'win-bright': 'var(--win-bright)',
       },
       fontFamily: {
+        // Rye's Google Fonts request is intentionally deferred (not fetched in
+        // index.html) until a consumer exists -- Georgia is a fine fallback until then.
         display: ['Rye', 'Georgia', 'serif'],
         body: ['Vollkorn', 'Georgia', '"Times New Roman"', 'serif'],
         utility: ['"Special Elite"', '"Courier New"', 'monospace'],
