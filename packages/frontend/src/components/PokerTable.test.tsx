@@ -18,12 +18,36 @@ const baseProps = {
 };
 
 describe('PokerTable', () => {
-  it('renders own hole cards face-up and the opponent face-down', () => {
+  it('renders my own hole cards face-up in a dedicated hand zone, with no cards shown for opponents mid-hand', () => {
     const state = makeHoldemPreflopState();
     render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
-    expect(screen.getByTestId('hole-cards-0').querySelectorAll('img')).toHaveLength(2);
-    expect(screen.getByTestId('hole-cards-1').querySelectorAll('img')).toHaveLength(0);
-    expect(screen.getAllByRole('img', { name: /face-down/i })).toHaveLength(2);
+    expect(screen.getByTestId('my-hand').querySelectorAll('img')).toHaveLength(2);
+    expect(screen.queryAllByRole('img', { name: /face-down/i })).toHaveLength(0);
+    expect(screen.getByTestId('player-info-1').querySelector('img, svg[role="img"]')).not.toBeInTheDocument();
+  });
+
+  it('shows Ready/Not ready/Disconnected for an opponent in the rail before a hand starts', () => {
+    const seats = [
+      makeSeat({ seatIndex: 0, displayName: 'alice', ready: false }),
+      makeSeat({ seatIndex: 1, displayName: 'bob', ready: true }),
+    ];
+    render(<PokerTable {...baseProps} seats={seats} mySeatIndex={0} holdem={null} />);
+    // toHaveTextContent checks the row's FULL concatenated text (avatar letter +
+    // name + balance + status), so this must be unanchored -- an anchored
+    // /^Ready$/ would require the entire row to read exactly "Ready", which it
+    // never will since the name/balance text is a sibling in the same row.
+    expect(screen.getByTestId('player-info-1')).toHaveTextContent(/ready/i);
+  });
+
+  it("highlights the acting opponent's rail row with data-active", () => {
+    const state = makeHoldemPreflopState({
+      holdem: {
+        ...makeHoldemPreflopState().holdem!,
+        actingPlayerId: 'bob',
+      },
+    });
+    render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    expect(screen.getByTestId('player-info-1')).toHaveAttribute('data-active', 'true');
   });
 
   it('renders community cards and the total pot', () => {
@@ -98,7 +122,6 @@ describe('PokerTable', () => {
     const input = screen.getByLabelText(/raise amount/i);
     expect(input).toHaveAttribute('min', '1');
     expect(input).toHaveAttribute('step', '1');
-    // makeHoldemMyTurnState's acting player (alice) has stack: 990.
     expect(input).toHaveAttribute('max', '990');
   });
 
@@ -119,24 +142,23 @@ describe('PokerTable', () => {
     expect(screen.getByLabelText(/raise amount/i)).toHaveValue(0);
   });
 
-  it('renders showdown results with per-player payouts once the street is settled', () => {
+  it("renders showdown results inline in each opponent's rail row, and my own result near my hand", () => {
     const state = makeHoldemSettledState();
     render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
-    const results = screen.getByTestId('holdem-results');
-    expect(results).toBeInTheDocument();
-    expect(screen.getByTestId('holdem-result-alice')).toHaveTextContent(/alice won 20/i);
-    expect(screen.getByTestId('holdem-result-bob')).toHaveTextContent(/bob lost 20/i);
-    expect(screen.getByTestId('holdem-result-carol')).toHaveTextContent(/carol/i);
-    expect(screen.getByTestId('holdem-result-carol')).toHaveTextContent(/split|even|push/i);
+    expect(screen.getByTestId('player-info-1')).toHaveTextContent(/lost 20/i);
+    expect(screen.getByTestId('player-info-2')).toHaveTextContent(/push|split/i);
+    expect(screen.getByTestId('player-cards-1').querySelectorAll('img')).toHaveLength(2);
+    expect(screen.getByTestId('my-result')).toHaveTextContent(/won 20/i);
   });
 
-  it('does not render showdown results before the street is settled', () => {
+  it('does not render my-result or revealed opponent cards before the street is settled', () => {
     const state = makeHoldemPreflopState();
     render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
-    expect(screen.queryByTestId('holdem-results')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('my-result')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('player-cards-1')).not.toBeInTheDocument();
   });
 
-  it('does not render showdown results on a settled-adjacent street fixture with results still null', () => {
+  it('does not render my-result on a settled-adjacent street fixture with results still null', () => {
     const state = makeHoldemPreflopState({
       holdem: {
         street: 'flop',
@@ -152,7 +174,7 @@ describe('PokerTable', () => {
       },
     });
     render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
-    expect(screen.queryByTestId('holdem-results')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('my-result')).not.toBeInTheDocument();
   });
 
   it('renders a decorative chip icon next to the pot total', () => {

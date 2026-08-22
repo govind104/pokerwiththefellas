@@ -15,6 +15,10 @@ const RESULT_COLOR: Record<ResultPolarity, string> = {
   push: 'text-parchment-dim',
 };
 
+function polarityOf(payout: number): ResultPolarity {
+  return payout > 0 ? 'win' : payout < 0 ? 'lose' : 'push';
+}
+
 export interface PokerTableProps {
   seats: SeatView[];
   mySeatIndex: number | null;
@@ -45,6 +49,10 @@ export function PokerTable({
     : null;
   const isMyTurn = mySeatIndex !== null && mySeatIndex === activeSeatIndex;
   const myPlayer = holdem ? (holdem.players.find((p) => p.playerId === holdem.actingPlayerId) ?? null) : null;
+  const mySeatDisplayName = seats.find((s) => s.seatIndex === mySeatIndex)?.displayName;
+  const myHoleCards = holdem
+    ? (holdem.players.find((p) => p.playerId === mySeatDisplayName)?.holeCards ?? null)
+    : null;
 
   // A value typed into the raise field on one street/turn must not leak into
   // the next -- reset whenever the street or the acting player changes (a new
@@ -53,39 +61,155 @@ export function PokerTable({
     setRaiseAmount(0);
   }, [holdem?.street, holdem?.actingPlayerId]);
 
-  const seatContent: Partial<Record<number, ReactNode>> = {};
-  if (holdem) {
-    for (const player of holdem.players) {
-      const seat = seats.find((s) => s.displayName === player.playerId);
-      if (!seat) continue;
-      seatContent[seat.seatIndex] = (
-        <div className="flex gap-1" data-testid={`hole-cards-${seat.seatIndex}`}>
-          <Card
-            key={player.holeCards ? `${player.holeCards[0].rank}${player.holeCards[0].suit}` : 'hidden-0'}
-            card={player.holeCards?.[0]}
-            faceDown={player.holeCards === null}
-          />
-          <Card
-            key={player.holeCards ? `${player.holeCards[1].rank}${player.holeCards[1].suit}` : 'hidden-1'}
-            card={player.holeCards?.[1]}
-            faceDown={player.holeCards === null}
-          />
+  const opponents = seats
+    .filter((s) => s.seatIndex !== mySeatIndex && s.displayName)
+    .sort((a, b) => a.seatIndex - b.seatIndex);
+
+  const railSlot: ReactNode =
+    opponents.length > 0 ? (
+      <>
+        {opponents.map((seat) => {
+          const player = holdem?.players.find((p) => p.playerId === seat.displayName) ?? null;
+          const isActive = holdem !== null && seat.seatIndex === activeSeatIndex;
+          const result =
+            holdem?.street === 'settled'
+              ? (holdem.results?.find((r) => r.playerId === seat.displayName) ?? null)
+              : null;
+          const polarity = result ? polarityOf(result.payout) : null;
+
+          let statusNode: ReactNode;
+          if (!holdem) {
+            statusNode = seat.connected ? (seat.ready ? 'Ready' : 'Not ready') : 'Disconnected';
+          } else if (result && polarity) {
+            const badgeClass =
+              polarity === 'win'
+                ? 'bg-win text-[#0d1508]'
+                : polarity === 'lose'
+                  ? 'bg-ember text-[#1a0a06]'
+                  : 'bg-wood-grain text-parchment-dim';
+            statusNode = (
+              <span className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${badgeClass}`}>
+                {polarity === 'win'
+                  ? `Won ${result.payout}`
+                  : polarity === 'lose'
+                    ? `Lost ${Math.abs(result.payout)}`
+                    : 'Push'}
+              </span>
+            );
+          } else if (player?.folded) {
+            statusNode = <span className="rounded border border-wood-grain px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-fg-faint">Folded</span>;
+          } else {
+            statusNode = isActive ? 'Thinking…' : 'Waiting';
+          }
+
+          return (
+            <div
+              key={seat.seatIndex}
+              data-testid={`player-info-${seat.seatIndex}`}
+              data-active={isActive ? 'true' : 'false'}
+              className={`flex items-center gap-2 rounded-md border px-2 py-1.5 ${
+                isActive ? 'border-brass-bright bg-surface-raised seat-active-glow' : 'border-wood-grain bg-surface'
+              }`}
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brass bg-wood text-sm font-bold text-parchment">
+                {seat.displayName?.[0]?.toUpperCase()}
+              </span>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-parchment">
+                  {seat.displayName} &middot; {seat.balance}
+                </span>
+                <span className="flex items-center gap-1.5 text-xs text-fg-dim">{statusNode}</span>
+              </div>
+              {result && (
+                <div data-testid={`player-cards-${seat.seatIndex}`} className="flex gap-1">
+                  {(player?.holeCards ?? []).map((card, i) => (
+                    <div key={i} className="h-[29px] w-[19px] overflow-hidden rounded-sm">
+                      <div className="origin-top-left" style={{ transform: 'scale(0.3)' }}>
+                        <Card card={card} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </>
+    ) : undefined;
+
+  const myResult = (() => {
+    if (holdem?.street !== 'settled' || !holdem.results) return null;
+    const result = holdem.results.find((r) => r.playerId === mySeatDisplayName);
+    return result ?? null;
+  })();
+
+  const bottomCenterSlot: ReactNode =
+    holdem && myHoleCards ? (
+      <>
+        {isMyTurn && (
+          <div className="flex items-center gap-2">
+            <Button variant="danger" onClick={() => onAction('fold')}>
+              Fold
+            </Button>
+            <Button variant="neutral" onClick={() => onAction('check')}>
+              Check
+            </Button>
+            <Button variant="neutral" onClick={() => onAction('call')}>
+              Call
+            </Button>
+            <input
+              type="number"
+              value={raiseAmount}
+              onChange={(event) => setRaiseAmount(Number(event.target.value))}
+              aria-label="Raise amount"
+              min={1}
+              step={1}
+              max={myPlayer ? myPlayer.stack : undefined}
+              className="w-20 rounded-md border border-wood-grain bg-surface px-2 py-1 text-fg"
+            />
+            <Button variant="primary" onClick={() => onAction('raise', raiseAmount)}>
+              Raise
+            </Button>
+            <Button variant="danger" onClick={() => onAction('all-in')}>
+              All In
+            </Button>
+          </div>
+        )}
+        {myResult && (
+          <div data-testid="my-result" className={`${PANEL_CLASS} text-sm ${RESULT_COLOR[polarityOf(myResult.payout)]}`}>
+            {myResult.payout > 0
+              ? `You won ${myResult.payout}`
+              : myResult.payout < 0
+                ? `You lost ${Math.abs(myResult.payout)}`
+                : 'You split even'}
+          </div>
+        )}
+        <div data-testid="my-hand" className="flex items-end gap-1">
+          <div className="flex h-[190px] w-[130px] items-center justify-center" style={{ transform: 'rotate(-6deg)' }}>
+            <div style={{ transform: 'scale(2)' }}>
+              <Card card={myHoleCards[0]} />
+            </div>
+          </div>
+          <div className="flex h-[190px] w-[130px] items-center justify-center" style={{ transform: 'rotate(6deg)' }}>
+            <div style={{ transform: 'scale(2)' }}>
+              <Card card={myHoleCards[1]} />
+            </div>
+          </div>
         </div>
-      );
-    }
-  }
+      </>
+    ) : undefined;
 
   return (
     <GameTable
       seats={seats}
-      activeSeatIndex={activeSeatIndex}
       mySeatIndex={mySeatIndex}
       connectionStatus={connectionStatus}
       handInProgress={handInProgress}
       errorMessage={errorMessage}
       onReady={onReady}
       onLeave={onLeave}
-      seatContent={seatContent}
+      railSlot={railSlot}
+      bottomCenterSlot={bottomCenterSlot}
     >
       {holdem ? (
         <div className="flex flex-col items-center gap-2">
@@ -104,57 +228,6 @@ export function PokerTable({
             </svg>
             Pot: {holdem.pots.reduce((sum, pot) => sum + pot.amount, 0)}
           </div>
-          {holdem.street === 'settled' && holdem.results && (
-            <div className="flex flex-col items-center gap-1" data-testid="holdem-results">
-              {holdem.results.map((result) => {
-                const polarity: ResultPolarity =
-                  result.payout > 0 ? 'win' : result.payout < 0 ? 'lose' : 'push';
-                return (
-                  <div
-                    key={result.playerId}
-                    data-testid={`holdem-result-${result.playerId}`}
-                    data-outcome={polarity}
-                    className={`${PANEL_CLASS} font-body text-sm ${RESULT_COLOR[polarity]}`}
-                  >
-                    {result.payout > 0
-                      ? `${result.playerId} won ${result.payout}`
-                      : result.payout < 0
-                        ? `${result.playerId} lost ${Math.abs(result.payout)}`
-                        : `${result.playerId} split even`}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {isMyTurn && (
-            <div className="flex items-center gap-2">
-              <Button variant="danger" onClick={() => onAction('fold')}>
-                Fold
-              </Button>
-              <Button variant="neutral" onClick={() => onAction('check')}>
-                Check
-              </Button>
-              <Button variant="neutral" onClick={() => onAction('call')}>
-                Call
-              </Button>
-              <input
-                type="number"
-                value={raiseAmount}
-                onChange={(event) => setRaiseAmount(Number(event.target.value))}
-                aria-label="Raise amount"
-                min={1}
-                step={1}
-                max={myPlayer ? myPlayer.stack : undefined}
-                className="w-20 rounded-md border border-wood-grain bg-surface px-2 py-1 text-fg"
-              />
-              <Button variant="primary" onClick={() => onAction('raise', raiseAmount)}>
-                Raise
-              </Button>
-              <Button variant="danger" onClick={() => onAction('all-in')}>
-                All In
-              </Button>
-            </div>
-          )}
         </div>
       ) : (
         <div className={`${PANEL_CLASS} text-fg-dim`}>Waiting for hand to start…</div>
