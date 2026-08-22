@@ -1,3 +1,4 @@
+import { MotionConfig } from 'framer-motion';
 import { SocketProvider, useSocket } from './socket/SocketContext';
 import { JoinScreen } from './components/JoinScreen';
 import { PokerTable } from './components/PokerTable';
@@ -38,9 +39,11 @@ function AppContent() {
 
 function App() {
   return (
-    <SocketProvider serverUrl={SERVER_URL}>
-      <AppContent />
-    </SocketProvider>
+    <MotionConfig reducedMotion="user">
+      <SocketProvider serverUrl={SERVER_URL}>
+        <AppContent />
+      </SocketProvider>
+    </MotionConfig>
   );
 }
 

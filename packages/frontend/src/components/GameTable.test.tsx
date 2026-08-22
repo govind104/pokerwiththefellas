@@ -21,6 +21,8 @@ describe('GameTable', () => {
     expect(screen.getByTestId('seat-1')).toHaveTextContent('bob');
     expect(screen.getByTestId('seat-1')).toHaveAttribute('data-active', 'true');
     expect(screen.getByTestId('seat-0')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('seat-1').className).toMatch(/seat-active-glow/);
+    expect(screen.getByTestId('seat-0').className).not.toMatch(/seat-active-glow/);
   });
 
   it('renders per-seat extra content passed via seatContent', () => {

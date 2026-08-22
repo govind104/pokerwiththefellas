@@ -57,7 +57,7 @@ export function GameTable({
                 data-active={isActive ? 'true' : 'false'}
                 className={`absolute flex flex-col items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors ${
                   isActive
-                    ? 'border-brass-bright bg-surface-raised text-parchment shadow-[0_0_10px_2px_rgba(221,177,92,0.5)]'
+                    ? 'border-brass-bright bg-surface-raised text-parchment seat-active-glow'
                     : 'border-wood-grain bg-surface/80 text-fg-dim'
                 }`}
                 style={{ left: `${x}%`, top: `${y}%`, transform: 'translate(-50%, -50%)' }}

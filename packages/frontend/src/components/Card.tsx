@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { motion } from 'framer-motion';
 import type { Card as CardModel, Rank } from '@poker-blackjack/game-engine';
 
 // Confirmed against the actual vendored filenames from Task 3, Step 1:
@@ -35,7 +36,15 @@ export function Card({ card, faceDown = false }: CardProps) {
 
   if (faceDown || !card) {
     return (
-      <svg role="img" aria-label="face-down card" viewBox="0 0 64 96" className="h-24 w-16 rounded-md">
+      <motion.svg
+        role="img"
+        aria-label="face-down card"
+        viewBox="0 0 64 96"
+        className="h-24 w-16 rounded-md"
+        initial={{ opacity: 0, y: -12, rotate: -4 }}
+        animate={{ opacity: 1, y: 0, rotate: 0 }}
+        transition={{ duration: 0.25, ease: 'easeOut' }}
+      >
         <defs>
           <pattern
             id={`card-back-lattice-${patternId}`}
@@ -58,14 +67,17 @@ export function Card({ card, faceDown = false }: CardProps) {
           stroke="var(--brass)"
           strokeWidth="2"
         />
-      </svg>
+      </motion.svg>
     );
   }
   return (
-    <img
+    <motion.img
       src={assetUrl(card)}
       alt={`${card.rank} of ${card.suit}`}
       className="h-24 w-16 rounded-md border-2 border-brass bg-parchment shadow-md"
+      initial={{ opacity: 0, y: -12, rotate: 4 }}
+      animate={{ opacity: 1, y: 0, rotate: 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
     />
   );
 }
