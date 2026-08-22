@@ -6,7 +6,6 @@ import { makeSeat } from '../fixtures/tableStateFixtures';
 
 const baseProps = {
   seats: [makeSeat({ seatIndex: 0, displayName: 'alice' }), makeSeat({ seatIndex: 1, displayName: 'bob' })],
-  activeSeatIndex: 1,
   mySeatIndex: 0,
   connectionStatus: 'at-table' as const,
   handInProgress: true,
@@ -15,28 +14,33 @@ const baseProps = {
 };
 
 describe('GameTable', () => {
-  it('renders every seat with its display name and highlights the active one', () => {
-    render(<GameTable {...baseProps}>{null}</GameTable>);
-    expect(screen.getByTestId('seat-0')).toHaveTextContent('alice');
-    expect(screen.getByTestId('seat-1')).toHaveTextContent('bob');
-    expect(screen.getByTestId('seat-1')).toHaveAttribute('data-active', 'true');
-    expect(screen.getByTestId('seat-0')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('seat-1').className).toMatch(/seat-active-glow/);
-    expect(screen.getByTestId('seat-0').className).not.toMatch(/seat-active-glow/);
-  });
-
-  it('renders per-seat extra content passed via seatContent', () => {
-    render(
-      <GameTable {...baseProps} seatContent={{ 0: <span data-testid="extra">hi</span> }}>
-        {null}
-      </GameTable>
-    );
-    expect(screen.getByTestId('seat-0')).toContainElement(screen.getByTestId('extra'));
-  });
-
   it('renders children in the center of the table', () => {
     render(<GameTable {...baseProps}>{<span data-testid="center">community</span>}</GameTable>);
     expect(screen.getByTestId('center')).toBeInTheDocument();
+  });
+
+  it('renders railSlot content wrapped in a player-rail container when provided', () => {
+    render(
+      <GameTable {...baseProps} railSlot={<span data-testid="rail-row">bob&apos;s row</span>}>
+        {null}
+      </GameTable>
+    );
+    expect(screen.getByTestId('player-rail')).toBeInTheDocument();
+    expect(screen.getByTestId('player-rail')).toContainElement(screen.getByTestId('rail-row'));
+  });
+
+  it('does not render a player-rail container when railSlot is not provided', () => {
+    render(<GameTable {...baseProps}>{null}</GameTable>);
+    expect(screen.queryByTestId('player-rail')).not.toBeInTheDocument();
+  });
+
+  it('renders bottomCenterSlot content when provided', () => {
+    render(
+      <GameTable {...baseProps} bottomCenterSlot={<span data-testid="my-hand-slot">my cards</span>}>
+        {null}
+      </GameTable>
+    );
+    expect(screen.getByTestId('my-hand-slot')).toBeInTheDocument();
   });
 
   it('shows a reconnecting banner only when connectionStatus is reconnecting', () => {
