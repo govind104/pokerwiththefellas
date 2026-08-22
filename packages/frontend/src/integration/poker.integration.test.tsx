@@ -83,7 +83,7 @@ describe('Poker end-to-end via App', () => {
     // / holdemHand.ts's heads-up firstToActIndex = buttonIndex) -- alice's own
     // action controls appear once the server confirms it's her turn.
     await screen.findByRole('button', { name: /^call$/i });
-    expect(screen.getByTestId('seat-0').className).toMatch(/bg-amber-500/);
+    expect(screen.getByTestId('seat-0')).toHaveAttribute('data-active', 'true');
 
     // The wire payload this proves: SocketContext.sendAction emits
     // { action: 'call', amount: undefined } over the real socket, the server
@@ -92,9 +92,9 @@ describe('Poker end-to-end via App', () => {
     await userEvent.click(screen.getByRole('button', { name: /^call$/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('seat-1').className).toMatch(/bg-amber-500/);
+      expect(screen.getByTestId('seat-1')).toHaveAttribute('data-active', 'true');
     });
-    expect(screen.getByTestId('seat-0').className).not.toMatch(/bg-amber-500/);
+    expect(screen.getByTestId('seat-0')).toHaveAttribute('data-active', 'false');
     // It's no longer alice's turn, so her action controls should be gone.
     expect(screen.queryByRole('button', { name: /^call$/i })).not.toBeInTheDocument();
   });
