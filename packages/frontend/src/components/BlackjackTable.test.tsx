@@ -142,4 +142,20 @@ describe('BlackjackTable', () => {
     );
     expect(screen.queryByTestId('hand-result-0-0')).not.toBeInTheDocument();
   });
+
+  it('marks each settled outcome with a semantic win/lose/push polarity for styling', () => {
+    const state = makeBlackjackSettledState();
+    render(
+      <BlackjackTable
+        {...baseProps}
+        seats={state.seats}
+        activeSeatIndex={null}
+        mySeatIndex={0}
+        blackjackRounds={state.blackjackRounds}
+      />
+    );
+    // makeBlackjackSettledState's hand 0 busts, hand 1 gets blackjack.
+    expect(screen.getByTestId('hand-result-0-0')).toHaveAttribute('data-outcome', 'lose');
+    expect(screen.getByTestId('hand-result-0-1')).toHaveAttribute('data-outcome', 'win');
+  });
 });
