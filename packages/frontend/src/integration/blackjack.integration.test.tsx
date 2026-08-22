@@ -73,15 +73,15 @@ describe('Blackjack end-to-end via App', () => {
     // Wait for alice's real App instance to reflect bob's join before moving
     // on -- see poker.integration.test.tsx for why this findBy* sync point
     // (act-wrapped by testing-library) matters here.
-    await within(screen.getByTestId('seat-1')).findByText('bob');
+    await within(screen.getByTestId('player-1')).findByText('bob', { exact: false });
 
     bobSocket.emit('ready');
-    await within(screen.getByTestId('seat-1')).findByText(/^Ready$/);
+    await within(screen.getByTestId('player-1')).findByText(/^Ready$/);
 
     await userEvent.click(screen.getByRole('button', { name: /^ready$/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('hands-0').querySelectorAll('img').length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByTestId('player-0').querySelectorAll('img').length).toBeGreaterThanOrEqual(2);
     });
     expect(screen.getByTestId('dealer-hand').querySelectorAll('img')).toHaveLength(1);
   });
