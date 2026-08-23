@@ -61,8 +61,16 @@ describe('Blackjack end-to-end via App', () => {
   it('two players join and ready up, and each sees their own hand and the shared dealer up-card', async () => {
     const { App } = ctx;
     render(<App />);
+    // SocketProvider opens its real socket the instant it mounts and starts
+    // in 'connecting' status, which JoinScreen renders as a disabled input
+    // ("Joining…" button) until the server's welcome `state` broadcast
+    // arrives and moves status to 'entering-name' -- see SocketContext.tsx.
+    // Typing into the field before that round-trip completes would be a
+    // no-op against a disabled input, so wait for the enabled "Join table"
+    // button first.
+    await screen.findByRole('button', { name: /^join table$/i });
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
-    await userEvent.click(screen.getByRole('button', { name: /join table/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^join table$/i }));
     await screen.findByRole('button', { name: /^ready$/i });
 
     const bobSocket: Socket = createClient(ctx.serverUrl);

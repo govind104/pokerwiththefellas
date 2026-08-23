@@ -3,12 +3,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
-import { createServer } from '@poker-blackjack/server/src/socketServer';
+import { io as createClient, type Socket } from 'socket.io-client';
+import { createServer, type StaticTableConfig } from '@poker-blackjack/server/src/socketServer';
 import { JsonPlayerStore } from '@poker-blackjack/server/src/playerStore';
 import { JsonlHandLog } from '@poker-blackjack/server/src/handLog';
-import type { TableConfig } from '@poker-blackjack/server/src/table';
-import type { Socket } from 'socket.io-client';
+import { JsonGameConfigStore, type GameConfigValues } from '@poker-blackjack/server/src/gameConfigStore';
+import type { TableConfig, AppStateView } from '@poker-blackjack/server/src/table';
 import type AppComponent from '../App';
+
+// Matches packages/server/src/testHelpers.ts's ADMIN_PASSPHRASE -- the two
+// can't share an import (that file is test-only code in a different
+// package), so this is a deliberate, minimal duplication of the same fixed
+// value rather than a real dependency.
+const ADMIN_PASSPHRASE = 'test-passphrase';
 
 // Shared beforeEach/afterEach setup for the real-server integration tests
 // (poker.integration.test.tsx, blackjack.integration.test.tsx). Both files
@@ -91,12 +98,57 @@ export function setupIntegrationServer(
     tmpDir = mkdtempSync(join(tmpdir(), tmpDirPrefix));
     const playerStore = new JsonPlayerStore(join(tmpDir, 'balances.json'), config.defaultStartingBalance);
     const handLog = new JsonlHandLog(join(tmpDir, 'hand.jsonl'));
-    const result = await createServer(config, playerStore, handLog);
+    // createServer now takes a StaticTableConfig (seat count / reconnect
+    // grace / RNG -- fixed for the server's lifetime) and a separate
+    // GameConfigStore (blinds / bets / starting balance -- admin-adjustable
+    // at runtime) rather than one flat TableConfig. The test files' single
+    // buildConfig() still returns a flat TableConfig for convenience; split
+    // it into the two shapes createServer now expects.
+    const staticConfig: StaticTableConfig = {
+      seatCount: config.seatCount,
+      reconnectGraceMs: config.reconnectGraceMs,
+      random: config.random,
+    };
+    const gameConfigDefaults: GameConfigValues = {
+      smallBlind: config.smallBlind,
+      bigBlind: config.bigBlind,
+      blackjackDefaultBet: config.blackjackDefaultBet,
+      defaultStartingBalance: config.defaultStartingBalance,
+    };
+    const gameConfigStore = new JsonGameConfigStore(join(tmpDir, 'game-config.json'), gameConfigDefaults);
+    const result = await createServer(staticConfig, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE);
     httpServer = result.httpServer;
     await new Promise<void>((resolve) => httpServer.listen(0, resolve));
     const address = httpServer.address();
     const port = typeof address === 'object' && address ? address.port : 0;
     serverUrl = `http://localhost:${port}`;
+
+    // The server now starts in an empty lobby (mode: null, no Table) until
+    // an admin-authenticated socket calls adminStartGame -- it no longer
+    // constructs a Table with a fixed mode at startup. Log in as admin and
+    // start the game here, before App ever connects, so that by the time
+    // <App /> mounts below it sees an already-active table exactly like it
+    // did before this fixture existed (just via the lobby+admin flow instead
+    // of always-on-at-startup). This raw client socket is used only for that
+    // bootstrapping and is disconnected immediately after, so it doesn't
+    // leak a connection for afterEach's httpServer.close() to wait on.
+    const adminSocket: Socket = createClient(serverUrl);
+    await new Promise<void>((resolve) => adminSocket.on('connect', resolve));
+    adminSocket.emit('adminLogin', { passphrase: ADMIN_PASSPHRASE });
+    await new Promise<void>((resolve) => adminSocket.once('adminLoginResult', () => resolve()));
+    const gameStarted = new Promise<void>((resolve) => {
+      const handleState = (state: AppStateView) => {
+        if (state.mode === config.gameMode) {
+          adminSocket.off('state', handleState);
+          resolve();
+        }
+      };
+      adminSocket.on('state', handleState);
+    });
+    adminSocket.emit('adminStartGame', { mode: config.gameMode });
+    await gameStarted;
+    adminSocket.disconnect();
+
     originalServerUrl = import.meta.env.VITE_SERVER_URL;
     (import.meta.env as Record<string, string>).VITE_SERVER_URL = serverUrl;
     // App.tsx reads import.meta.env.VITE_SERVER_URL into a module-level const

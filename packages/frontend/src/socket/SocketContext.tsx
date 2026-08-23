@@ -78,7 +78,18 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       setState(nextState);
       setErrorMessage(null);
 
-      const mySeated = nextState.table?.seats.some((s) => s.displayName === displayNameRef.current) ?? false;
+      // displayNameRef.current guard matters here specifically because a
+      // fresh table's unclaimed seats also carry `displayName: null` (see
+      // Table's seat initialization in table.ts) -- without it, the very
+      // first "welcome" broadcast a socket receives on connect (added
+      // alongside the lobby/admin work; see socketServer.ts's `connection`
+      // handler), which arrives before any join and thus while
+      // displayNameRef.current is still null, would spuriously match an
+      // empty seat's `displayName === null` and report this brand-new,
+      // not-yet-named socket as already seated.
+      const mySeated =
+        displayNameRef.current !== null &&
+        (nextState.table?.seats.some((s) => s.displayName === displayNameRef.current) ?? false);
       const wasSeated = wasSeatedRef.current;
       wasSeatedRef.current = mySeated;
 

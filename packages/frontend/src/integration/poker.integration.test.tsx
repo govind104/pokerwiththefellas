@@ -27,8 +27,16 @@ describe('Poker end-to-end via App', () => {
   it('two players join, ready up, and see the hand start with correct hole-card visibility', async () => {
     const { App } = ctx;
     render(<App />);
+    // SocketProvider opens its real socket the instant it mounts and starts
+    // in 'connecting' status, which JoinScreen renders as a disabled input
+    // ("Joining…" button) until the server's welcome `state` broadcast
+    // arrives and moves status to 'entering-name' -- see SocketContext.tsx.
+    // Typing into the field before that round-trip completes would be a
+    // no-op against a disabled input, so wait for the enabled "Join table"
+    // button first.
+    await screen.findByRole('button', { name: /^join table$/i });
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
-    await userEvent.click(screen.getByRole('button', { name: /join table/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^join table$/i }));
     await screen.findByRole('button', { name: /^ready$/i });
 
     const bobSocket: Socket = createClient(ctx.serverUrl);
@@ -57,8 +65,12 @@ describe('Poker end-to-end via App', () => {
   it('sendAction round-trips: calling advances the acting player from alice to bob', async () => {
     const { App } = ctx;
     render(<App />);
+    // See the first test in this file for why this wait is needed before
+    // typing: the display-name field is disabled until the initial
+    // 'connecting' -> 'entering-name' transition completes.
+    await screen.findByRole('button', { name: /^join table$/i });
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
-    await userEvent.click(screen.getByRole('button', { name: /join table/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^join table$/i }));
     await screen.findByRole('button', { name: /^ready$/i });
 
     const bobSocket: Socket = createClient(ctx.serverUrl);
@@ -95,8 +107,12 @@ describe('Poker end-to-end via App', () => {
   it('an illegal action (checking while facing a bet) surfaces the error banner', async () => {
     const { App } = ctx;
     render(<App />);
+    // See the first test in this file for why this wait is needed before
+    // typing: the display-name field is disabled until the initial
+    // 'connecting' -> 'entering-name' transition completes.
+    await screen.findByRole('button', { name: /^join table$/i });
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
-    await userEvent.click(screen.getByRole('button', { name: /join table/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^join table$/i }));
     await screen.findByRole('button', { name: /^ready$/i });
 
     const bobSocket: Socket = createClient(ctx.serverUrl);
