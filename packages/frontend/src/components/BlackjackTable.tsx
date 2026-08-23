@@ -102,7 +102,7 @@ export function BlackjackTable({
                 key={seat.seatIndex}
                 data-testid={`player-${seat.seatIndex}`}
                 data-active={isActive ? 'true' : 'false'}
-                className="flex flex-col items-center gap-1.5"
+                className="flex shrink-0 flex-col items-center gap-1.5"
               >
                 {round && (
                   <div className="flex gap-3">
