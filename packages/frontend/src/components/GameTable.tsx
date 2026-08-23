@@ -44,7 +44,7 @@ export function GameTable({
           </div>
         )}
       </div>
-      <div className="relative flex h-[min(75vh,42rem)] w-[min(90vw,54rem)] items-center justify-center rounded-full border-[10px] border-wood bg-gradient-to-br from-wood to-wood-dark shadow-[inset_0_0_60px_20px_rgba(0,0,0,0.5)]">
+      <div className="relative flex h-[min(75vh,42rem)] w-[96vw] items-center justify-center rounded-full border-[10px] border-wood bg-gradient-to-br from-wood to-wood-dark shadow-[inset_0_0_60px_20px_rgba(0,0,0,0.5)]">
         <div className="absolute inset-[8%] rounded-full bg-[radial-gradient(120%_100%_at_50%_30%,var(--felt-hi)_0%,var(--felt)_100%)] shadow-[inset_0_10px_30px_rgba(0,0,0,0.45)]">
           <div className="flex h-full flex-col items-center justify-center gap-2">{children}</div>
         </div>

@@ -3,9 +3,12 @@ import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
 import type { TableConfig } from './table';
 
+const gameMode = process.env.GAME_MODE === 'blackjack' ? 'blackjack' : 'holdem';
+
+// Friend-group-sized table: 6 seats for both game modes.
 const config: TableConfig = {
-  gameMode: process.env.GAME_MODE === 'blackjack' ? 'blackjack' : 'holdem',
-  seatCount: 8,
+  gameMode,
+  seatCount: 6,
   smallBlind: Number(process.env.SMALL_BLIND ?? 5),
   bigBlind: Number(process.env.BIG_BLIND ?? 10),
   blackjackDefaultBet: Number(process.env.BLACKJACK_DEFAULT_BET ?? 25),
