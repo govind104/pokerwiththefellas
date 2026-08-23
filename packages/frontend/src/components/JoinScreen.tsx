@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useSocket } from '../socket/SocketContext';
 
 export function JoinScreen() {
-  const { status, errorMessage, connect } = useSocket();
+  const { status, errorMessage, joinWithName } = useSocket();
   const [name, setName] = useState('');
 
   function handleSubmit(event: FormEvent) {
@@ -11,7 +11,7 @@ export function JoinScreen() {
     if (trimmed.length === 0) {
       return;
     }
-    connect(trimmed);
+    joinWithName(trimmed);
   }
 
   const connecting = status === 'connecting';

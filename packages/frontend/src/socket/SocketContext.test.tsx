@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSocket, SocketProvider, DISPLAY_NAME_STORAGE_KEY } from './SocketContext';
-import { makeWaitingState, makeHoldemPreflopState } from '../fixtures/tableStateFixtures';
+import { makeAppState, makeLobbyState, makeWaitingState, makeHoldemPreflopState } from '../fixtures/tableStateFixtures';
 
 // A minimal fake socket.io-client: enough surface for SocketContext to drive
 // (emit/on/disconnect, plus the nested `.io` manager used for the 'reconnect' event)
@@ -36,15 +36,17 @@ vi.mock('socket.io-client', () => ({
 }));
 
 function TestConsumer() {
-  const { status, state, errorMessage, displayName, connect, leave } = useSocket();
+  const { status, state, errorMessage, displayName, isAdmin, joinWithName, leave, adminLogin } = useSocket();
   return (
     <div>
       <p data-testid="status">{status}</p>
-      <p data-testid="state">{state ? state.gameMode : 'none'}</p>
+      <p data-testid="mode">{state?.mode ?? 'none'}</p>
       <p data-testid="error">{errorMessage ?? 'none'}</p>
       <p data-testid="name">{displayName ?? 'none'}</p>
-      <button onClick={() => connect('alice')}>connect</button>
+      <p data-testid="isAdmin">{String(isAdmin)}</p>
+      <button onClick={() => joinWithName('alice')}>join</button>
       <button onClick={() => leave()}>leave</button>
+      <button onClick={() => adminLogin('secret')}>admin-login</button>
     </div>
   );
 }
@@ -62,59 +64,112 @@ describe('SocketProvider', () => {
     vi.clearAllMocks();
   });
 
-  it('starts in entering-name with no stored name', () => {
+  it('connects immediately on mount and starts in connecting', () => {
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
       </SocketProvider>
     );
-    expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+    expect(screen.getByTestId('status')).toHaveTextContent('connecting');
   });
 
-  it('connects, joins, and reaches at-table on a state event', async () => {
+  it('moves to lobby when the initial state reports no active mode', async () => {
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
       </SocketProvider>
     );
-
     act(() => {
-      screen.getByText('connect').click();
+      handlers.get('state')?.(makeLobbyState());
     });
-    expect(screen.getByTestId('status')).toHaveTextContent('connecting');
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('lobby'));
+  });
+
+  it('moves to entering-name when a mode is active but no name is known yet', async () => {
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('entering-name'));
+    expect(emitted.find((e) => e.event === 'join')).toBeUndefined();
+  });
+
+  it('joinWithName emits join and reaching at-table on a state event that seats us', async () => {
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('entering-name'));
 
     act(() => {
-      handlers.get('connect')?.();
+      screen.getByText('join').click();
     });
     expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
 
     act(() => {
-      handlers.get('state')?.(makeWaitingState());
+      handlers.get('state')?.(makeAppState(makeWaitingState())); // seats[0] is 'alice' per the fixture
     });
-
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
-    expect(screen.getByTestId('state')).toHaveTextContent('holdem');
+    expect(screen.getByTestId('mode')).toHaveTextContent('holdem');
     expect(screen.getByTestId('name')).toHaveTextContent('alice');
     expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBe('alice');
   });
 
-  it('an error while connecting moves to error and disconnects the socket', async () => {
+  it('auto-rejoins with a remembered name once a mode becomes active, without a manual joinWithName call', async () => {
+    sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, 'alice');
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
       </SocketProvider>
     );
+    expect(screen.getByTestId('name')).toHaveTextContent('alice');
 
     act(() => {
-      screen.getByText('connect').click();
+      handlers.get('state')?.(makeLobbyState());
     });
-    act(() => {
-      handlers.get('error')?.({ message: 'Invalid display name' });
-    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('lobby'));
 
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
-    expect(screen.getByTestId('error')).toHaveTextContent('Invalid display name');
-    expect(disconnectCalls).toBe(1);
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ seats: [] }))); // mode active, not yet seated
+    });
+    expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
+  });
+
+  it('adminLogin emits adminLogin, and isAdmin reflects a successful state broadcast', async () => {
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+    act(() => {
+      screen.getByText('admin-login').click();
+    });
+    expect(emitted).toContainEqual({ event: 'adminLogin', payload: { passphrase: 'secret' } });
+
+    act(() => {
+      handlers.get('state')?.(makeLobbyState({ isAdmin: true }));
+    });
+    await waitFor(() => expect(screen.getByTestId('isAdmin')).toHaveTextContent('true'));
+  });
+
+  it('a failed adminLoginResult surfaces an error message', async () => {
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+    act(() => {
+      handlers.get('adminLoginResult')?.({ success: false });
+    });
+    await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent('Incorrect admin passphrase'));
   });
 
   it('an error while at-table stays at-table and does not disconnect', async () => {
@@ -124,18 +179,14 @@ describe('SocketProvider', () => {
       </SocketProvider>
     );
     act(() => {
-      screen.getByText('connect').click();
-    });
-    act(() => {
-      handlers.get('connect')?.();
-      handlers.get('state')?.(makeWaitingState());
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
     act(() => {
       handlers.get('error')?.({ message: "It is not alice's turn" });
     });
-
     expect(screen.getByTestId('status')).toHaveTextContent('at-table');
     expect(screen.getByTestId('error')).toHaveTextContent("It is not alice's turn");
     expect(disconnectCalls).toBe(0);
@@ -148,9 +199,8 @@ describe('SocketProvider', () => {
       </SocketProvider>
     );
     act(() => {
-      screen.getByText('connect').click();
-      handlers.get('connect')?.();
-      handlers.get('state')?.(makeWaitingState());
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -166,17 +216,6 @@ describe('SocketProvider', () => {
     expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
   });
 
-  it('resumes a stored display name on mount without a manual connect() call', () => {
-    sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, 'carol');
-    render(
-      <SocketProvider serverUrl="http://localhost:3000">
-        <TestConsumer />
-      </SocketProvider>
-    );
-    expect(screen.getByTestId('status')).toHaveTextContent('connecting');
-    expect(screen.getByTestId('name')).toHaveTextContent('carol');
-  });
-
   it('a fresh state event clears a previously-shown in-game error', async () => {
     render(
       <SocketProvider serverUrl="http://localhost:3000">
@@ -184,9 +223,8 @@ describe('SocketProvider', () => {
       </SocketProvider>
     );
     act(() => {
-      screen.getByText('connect').click();
-      handlers.get('connect')?.();
-      handlers.get('state')?.(makeWaitingState());
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -196,21 +234,20 @@ describe('SocketProvider', () => {
     expect(screen.getByTestId('error')).toHaveTextContent("It is not alice's turn");
 
     act(() => {
-      handlers.get('state')?.(makeWaitingState());
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
     });
     expect(screen.getByTestId('error')).toHaveTextContent('none');
   });
 
-  it('leave() while no hand is in progress emits leave, disconnects, and resets to entering-name', async () => {
+  it('leave() while no hand is in progress emits leave and clears the session', async () => {
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
       </SocketProvider>
     );
     act(() => {
-      screen.getByText('connect').click();
-      handlers.get('connect')?.();
-      handlers.get('state')?.(makeWaitingState());
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
     expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBe('alice');
@@ -221,9 +258,9 @@ describe('SocketProvider', () => {
     });
 
     expect(emitted).toContainEqual({ event: 'leave', payload: undefined });
-    expect(disconnectCalls).toBe(1);
+    expect(disconnectCalls).toBe(0); // the socket itself stays connected -- we're still in the lobby, not gone
     expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBeNull();
-    expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+    expect(screen.getByTestId('name')).toHaveTextContent('none');
   });
 
   it('leave() while a hand is in progress is a no-op, preserving the session (defense in depth alongside the UI gate)', async () => {
@@ -233,9 +270,8 @@ describe('SocketProvider', () => {
       </SocketProvider>
     );
     act(() => {
-      screen.getByText('connect').click();
-      handlers.get('connect')?.();
-      handlers.get('state')?.(makeHoldemPreflopState()); // handInProgress: true
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeHoldemPreflopState())); // handInProgress: true
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -245,65 +281,7 @@ describe('SocketProvider', () => {
     });
 
     expect(emitted).toEqual([]);
-    expect(disconnectCalls).toBe(0);
     expect(screen.getByTestId('status')).toHaveTextContent('at-table');
     expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBe('alice');
-  });
-
-  it('does not transiently show reconnecting when disconnect fires synchronously during leave()', async () => {
-    render(
-      <SocketProvider serverUrl="http://localhost:3000">
-        <TestConsumer />
-      </SocketProvider>
-    );
-    act(() => {
-      screen.getByText('connect').click();
-      handlers.get('connect')?.();
-      handlers.get('state')?.(makeWaitingState());
-    });
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
-
-    act(() => {
-      // Real socket.io-client's disconnect() fires this socket's own
-      // 'disconnect' handler synchronously before returning -- the fake
-      // socket here doesn't do that automatically, so simulate the ordering
-      // explicitly to exercise the leavingRef guard.
-      screen.getByText('leave').click();
-      handlers.get('disconnect')?.();
-    });
-
-    expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
-  });
-
-  it('resets the leaving guard on a fresh connect so a later disconnect still shows reconnecting', async () => {
-    render(
-      <SocketProvider serverUrl="http://localhost:3000">
-        <TestConsumer />
-      </SocketProvider>
-    );
-    act(() => {
-      screen.getByText('connect').click();
-      handlers.get('connect')?.();
-      handlers.get('state')?.(makeWaitingState());
-    });
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
-
-    act(() => {
-      screen.getByText('leave').click();
-      handlers.get('disconnect')?.();
-    });
-    expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
-
-    act(() => {
-      screen.getByText('connect').click();
-      handlers.get('connect')?.();
-      handlers.get('state')?.(makeWaitingState());
-    });
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
-
-    act(() => {
-      handlers.get('disconnect')?.();
-    });
-    expect(screen.getByTestId('status')).toHaveTextContent('reconnecting');
   });
 });

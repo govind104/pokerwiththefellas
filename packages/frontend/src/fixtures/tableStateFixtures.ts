@@ -3,6 +3,7 @@ import type {
   SeatView,
   HoldemView,
   BlackjackRoundView,
+  AppStateView,
 } from '@poker-blackjack/server/src/table';
 
 export function makeSeat(overrides: Partial<SeatView> = {}): SeatView {
@@ -266,4 +267,25 @@ export function makeBlackjackSettledState(overrides: Partial<TableStateView> = {
     },
     ...overrides,
   });
+}
+
+export function makeAppState(
+  table: TableStateView,
+  overrides: Partial<Omit<AppStateView, 'table'>> = {}
+): AppStateView {
+  return {
+    mode: table.gameMode,
+    isAdmin: false,
+    ...overrides,
+    table,
+  };
+}
+
+export function makeLobbyState(overrides: Partial<Omit<AppStateView, 'table'>> = {}): AppStateView {
+  return {
+    mode: null,
+    isAdmin: false,
+    table: null,
+    ...overrides,
+  };
 }
