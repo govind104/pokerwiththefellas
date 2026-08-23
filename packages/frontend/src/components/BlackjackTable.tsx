@@ -83,7 +83,7 @@ export function BlackjackTable({
           <div className={`${PANEL_CLASS} text-fg-dim`}>Waiting for hand to start…</div>
         )}
 
-        <div className="flex flex-1 items-center justify-center gap-3">
+        <div className="flex flex-1 items-center justify-center gap-3 overflow-x-auto">
           {players.map((seat) => {
             const round = blackjackRounds?.[seat.seatIndex];
             const isActive = seat.seatIndex === activeSeatIndex;
@@ -93,10 +93,8 @@ export function BlackjackTable({
             let status: string;
             if (!round) {
               status = seat.connected ? (seat.ready ? 'Ready' : 'Not ready') : 'Disconnected';
-            } else if (isMe && isActive) {
-              status = 'Your turn';
             } else {
-              status = `Bet ${totalBet}`;
+              status = isActive ? (isMe ? 'Your turn' : 'Thinking…') : `Bet ${totalBet}`;
             }
 
             return (

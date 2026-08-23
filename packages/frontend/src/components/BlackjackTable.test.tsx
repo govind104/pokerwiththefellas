@@ -38,7 +38,7 @@ describe('BlackjackTable', () => {
   it('shows a player\'s name, balance, and bet status beneath their hand', () => {
     const state = makeBlackjackPlayingState();
     render(
-      <BlackjackTable {...baseProps} seats={state.seats} activeSeatIndex={0} mySeatIndex={1} blackjackRounds={state.blackjackRounds} />
+      <BlackjackTable {...baseProps} seats={state.seats} activeSeatIndex={null} mySeatIndex={1} blackjackRounds={state.blackjackRounds} />
     );
     expect(screen.getByTestId('player-0')).toHaveTextContent(/alice/i);
     expect(screen.getByTestId('player-0')).toHaveTextContent(/975/);

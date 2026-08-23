@@ -54,7 +54,7 @@ export function GameTable({
           </div>
         )}
         {bottomCenterSlot && (
-          <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1.5">
+          <div className="absolute bottom-2 left-0 right-0 flex flex-col items-center gap-1.5">
             {bottomCenterSlot}
           </div>
         )}

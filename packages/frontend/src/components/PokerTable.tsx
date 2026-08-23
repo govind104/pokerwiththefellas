@@ -19,6 +19,10 @@ function polarityOf(payout: number): ResultPolarity {
   return payout > 0 ? 'win' : payout < 0 ? 'lose' : 'push';
 }
 
+function resultLabel(payout: number, wonPrefix: string, lostPrefix: string, pushLabel: string): string {
+  return payout > 0 ? `${wonPrefix} ${payout}` : payout < 0 ? `${lostPrefix} ${Math.abs(payout)}` : pushLabel;
+}
+
 export interface PokerTableProps {
   seats: SeatView[];
   mySeatIndex: number | null;
@@ -80,24 +84,16 @@ export function PokerTable({
           let statusNode: ReactNode;
           if (!holdem) {
             statusNode = seat.connected ? (seat.ready ? 'Ready' : 'Not ready') : 'Disconnected';
-          } else if (result && polarity) {
-            const badgeClass =
-              polarity === 'win'
-                ? 'bg-win text-[#0d1508]'
-                : polarity === 'lose'
-                  ? 'bg-ember text-[#1a0a06]'
-                  : 'bg-wood-grain text-parchment-dim';
-            statusNode = (
-              <span className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${badgeClass}`}>
-                {polarity === 'win'
-                  ? `Won ${result.payout}`
-                  : polarity === 'lose'
-                    ? `Lost ${Math.abs(result.payout)}`
-                    : 'Push'}
-              </span>
-            );
           } else if (player?.folded) {
             statusNode = <span className="rounded border border-wood-grain px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-fg-faint">Folded</span>;
+          } else if (result && polarity) {
+            statusNode = (
+              <span
+                className={`rounded border border-wood-grain bg-surface px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${RESULT_COLOR[polarity]}`}
+              >
+                {resultLabel(result.payout, 'Won', 'Lost', 'Push')}
+              </span>
+            );
           } else {
             statusNode = isActive ? 'Thinking…' : 'Waiting';
           }
@@ -120,9 +116,9 @@ export function PokerTable({
                 </span>
                 <span className="flex items-center gap-1.5 text-xs text-fg-dim">{statusNode}</span>
               </div>
-              {result && (
+              {player?.holeCards && (
                 <div data-testid={`player-cards-${seat.seatIndex}`} className="flex gap-1">
-                  {(player?.holeCards ?? []).map((card, i) => (
+                  {player.holeCards.map((card, i) => (
                     <div key={i} className="h-[29px] w-[19px] overflow-hidden rounded-sm">
                       <div className="origin-top-left" style={{ transform: 'scale(0.3)' }}>
                         <Card card={card} />
@@ -177,11 +173,7 @@ export function PokerTable({
         )}
         {myResult && (
           <div data-testid="my-result" className={`${PANEL_CLASS} text-sm ${RESULT_COLOR[polarityOf(myResult.payout)]}`}>
-            {myResult.payout > 0
-              ? `You won ${myResult.payout}`
-              : myResult.payout < 0
-                ? `You lost ${Math.abs(myResult.payout)}`
-                : 'You split even'}
+            {resultLabel(myResult.payout, 'You won', 'You lost', 'You split even')}
           </div>
         )}
         <div data-testid="my-hand" className="flex items-end gap-1">
@@ -212,7 +204,7 @@ export function PokerTable({
       bottomCenterSlot={bottomCenterSlot}
     >
       {holdem ? (
-        <div className="flex flex-col items-center gap-2">
+        <div className="mb-auto mt-[10%] flex flex-col items-center gap-2">
           <div className="flex gap-1" data-testid="community-cards">
             {holdem.communityCards.map((card, i) => (
               <Card key={i} card={card} />
