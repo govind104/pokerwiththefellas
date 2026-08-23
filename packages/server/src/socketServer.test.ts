@@ -169,7 +169,7 @@ class ControllablePlayerStore implements PlayerStore {
   private balances = new Map<string, number>();
   holdGetBalance = false;
   private pendingResolvers: Array<() => void> = [];
-  constructor(private readonly defaultBalance: number) {}
+  constructor(private defaultBalance: number) {}
   async getBalance(displayName: string): Promise<number> {
     if (this.holdGetBalance) {
       await new Promise<void>((resolve) => {
@@ -180,6 +180,9 @@ class ControllablePlayerStore implements PlayerStore {
   }
   async setBalance(displayName: string, balance: number): Promise<void> {
     this.balances.set(displayName, balance);
+  }
+  setDefaultStartingBalance(balance: number): void {
+    this.defaultBalance = balance;
   }
   get pendingCount(): number {
     return this.pendingResolvers.length;

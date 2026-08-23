@@ -3,6 +3,7 @@ import { readFile, writeFile, rename } from 'node:fs/promises';
 export interface PlayerStore {
   getBalance(displayName: string): Promise<number>;
   setBalance(displayName: string, balance: number): Promise<void>;
+  setDefaultStartingBalance(balance: number): void;
 }
 
 type BalanceMap = Record<string, number>;
@@ -10,7 +11,7 @@ type BalanceMap = Record<string, number>;
 export class JsonPlayerStore implements PlayerStore {
   constructor(
     private readonly filePath: string,
-    private readonly defaultStartingBalance: number
+    private defaultStartingBalance: number
   ) {}
 
   private async readAll(): Promise<BalanceMap> {
@@ -79,5 +80,9 @@ export class JsonPlayerStore implements PlayerStore {
     const data = await this.readAll();
     data[displayName] = balance;
     await this.writeAll(data);
+  }
+
+  setDefaultStartingBalance(balance: number): void {
+    this.defaultStartingBalance = balance;
   }
 }

@@ -122,4 +122,14 @@ describe('JsonPlayerStore', () => {
     await expect(store.getBalance('alice')).resolves.toBe(1000);
     await expect(new JsonPlayerStore(filePath, 1000).getBalance('alice')).resolves.toBe(1000);
   });
+
+  it('setDefaultStartingBalance changes the value returned for names with no prior entry', async () => {
+    const store = new JsonPlayerStore(filePath, 1000);
+    await expect(store.getBalance('alice')).resolves.toBe(1000);
+    store.setDefaultStartingBalance(2000);
+    await expect(store.getBalance('alice')).resolves.toBe(2000);
+    // A name that already has a stored balance is unaffected.
+    await store.setBalance('bob', 500);
+    await expect(store.getBalance('bob')).resolves.toBe(500);
+  });
 });

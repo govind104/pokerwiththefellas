@@ -5,12 +5,15 @@ import type { HandLog, HandLogEntry } from './handLog';
 
 class FakePlayerStore implements PlayerStore {
   private balances = new Map<string, number>();
-  constructor(private readonly defaultBalance: number) {}
+  constructor(private defaultBalance: number) {}
   async getBalance(displayName: string): Promise<number> {
     return this.balances.get(displayName) ?? this.defaultBalance;
   }
   async setBalance(displayName: string, balance: number): Promise<void> {
     this.balances.set(displayName, balance);
+  }
+  setDefaultStartingBalance(balance: number): void {
+    this.defaultBalance = balance;
   }
 }
 
@@ -85,7 +88,7 @@ class ControllablePlayerStore implements PlayerStore {
   private balances = new Map<string, number>();
   holdGetBalance = false;
   private pendingResolvers: Array<() => void> = [];
-  constructor(private readonly defaultBalance: number) {}
+  constructor(private defaultBalance: number) {}
   async getBalance(displayName: string): Promise<number> {
     if (this.holdGetBalance) {
       await new Promise<void>((resolve) => {
@@ -96,6 +99,9 @@ class ControllablePlayerStore implements PlayerStore {
   }
   async setBalance(displayName: string, balance: number): Promise<void> {
     this.balances.set(displayName, balance);
+  }
+  setDefaultStartingBalance(balance: number): void {
+    this.defaultBalance = balance;
   }
   get pendingCount(): number {
     return this.pendingResolvers.length;
@@ -118,7 +124,7 @@ class FlakyPlayerStore implements PlayerStore {
   private balances = new Map<string, number>();
   rejectSetBalanceFor = new Set<string>();
   setBalanceCalls: Array<{ displayName: string; balance: number }> = [];
-  constructor(private readonly defaultBalance: number) {}
+  constructor(private defaultBalance: number) {}
   async getBalance(displayName: string): Promise<number> {
     return this.balances.get(displayName) ?? this.defaultBalance;
   }
@@ -128,6 +134,9 @@ class FlakyPlayerStore implements PlayerStore {
       throw new Error(`simulated persist failure for ${displayName}`);
     }
     this.balances.set(displayName, balance);
+  }
+  setDefaultStartingBalance(balance: number): void {
+    this.defaultBalance = balance;
   }
 }
 
@@ -367,6 +376,40 @@ describe('Table ready-gating and hand start (Hold\'em)', () => {
 
     expect(handLog.entries).toHaveLength(1);
     expect(handLog.entries[0].type).toBe('holdem_hand_started');
+  });
+});
+
+describe('Table.updateConfig', () => {
+  it('changes smallBlind/bigBlind used by the next hand without touching an in-progress one', async () => {
+    const { table } = makeTable();
+
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(true);
+
+    table.updateConfig({ smallBlind: 50, bigBlind: 100 });
+
+    // The in-progress hand's blinds were posted at start and must not change.
+    // `pots` is only populated once a hand settles, so read the live total
+    // the same way HoldemHand itself computes it at settlement: the sum of
+    // each player's total contribution for the hand.
+    const totalContributed = (hand: typeof table.holdemHand) =>
+      hand!.players.reduce((sum, p) => sum + p.contributed, 0);
+    expect(totalContributed(table.holdemHand)).toBe(15); // 5 + 10, unaffected by the live update
+
+    // Finish the hand (both check/fold to settlement isn't needed here --
+    // this test only asserts the *next* hand picks up the new blinds, so
+    // fold it out immediately). Go through Table.submitAction rather than
+    // acting on the HoldemHand directly, so Table's own settlement plumbing
+    // (which flips handInProgress once street === 'settled') actually runs.
+    await table.submitAction(0, 'fold'); // seat 0 is alice, on the button, first to act heads-up
+    expect(table.handInProgress).toBe(false);
+
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(totalContributed(table.holdemHand)).toBe(150); // 50 + 100
   });
 });
 

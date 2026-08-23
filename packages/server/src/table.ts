@@ -84,6 +84,12 @@ export interface TableStateView {
   holdem: HoldemView | null;
 }
 
+export interface AppStateView {
+  mode: GameMode | null;
+  isAdmin: boolean;
+  table: TableStateView | null;
+}
+
 export class Table {
   seats: (Seat | null)[];
   handInProgress = false;
@@ -104,6 +110,23 @@ export class Table {
     private readonly deps: TableDeps
   ) {
     this.seats = new Array(config.seatCount).fill(null);
+  }
+
+  // Object.assign onto `this.config` mutates the config object in place
+  // rather than reassigning `this.config` itself, so `readonly` on the
+  // constructor parameter property still holds -- this is not a loophole,
+  // it's the same distinction TypeScript's `readonly` always draws between
+  // rebinding a reference and mutating what it points to. Every read site in
+  // this class (startHand, eligibleSeatsForHand, etc.) reads `this.config`
+  // fresh each time rather than caching a value, so an update here is picked
+  // up starting with whatever the next read happens to be -- for blinds and
+  // the default bet, that's the next startHand() call, never a hand already
+  // in progress (which already captured its blinds into the HoldemHandConfig
+  // it was constructed with).
+  updateConfig(
+    update: Partial<Pick<TableConfig, 'smallBlind' | 'bigBlind' | 'blackjackDefaultBet' | 'defaultStartingBalance'>>
+  ): void {
+    Object.assign(this.config, update);
   }
 
   async join(displayName: string): Promise<number> {
