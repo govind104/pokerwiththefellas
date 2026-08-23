@@ -3,27 +3,11 @@ import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, type CreateServerResult } from './socketServer';
+import { createServer, type CreateServerResult, type StaticTableConfig } from './socketServer';
 import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
-import type { TableConfig } from './table';
-import type { TableStateView } from './table';
-
-function waitForEvent<T>(socket: ClientSocket, event: string): Promise<T> {
-  return new Promise((resolve) => socket.once(event, resolve));
-}
-
-function waitForState(socket: ClientSocket, predicate: (state: TableStateView) => boolean): Promise<TableStateView> {
-  return new Promise((resolve) => {
-    const handler = (state: TableStateView) => {
-      if (predicate(state)) {
-        socket.off('state', handler);
-        resolve(state);
-      }
-    };
-    socket.on('state', handler);
-  });
-}
+import { JsonGameConfigStore, type GameConfigValues } from './gameConfigStore';
+import { waitForEvent, waitForState, waitForSeated, waitForReady, startGameAsAdmin } from './testHelpers';
 
 // Deterministic in place of Math.random: the Blackjack test below waits for
 // activeSeatIndex to reach seat 1 after alice's action, which never happens
@@ -46,24 +30,19 @@ describe('integration: happy path', () => {
   let port: number;
   let clients: ClientSocket[];
 
-  function baseConfig(overrides: Partial<TableConfig> = {}): TableConfig {
-    return {
-      gameMode: 'holdem',
-      seatCount: 8,
-      smallBlind: 5,
-      bigBlind: 10,
-      blackjackDefaultBet: 25,
-      defaultStartingBalance: 1000,
-      reconnectGraceMs: 50,
-      random: makeDeterministicRandom(2),
-      ...overrides,
-    };
+  function staticConfig(): StaticTableConfig {
+    return { seatCount: 8, reconnectGraceMs: 50, random: makeDeterministicRandom(2) };
   }
 
-  async function startServer(config: TableConfig) {
-    const playerStore = new JsonPlayerStore(balancesPath, config.defaultStartingBalance);
+  function configDefaults(overrides: Partial<GameConfigValues> = {}): GameConfigValues {
+    return { smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25, defaultStartingBalance: 1000, ...overrides };
+  }
+
+  async function startServer(overrides: Partial<GameConfigValues> = {}) {
+    const playerStore = new JsonPlayerStore(balancesPath, configDefaults(overrides).defaultStartingBalance);
     const handLog = new JsonlHandLog(handLogPath);
-    server = await createServer(config, playerStore, handLog);
+    const gameConfigStore = new JsonGameConfigStore(join(dir, 'game-config.json'), configDefaults(overrides));
+    server = await createServer(staticConfig(), gameConfigStore, playerStore, handLog, 'test-passphrase');
     await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
     port = (server.httpServer.address() as { port: number }).port;
   }
@@ -88,26 +67,28 @@ describe('integration: happy path', () => {
   });
 
   it('plays a full Hold\'em hand to showdown via an all-in confrontation and commits balances', async () => {
-    await startServer(baseConfig());
+    await startServer();
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
     const alice = connect();
     const bob = connect();
     alice.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice, 'state');
+    await waitForSeated(alice, 'alice');
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
 
     alice.emit('ready');
-    await waitForEvent(alice, 'state');
+    await waitForReady(alice, 'alice');
     // Capture the hand-started state on BOTH sockets: every `state` event is
     // computed per-socket from that socket's own mapped seat index, so this
     // is the only place the per-viewer hole-card filtering can be observed
     // end-to-end over the real Socket.IO wire rather than by calling
     // getStateForSeat directly.
-    const aliceHandStarted = waitForState(alice, (s) => s.handInProgress && s.holdem !== null);
-    const handStarted = waitForState(bob, (s) => s.handInProgress);
+    const aliceHandStarted = waitForState(alice, (s) => !!s.table?.handInProgress && s.table.holdem !== null);
+    const handStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
     bob.emit('ready');
-    const aliceView = await aliceHandStarted;
-    const bobView = await handStarted;
+    const aliceView = (await aliceHandStarted).table!;
+    const bobView = (await handStarted).table!;
 
     // Each player sees their own hole cards and not their opponent's, while
     // the hand is still live (pre-showdown).
@@ -129,13 +110,13 @@ describe('integration: happy path', () => {
     // label: the two sockets genuinely received different card data.
     expect(aliceOwn.holeCards).not.toEqual(bobOwn.holeCards);
 
-    const bobTurn = waitForState(bob, (s) => s.holdem?.actingPlayerId === 'bob');
+    const bobTurn = waitForState(bob, (s) => s.table?.holdem?.actingPlayerId === 'bob');
     alice.emit('action', { action: 'all-in' });
     await bobTurn;
 
-    const settled = waitForState(alice, (s) => s.handInProgress === false);
+    const settled = waitForState(alice, (s) => s.table?.handInProgress === false);
     bob.emit('action', { action: 'all-in' });
-    const settledView = await settled;
+    const settledView = (await settled).table!;
 
     // The complement of the filtering above: once the hand reaches showdown,
     // every non-folded player's cards are revealed to everyone -- proving the
@@ -154,25 +135,27 @@ describe('integration: happy path', () => {
   });
 
   it('plays a full Blackjack hand to settlement for two players and commits balances', async () => {
-    await startServer(baseConfig({ gameMode: 'blackjack', blackjackDefaultBet: 25 }));
+    await startServer({ blackjackDefaultBet: 25 });
+    const admin = connect();
+    await startGameAsAdmin(admin, 'blackjack');
     const alice = connect();
     const bob = connect();
     alice.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice, 'state');
+    await waitForSeated(alice, 'alice');
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
 
     alice.emit('ready');
-    await waitForEvent(alice, 'state');
-    const handStarted = waitForState(bob, (s) => s.handInProgress);
+    await waitForReady(alice, 'alice');
+    const handStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
     bob.emit('ready');
     await handStarted;
 
-    const bobTurn = waitForState(bob, (s) => s.activeSeatIndex === 1);
+    const bobTurn = waitForState(bob, (s) => s.table?.activeSeatIndex === 1);
     alice.emit('action', { action: 'stand' });
     await bobTurn;
 
-    const handOver = waitForState(alice, (s) => s.handInProgress === false);
+    const handOver = waitForState(alice, (s) => s.table?.handInProgress === false);
     bob.emit('action', { action: 'stand' });
     await handOver;
 
@@ -187,11 +170,13 @@ describe('integration: happy path', () => {
   });
 
   it('rejects a 9th join once the table is full', async () => {
-    await startServer(baseConfig());
+    await startServer();
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
     for (let i = 0; i < 8; i++) {
       const c = connect();
       c.emit('join', { displayName: `player-${i}` });
-      await waitForEvent(c, 'state');
+      await waitForSeated(c, `player-${i}`);
     }
     const overflow = connect();
     const errorPromise = waitForEvent<{ message: string }>(overflow, 'error');
@@ -201,10 +186,12 @@ describe('integration: happy path', () => {
   });
 
   it('rejects a duplicate display name', async () => {
-    await startServer(baseConfig());
+    await startServer();
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
     const alice1 = connect();
     alice1.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice1, 'state');
+    await waitForSeated(alice1, 'alice');
 
     const alice2 = connect();
     const errorPromise = waitForEvent<{ message: string }>(alice2, 'error');

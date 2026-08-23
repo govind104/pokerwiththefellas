@@ -3,27 +3,11 @@ import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, type CreateServerResult } from './socketServer';
+import { createServer, type CreateServerResult, type StaticTableConfig } from './socketServer';
 import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
-import type { TableConfig } from './table';
-import type { TableStateView } from './table';
-
-function waitForEvent<T>(socket: ClientSocket, event: string): Promise<T> {
-  return new Promise((resolve) => socket.once(event, resolve));
-}
-
-function waitForState(socket: ClientSocket, predicate: (state: TableStateView) => boolean): Promise<TableStateView> {
-  return new Promise((resolve) => {
-    const handler = (state: TableStateView) => {
-      if (predicate(state)) {
-        socket.off('state', handler);
-        resolve(state);
-      }
-    };
-    socket.on('state', handler);
-  });
-}
+import { JsonGameConfigStore, type GameConfigValues } from './gameConfigStore';
+import { waitForState, waitForSeated, waitForReady, waitForConnected, startGameAsAdmin } from './testHelpers';
 
 describe('integration: resilience', () => {
   let dir: string;
@@ -33,24 +17,19 @@ describe('integration: resilience', () => {
   let port: number;
   let clients: ClientSocket[];
 
-  function baseConfig(overrides: Partial<TableConfig> = {}): TableConfig {
-    return {
-      gameMode: 'holdem',
-      seatCount: 8,
-      smallBlind: 5,
-      bigBlind: 10,
-      blackjackDefaultBet: 25,
-      defaultStartingBalance: 1000,
-      reconnectGraceMs: 300,
-      random: Math.random,
-      ...overrides,
-    };
+  function staticConfig(overrides: Partial<StaticTableConfig> = {}): StaticTableConfig {
+    return { seatCount: 8, reconnectGraceMs: 300, random: Math.random, ...overrides };
   }
 
-  async function startServer(config: TableConfig) {
-    const playerStore = new JsonPlayerStore(balancesPath, config.defaultStartingBalance);
+  function configDefaults(): GameConfigValues {
+    return { smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25, defaultStartingBalance: 1000 };
+  }
+
+  async function startServer(staticOverrides: Partial<StaticTableConfig> = {}) {
+    const playerStore = new JsonPlayerStore(balancesPath, configDefaults().defaultStartingBalance);
     const handLog = new JsonlHandLog(handLogPath);
-    server = await createServer(config, playerStore, handLog);
+    const gameConfigStore = new JsonGameConfigStore(join(dir, 'game-config.json'), configDefaults());
+    server = await createServer(staticConfig(staticOverrides), gameConfigStore, playerStore, handLog, 'test-passphrase');
     await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
     port = (server.httpServer.address() as { port: number }).port;
   }
@@ -81,67 +60,72 @@ describe('integration: resilience', () => {
   });
 
   it('reconnecting within the grace window resumes the same seat mid-hand', async () => {
-    await startServer(baseConfig({ reconnectGraceMs: 300 }));
+    await startServer({ reconnectGraceMs: 300 });
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
     const alice = connect();
     const bob = connect();
     alice.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice, 'state');
+    await waitForSeated(alice, 'alice');
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
     alice.emit('ready');
-    await waitForState(alice, (s) => s.seats[0]?.ready === true);
-    const handStarted = waitForState(bob, (s) => s.handInProgress);
+    await waitForReady(alice, 'alice');
+    const handStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
     bob.emit('ready');
     await handStarted;
 
-    const bobSeesDisconnect = waitForState(bob, (s) => s.seats[0]?.connected === false);
+    const bobSeesDisconnect = waitForState(bob, (s) => s.table?.seats[0]?.connected === false);
     alice.disconnect();
     await bobSeesDisconnect;
 
     const aliceReconnect = connect();
-    const state = await new Promise<TableStateView>((resolve) => {
-      aliceReconnect.once('state', resolve);
-      aliceReconnect.emit('join', { displayName: 'alice' });
-    });
-    expect(state.seats[0]?.displayName).toBe('alice');
-    expect(state.seats[0]?.connected).toBe(true);
-    expect(state.handInProgress).toBe(true); // never auto-folded
+    const reconnected = waitForConnected(aliceReconnect, 'alice');
+    aliceReconnect.emit('join', { displayName: 'alice' });
+    const state = await reconnected;
+    expect(state.table!.seats[0]?.displayName).toBe('alice');
+    expect(state.table!.seats[0]?.connected).toBe(true);
+    expect(state.table!.handInProgress).toBe(true); // never auto-folded
   });
 
   it('disconnecting past the grace window auto-resolves the turn and the hand continues', async () => {
-    await startServer(baseConfig({ reconnectGraceMs: 30 }));
+    await startServer({ reconnectGraceMs: 30 });
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
     const alice = connect();
     const bob = connect();
     alice.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice, 'state');
+    await waitForSeated(alice, 'alice');
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
     alice.emit('ready');
-    await waitForState(alice, (s) => s.seats[0]?.ready === true);
-    const handStarted = waitForState(bob, (s) => s.handInProgress);
+    await waitForReady(alice, 'alice');
+    const handStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
     bob.emit('ready');
     await handStarted;
 
-    const handOver = waitForState(bob, (s) => s.handInProgress === false);
+    const handOver = waitForState(bob, (s) => s.table?.handInProgress === false);
     alice.disconnect(); // it is alice's turn -- button acts first preflop, heads-up
     await handOver;
   });
 
   it('persists balances across a simulated server restart', async () => {
-    await startServer(baseConfig());
+    await startServer();
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
     const alice = connect();
     const bob = connect();
     alice.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice, 'state');
+    await waitForSeated(alice, 'alice');
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
     alice.emit('ready');
-    await waitForState(alice, (s) => s.seats[0]?.ready === true);
-    const handStarted = waitForState(bob, (s) => s.handInProgress);
+    await waitForReady(alice, 'alice');
+    const handStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
     bob.emit('ready');
     await handStarted;
 
-    const handOver = waitForState(bob, (s) => s.handInProgress === false);
+    const handOver = waitForState(bob, (s) => s.table?.handInProgress === false);
     alice.emit('action', { action: 'fold' }); // uncontested, settles immediately
     await handOver;
 
@@ -151,31 +135,34 @@ describe('integration: resilience', () => {
     alice.disconnect();
     bob.disconnect();
     await stopServer();
-    await startServer(baseConfig());
+    await startServer();
+    const admin2 = connect();
+    await startGameAsAdmin(admin2, 'holdem');
 
     const aliceReconnect = connect();
-    const state = await new Promise<TableStateView>((resolve) => {
-      aliceReconnect.once('state', resolve);
-      aliceReconnect.emit('join', { displayName: 'alice' });
-    });
-    expect(state.seats.find((s) => s.displayName === 'alice')?.balance).toBe(aliceBalanceBeforeRestart);
+    const seated = waitForSeated(aliceReconnect, 'alice');
+    aliceReconnect.emit('join', { displayName: 'alice' });
+    const state = await seated;
+    expect(state.table!.seats.find((s) => s.displayName === 'alice')?.balance).toBe(aliceBalanceBeforeRestart);
   });
 
   it('recovers an in-progress hand after a simulated crash and lets a player resume it', async () => {
-    await startServer(baseConfig());
+    await startServer();
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
     const alice = connect();
     const bob = connect();
     alice.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice, 'state');
+    await waitForSeated(alice, 'alice');
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
     alice.emit('ready');
-    await waitForState(alice, (s) => s.seats[0]?.ready === true);
-    const handStarted = waitForState(bob, (s) => s.handInProgress);
+    await waitForReady(alice, 'alice');
+    const handStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
     bob.emit('ready');
     await handStarted;
 
-    const bobTurn = waitForState(bob, (s) => s.holdem?.actingPlayerId === 'bob');
+    const bobTurn = waitForState(bob, (s) => s.table?.holdem?.actingPlayerId === 'bob');
     alice.emit('action', { action: 'call' });
     await bobTurn;
 
@@ -185,19 +172,18 @@ describe('integration: resilience', () => {
     bob.disconnect();
     await stopServer();
 
-    await startServer(baseConfig()); // new createServer() calls table.recoverFromLog()
+    await startServer(); // new createServer() calls table.recoverFromLog()
 
-    expect(server.table.handInProgress).toBe(true);
-    expect(server.table.holdemHand!.actingPlayerId).toBe('bob');
+    expect(server.getTable()!.handInProgress).toBe(true);
+    expect(server.getTable()!.holdemHand!.actingPlayerId).toBe('bob');
 
     const bobReconnect = connect();
-    const state = await new Promise<TableStateView>((resolve) => {
-      bobReconnect.once('state', resolve);
-      bobReconnect.emit('join', { displayName: 'bob' });
-    });
-    expect(state.holdem!.actingPlayerId).toBe('bob');
+    const reconnected = waitForConnected(bobReconnect, 'bob');
+    bobReconnect.emit('join', { displayName: 'bob' });
+    const state = await reconnected;
+    expect(state.table!.holdem!.actingPlayerId).toBe('bob');
 
-    const settled = waitForState(bobReconnect, (s) => s.handInProgress === false);
+    const settled = waitForState(bobReconnect, (s) => s.table?.handInProgress === false);
     bobReconnect.emit('action', { action: 'fold' });
     await settled;
   });

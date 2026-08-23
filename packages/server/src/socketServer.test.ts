@@ -3,28 +3,12 @@ import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, type CreateServerResult } from './socketServer';
+import { createServer, type CreateServerResult, type StaticTableConfig } from './socketServer';
 import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
-import type { TableConfig } from './table';
-import type { TableStateView } from './table';
+import { JsonGameConfigStore, type GameConfigValues } from './gameConfigStore';
 import type { PlayerStore } from './playerStore';
-
-function waitForEvent<T>(socket: ClientSocket, event: string): Promise<T> {
-  return new Promise((resolve) => socket.once(event, resolve));
-}
-
-function waitForState(socket: ClientSocket, predicate: (state: TableStateView) => boolean): Promise<TableStateView> {
-  return new Promise((resolve) => {
-    const handler = (state: TableStateView) => {
-      if (predicate(state)) {
-        socket.off('state', handler);
-        resolve(state);
-      }
-    };
-    socket.on('state', handler);
-  });
-}
+import { ADMIN_PASSPHRASE, waitForEvent, waitForState, waitForSeated, waitForReady, startGameAsAdmin } from './testHelpers';
 
 describe('socketServer', () => {
   let dir: string;
@@ -32,21 +16,20 @@ describe('socketServer', () => {
   let port: number;
   let clients: ClientSocket[];
 
+  const staticConfig: StaticTableConfig = { seatCount: 8, reconnectGraceMs: 50, random: Math.random };
+  const configDefaults: GameConfigValues = {
+    smallBlind: 5,
+    bigBlind: 10,
+    blackjackDefaultBet: 25,
+    defaultStartingBalance: 1000,
+  };
+
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'socket-server-test-'));
-    const config: TableConfig = {
-      gameMode: 'holdem',
-      seatCount: 8,
-      smallBlind: 5,
-      bigBlind: 10,
-      blackjackDefaultBet: 25,
-      defaultStartingBalance: 1000,
-      reconnectGraceMs: 50,
-      random: Math.random,
-    };
-    const playerStore = new JsonPlayerStore(join(dir, 'balances.json'), config.defaultStartingBalance);
+    const playerStore = new JsonPlayerStore(join(dir, 'balances.json'), configDefaults.defaultStartingBalance);
     const handLog = new JsonlHandLog(join(dir, 'hand.jsonl'));
-    server = await createServer(config, playerStore, handLog);
+    const gameConfigStore = new JsonGameConfigStore(join(dir, 'game-config.json'), configDefaults);
+    server = await createServer(staticConfig, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE);
     await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
     port = (server.httpServer.address() as { port: number }).port;
     clients = [];
@@ -65,51 +48,63 @@ describe('socketServer', () => {
   }
 
   it('emits state to a client showing its own seat after join', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
     const socket = connect();
     socket.emit('join', { displayName: 'alice' });
-    const state = await waitForEvent<TableStateView>(socket, 'state');
-    expect(state.seats[0]?.displayName).toBe('alice');
+    const state = await waitForSeated(socket, 'alice');
+    expect(state.table!.seats[0]?.displayName).toBe('alice');
   });
 
   it('broadcasts an updated seat list to an already-connected client when a second player joins', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
     const alice = connect();
     alice.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice, 'state');
+    await waitForSeated(alice, 'alice');
 
     const bob = connect();
-    const aliceUpdate = waitForState(alice, (s) => s.seats[1]?.displayName === 'bob');
+    const aliceUpdate = waitForState(alice, (s) => s.table?.seats[1]?.displayName === 'bob');
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
     await aliceUpdate;
   });
 
   it('starts a hand once both seated clients send ready, and broadcasts it to both', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
     const alice = connect();
     alice.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice, 'state');
+    await waitForSeated(alice, 'alice');
     const bob = connect();
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
 
     alice.emit('ready');
-    await waitForEvent(alice, 'state');
-    const bobHandStarted = waitForState(bob, (s) => s.handInProgress);
+    await waitForReady(alice, 'alice');
+    const bobHandStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
     bob.emit('ready');
     const state = await bobHandStarted;
-    expect(state.holdem).not.toBeNull();
+    expect(state.table!.holdem).not.toBeNull();
   });
 
   it('emits error only to the socket whose action was illegal, with no broadcast to others', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
     const alice = connect();
     alice.emit('join', { displayName: 'alice' });
-    await waitForEvent(alice, 'state');
+    await waitForSeated(alice, 'alice');
     const bob = connect();
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
 
     alice.emit('ready');
-    await waitForEvent(alice, 'state');
-    const handStarted = waitForState(bob, (s) => s.handInProgress);
+    await waitForReady(alice, 'alice');
+    const handStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
     bob.emit('ready');
     await handStarted;
 
@@ -141,16 +136,22 @@ describe('socketServer', () => {
     // malformed socket payloads to be rejected before reaching the engine at
     // all. Pre-fix, any value at all was passed straight through to
     // table.reconnect()/table.join() and became a seated player's identity.
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
     const socket = connect();
     const errorPromise = waitForEvent<{ message: string }>(socket, 'error');
     socket.emit('join', { displayName } as never);
     const err = await errorPromise;
     expect(err.message).toBe('Invalid display name');
     // No seat was consumed -- the payload never reached the Table at all.
-    expect(server.table.seats.every((s) => s === null)).toBe(true);
+    expect(server.getTable()!.seats.every((s) => s === null)).toBe(true);
   });
 
   it('rejects a join with a missing payload instead of throwing in the handler', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
     const socket = connect();
     const errorPromise = waitForEvent<{ message: string }>(socket, 'error');
     socket.emit('join', undefined as never);
@@ -203,21 +204,20 @@ describe('socketServer join-handler seat-orphan race', () => {
   let clients: ClientSocket[];
   let playerStore: ControllablePlayerStore;
 
+  const staticConfig: StaticTableConfig = { seatCount: 8, reconnectGraceMs: 50, random: Math.random };
+  const configDefaults: GameConfigValues = {
+    smallBlind: 5,
+    bigBlind: 10,
+    blackjackDefaultBet: 25,
+    defaultStartingBalance: 1000,
+  };
+
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'socket-server-orphan-test-'));
-    const config: TableConfig = {
-      gameMode: 'holdem',
-      seatCount: 8,
-      smallBlind: 5,
-      bigBlind: 10,
-      blackjackDefaultBet: 25,
-      defaultStartingBalance: 1000,
-      reconnectGraceMs: 50,
-      random: Math.random,
-    };
-    playerStore = new ControllablePlayerStore(config.defaultStartingBalance);
+    playerStore = new ControllablePlayerStore(configDefaults.defaultStartingBalance);
     const handLog = new JsonlHandLog(join(dir, 'hand.jsonl'));
-    server = await createServer(config, playerStore, handLog);
+    const gameConfigStore = new JsonGameConfigStore(join(dir, 'game-config.json'), configDefaults);
+    server = await createServer(staticConfig, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE);
     await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
     port = (server.httpServer.address() as { port: number }).port;
     clients = [];
@@ -236,6 +236,9 @@ describe('socketServer join-handler seat-orphan race', () => {
   }
 
   it('a client disconnecting while its join() is still in flight does not orphan the seat or deadlock the table', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
     playerStore.holdGetBalance = true;
 
     // Independent, test-owned signal that the SERVER has actually processed
@@ -270,7 +273,7 @@ describe('socketServer join-handler seat-orphan race', () => {
 
     // No seat should be left connected:true with nothing able to reach it --
     // that is exactly the orphaned state the pre-fix handler produces here.
-    const orphaned = server.table.seats.some((s) => s?.connected === true);
+    const orphaned = server.getTable()!.seats.some((s) => s?.connected === true);
     expect(orphaned).toBe(false);
 
     // And the table itself must not be deadlocked: a fresh pair can still
@@ -279,20 +282,23 @@ describe('socketServer join-handler seat-orphan race', () => {
     // would hang instead of resolving.
     const bob = connect();
     bob.emit('join', { displayName: 'bob' });
-    await waitForEvent(bob, 'state');
+    await waitForSeated(bob, 'bob');
     const carol = connect();
     carol.emit('join', { displayName: 'carol' });
-    await waitForEvent(carol, 'state');
+    await waitForSeated(carol, 'carol');
 
     bob.emit('ready');
-    await waitForEvent(bob, 'state');
-    const carolHandStarted = waitForState(carol, (s) => s.handInProgress);
+    await waitForReady(bob, 'bob');
+    const carolHandStarted = waitForState(carol, (s) => !!s.table?.handInProgress);
     carol.emit('ready');
     const state = await carolHandStarted;
-    expect(state.holdem).not.toBeNull();
+    expect(state.table!.holdem).not.toBeNull();
   });
 
   it('a second join from the same still-connected socket disconnects the first seat instead of orphaning it', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
     playerStore.holdGetBalance = true;
 
     const alice = connect();
@@ -319,9 +325,9 @@ describe('socketServer join-handler seat-orphan race', () => {
     // The first seat must not be a permanent orphan -- it should have been
     // released via the normal disconnect/grace-window path, not left
     // connected:true with no socket mapped to it anymore.
-    const aliceSeat = server.table.seats.find((s) => s?.displayName === 'alice');
+    const aliceSeat = server.getTable()!.seats.find((s) => s?.displayName === 'alice');
     expect(aliceSeat?.connected).toBe(false);
-    const bobSeat = server.table.seats.find((s) => s?.displayName === 'bob');
+    const bobSeat = server.getTable()!.seats.find((s) => s?.displayName === 'bob');
     expect(bobSeat?.connected).toBe(true);
 
     // Table not deadlocked either: `alice`'s client socket is now bound to
@@ -330,13 +336,13 @@ describe('socketServer join-handler seat-orphan race', () => {
     // needed, and alice's disconnected seat 0 must NOT block the ready-gate.
     const carol = connect();
     carol.emit('join', { displayName: 'carol' });
-    await waitForEvent(carol, 'state');
+    await waitForSeated(carol, 'carol');
 
     alice.emit('ready'); // this socket is bob's seat now
-    await waitForEvent(alice, 'state');
-    const carolHandStarted = waitForState(carol, (s) => s.handInProgress);
+    await waitForReady(alice, 'bob');
+    const carolHandStarted = waitForState(carol, (s) => !!s.table?.handInProgress);
     carol.emit('ready');
     const state = await carolHandStarted;
-    expect(state.holdem).not.toBeNull();
+    expect(state.table!.holdem).not.toBeNull();
   });
 });
