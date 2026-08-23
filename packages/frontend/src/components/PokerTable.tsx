@@ -204,7 +204,7 @@ export function PokerTable({
       bottomCenterSlot={bottomCenterSlot}
     >
       {holdem ? (
-        <div className="mb-auto mt-[10%] flex flex-col items-center gap-2">
+        <div className="mb-auto mt-[6vh] flex flex-col items-center gap-2">
           <div className="flex gap-1" data-testid="community-cards">
             {holdem.communityCards.map((card, i) => (
               <Card key={i} card={card} />
