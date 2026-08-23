@@ -91,7 +91,7 @@ describe('BlackjackRound', () => {
     ]);
   });
 
-  it('auto-stands a hand that reaches a natural 21 immediately after a split', () => {
+  it('auto-stands a hand that reaches 21 immediately after a split, and pays it as a plain 21 (not 3:2)', () => {
     // Player: A, A -> split. Original hand (index 0) draws K -> A,K = 21,
     // auto-stands without an explicit `stand` call. New hand (index 1)
     // draws 5 -> A,5 = 16, stays active. Dealer: 9,7 (16) -> hits 5 -> 21.
@@ -109,7 +109,11 @@ describe('BlackjackRound', () => {
 
     expect(round.phase).toBe('settled');
     expect(round.results).toEqual([
-      { outcome: 'blackjack', payout: 150 }, // hand 0: A,K pays 3:2 per this codebase's documented split-21 simplification
+      // hand 0: A,K = 21, but only the original first two cards can be a
+      // "natural" blackjack -- a post-split 21 is an ordinary 21, so it
+      // pushes the dealer's own (non-natural, three-card) 21 instead of
+      // winning 3:2.
+      { outcome: 'push', payout: 0 },
       { outcome: 'lose', payout: -100 }, // hand 1: 16 loses to dealer's 21
     ]);
   });

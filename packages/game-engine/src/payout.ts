@@ -14,12 +14,23 @@ export interface RoundResult {
   payout: number;
 }
 
-export function resolveHand(playerCards: Card[], dealerCards: Card[], bet: number): RoundResult {
+export function resolveHand(
+  playerCards: Card[],
+  dealerCards: Card[],
+  bet: number,
+  isBlackjackEligible = true
+): RoundResult {
   if (isBust(playerCards)) {
     return { outcome: 'bust', payout: -bet };
   }
 
-  const playerBlackjack = isBlackjack(playerCards);
+  // Official rule: only the player's original first two cards can be a
+  // "natural" blackjack. A post-split hand that reaches 21 on two cards is
+  // just a strong 21, resolved by the total-value comparison below like any
+  // other non-blackjack 21 -- pushing a dealer's own 21 instead of always
+  // winning 3:2. `isBlackjackEligible` defaults to true so every other
+  // caller (an un-split hand, the dealer's own hand below) is unaffected.
+  const playerBlackjack = isBlackjackEligible && isBlackjack(playerCards);
   const dealerBlackjack = isBlackjack(dealerCards);
 
   if (playerBlackjack && dealerBlackjack) {

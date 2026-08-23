@@ -76,4 +76,25 @@ describe('resolveHand', () => {
       payout: 151.5,
     });
   });
+
+  it('pays a two-card 21 as a plain win, not 3:2, when isBlackjackEligible is false', () => {
+    expect(resolveHand([card('A'), card('K')], [card('9'), card('8')], 100, false)).toEqual({
+      outcome: 'win',
+      payout: 100,
+    });
+  });
+
+  it('pushes a blackjack-ineligible two-card 21 against a non-natural dealer 21', () => {
+    expect(resolveHand([card('A'), card('K')], [card('9'), card('7'), card('5')], 100, false)).toEqual({
+      outcome: 'push',
+      payout: 0,
+    });
+  });
+
+  it('a blackjack-ineligible two-card 21 still loses to a real dealer blackjack', () => {
+    expect(resolveHand([card('A'), card('K')], [card('A'), card('Q')], 100, false)).toEqual({
+      outcome: 'lose',
+      payout: -100,
+    });
+  });
 });

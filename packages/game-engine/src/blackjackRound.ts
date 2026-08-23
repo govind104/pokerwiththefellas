@@ -31,6 +31,12 @@ export class BlackjackRound {
   private dealerCards: Card[];
   private splitUsed = false;
   private activeHandIndex = 0;
+  // Tracked by object identity rather than a field on PlayerHand itself, so
+  // this stays purely internal instead of adding a field every consumer of
+  // the public PlayerHand shape (server state views, frontend fixtures) has
+  // to know about. Both hands resulting from a split go in here -- neither
+  // is more "original" than the other once the pair has been broken apart.
+  private blackjackIneligibleHands = new Set<PlayerHand>();
 
   playerHands: PlayerHand[];
   phase: RoundPhase = 'playing';
@@ -123,17 +129,19 @@ export class BlackjackRound {
           cards: newHandCards,
           bet: hand.bet,
           doubled: false,
-          // Note (spec Section 3 simplification): a split hand that reaches
-          // 21 on two cards pays via resolveHand's normal blackjack check
-          // (3:2), same as a natural. Real casinos usually pay split 21s as
-          // a plain win instead — acceptable simplification for chip-only
-          // play among friends; revisit if it ever matters.
           done: isTwoCardTwentyOne(newHandCards),
         };
 
         const firstHandCards = [first, this.draw()];
         hand.cards = firstHandCards;
         hand.done = isTwoCardTwentyOne(firstHandCards);
+
+        // Neither resulting hand can be a "natural" blackjack -- only the
+        // player's original first two cards qualify. A two-card 21 on either
+        // hand from here on is resolved as a plain 21 by resolveHand's
+        // total-value comparison, not the 3:2 blackjack payout.
+        this.blackjackIneligibleHands.add(hand);
+        this.blackjackIneligibleHands.add(newHand);
 
         this.playerHands.splice(this.activeHandIndex + 1, 0, newHand);
         break;
@@ -168,7 +176,9 @@ export class BlackjackRound {
       }
     }
 
-    this.results = this.playerHands.map((h) => resolveHand(h.cards, this.dealerCards, h.bet));
+    this.results = this.playerHands.map((h) =>
+      resolveHand(h.cards, this.dealerCards, h.bet, !this.blackjackIneligibleHands.has(h))
+    );
     this.phase = 'settled';
   }
 }
