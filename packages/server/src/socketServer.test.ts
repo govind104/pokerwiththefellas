@@ -8,6 +8,7 @@ import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
 import { JsonGameConfigStore, type GameConfigValues } from './gameConfigStore';
 import type { PlayerStore } from './playerStore';
+import type { AppStateView } from './table';
 import { ADMIN_PASSPHRASE, waitForEvent, waitForState, waitForSeated, waitForReady, startGameAsAdmin } from './testHelpers';
 
 describe('socketServer', () => {
@@ -157,6 +158,168 @@ describe('socketServer', () => {
     socket.emit('join', undefined as never);
     const err = await errorPromise;
     expect(err.message).toBe('Invalid display name');
+  });
+
+  it('adminLogin with an incorrect passphrase reports failure and is not added to the admin set', async () => {
+    const socket = connect();
+    const resultPromise = waitForEvent<{ success: boolean }>(socket, 'adminLoginResult');
+    socket.emit('adminLogin', { passphrase: 'not-the-right-passphrase' });
+    const result = await resultPromise;
+    expect(result.success).toBe(false);
+
+    // Confirm the failed login didn't sneak this socket into the admin set:
+    // any subsequent admin action from it must still be rejected.
+    const errorPromise = waitForEvent<{ message: string }>(socket, 'error');
+    socket.emit('adminStartGame', { mode: 'holdem' });
+    const err = await errorPromise;
+    expect(err.message).toBe('Admin only');
+  });
+
+  it('rejects every admin action from a socket that has not logged in', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    const intruder = connect();
+    const errorPromise = waitForEvent<{ message: string }>(intruder, 'error');
+    intruder.emit('adminAdjustBalance', { displayName: 'alice', balance: 5000 });
+    const err = await errorPromise;
+    expect(err.message).toBe('Admin only');
+  });
+
+  it("adminAdjustBalance updates a non-seated player's persisted balance and broadcasts it", async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    const alice = connect();
+    alice.emit('join', { displayName: 'alice' });
+    await waitForSeated(alice, 'alice');
+
+    const update = waitForState(alice, (s) => s.table?.seats[0]?.balance === 5000);
+    admin.emit('adminAdjustBalance', { displayName: 'alice', balance: 5000 });
+    const state = await update;
+    expect(state.table!.seats[0]?.balance).toBe(5000);
+  });
+
+  it('adminAdjustBalance is rejected while the named player is in an active hand', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    const alice = connect();
+    alice.emit('join', { displayName: 'alice' });
+    await waitForSeated(alice, 'alice');
+    const bob = connect();
+    bob.emit('join', { displayName: 'bob' });
+    await waitForSeated(bob, 'bob');
+
+    alice.emit('ready');
+    await waitForReady(alice, 'alice');
+    const handStarted = waitForState(bob, (s) => s.table?.handInProgress === true);
+    bob.emit('ready');
+    await handStarted;
+
+    const errorPromise = waitForEvent<{ message: string }>(admin, 'error');
+    admin.emit('adminAdjustBalance', { displayName: 'alice', balance: 9999 });
+    const err = await errorPromise;
+    expect(err.message).toBe("Can't adjust -- alice is in an active hand");
+  });
+
+  it('adminSetBlinds applies to the next hand, not one already in progress', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    const alice = connect();
+    alice.emit('join', { displayName: 'alice' });
+    await waitForSeated(alice, 'alice');
+    const bob = connect();
+    bob.emit('join', { displayName: 'bob' });
+    await waitForSeated(bob, 'bob');
+
+    alice.emit('ready');
+    await waitForReady(alice, 'alice');
+    const handStarted = waitForState(bob, (s) => s.table?.handInProgress === true);
+    bob.emit('ready');
+    const firstHandState = await handStarted;
+    // `holdem.pots` is only populated once a hand reaches 'settled' (see
+    // holdemHand.ts) -- mid-hand, the pot total is the sum of what each
+    // player has put in so far this street. Default blinds are 5/10, and
+    // nobody has acted yet, so that's just the two blinds: 15.
+    const streetPotTotal = (state: AppStateView) =>
+      state.table!.holdem!.players.reduce((sum, p) => sum + p.streetContributed, 0);
+    expect(streetPotTotal(firstHandState)).toBe(15);
+
+    admin.emit('adminSetBlinds', { smallBlind: 50, bigBlind: 100 });
+    await new Promise((r) => setTimeout(r, 20));
+    // Still the same (unaffected) in-progress hand.
+    const stillPotTotal = server
+      .getTable()!
+      .holdemHand!.players.reduce((sum, p) => sum + p.streetContributed, 0);
+    expect(stillPotTotal).toBe(15);
+
+    // Fold out the first hand via the normal action pathway (not a direct
+    // engine call) so Table.submitAction's settlement runs and actually
+    // clears handInProgress/ready -- a direct `holdemHand.act(...)` call
+    // bypasses Table.settleHoldem entirely and leaves the table thinking a
+    // hand is still in progress forever, which was hanging this test.
+    const settled = waitForState(bob, (s) => s.table?.handInProgress === false);
+    alice.emit('action', { action: 'fold' });
+    await settled;
+
+    alice.emit('ready');
+    await waitForReady(alice, 'alice');
+    const secondHandStarted = waitForState(bob, (s) => s.table?.handInProgress === true);
+    bob.emit('ready');
+    const secondHandState = await secondHandStarted;
+    expect(streetPotTotal(secondHandState)).toBe(150);
+  });
+
+  it('adminSetStartingBalance changes the balance a never-before-seen player joins with', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    admin.emit('adminSetStartingBalance', { defaultStartingBalance: 7000 });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const carol = connect();
+    carol.emit('join', { displayName: 'carol' });
+    const state = await waitForSeated(carol, 'carol');
+    expect(state.table!.seats.find((s) => s.displayName === 'carol')?.balance).toBe(7000);
+  });
+
+  it('adminSwitchMode is rejected while a hand is in progress, and succeeds once idle', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    const alice = connect();
+    alice.emit('join', { displayName: 'alice' });
+    await waitForSeated(alice, 'alice');
+    const bob = connect();
+    bob.emit('join', { displayName: 'bob' });
+    await waitForSeated(bob, 'bob');
+
+    alice.emit('ready');
+    await waitForReady(alice, 'alice');
+    const handStarted = waitForState(bob, (s) => s.table?.handInProgress === true);
+    bob.emit('ready');
+    await handStarted;
+
+    const rejectPromise = waitForEvent<{ message: string }>(admin, 'error');
+    admin.emit('adminSwitchMode', { mode: 'blackjack' });
+    const err = await rejectPromise;
+    expect(err.message).toBe("Can't switch modes while a hand is in progress");
+
+    // Fold via the normal action pathway (not a direct engine call) so
+    // Table.submitAction's settlement actually runs and clears
+    // handInProgress -- see the same note in the adminSetBlinds test above.
+    const settled = waitForState(admin, (s) => s.table?.handInProgress === false);
+    alice.emit('action', { action: 'fold' });
+    await settled;
+
+    const switched = waitForState(admin, (s) => s.mode === 'blackjack');
+    admin.emit('adminSwitchMode', { mode: 'blackjack' });
+    const state = await switched;
+    expect(state.table!.gameMode).toBe('blackjack');
+    // Both previous players were unseated by the switch.
+    expect(state.table!.seats.every((s) => s.displayName === null)).toBe(true);
   });
 });
 
