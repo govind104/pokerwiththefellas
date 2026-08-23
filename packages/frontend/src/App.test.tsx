@@ -3,7 +3,12 @@ import { act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import App from './App';
-import { makeWaitingState } from './fixtures/tableStateFixtures';
+import {
+  makeAppState,
+  makeWaitingState,
+  makeHoldemPreflopState,
+  makeBlackjackPlayingState,
+} from './fixtures/tableStateFixtures';
 
 const handlers = new Map<string, (...args: unknown[]) => void>();
 
@@ -24,30 +29,53 @@ describe('App', () => {
     sessionStorage.clear();
   });
 
-  it('shows the join screen before connecting', () => {
+  it('shows a connecting message before any state has arrived', () => {
     render(<App />);
-    expect(screen.getByRole('heading', { name: /poker & blackjack/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
+    expect(screen.getByText(/connecting/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/display name/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Admin' })).not.toBeInTheDocument();
   });
 
-  it('shows PokerTable once state arrives with gameMode holdem', async () => {
+  // 'lobby' status is covered once Lobby.tsx exists -- see Task 8. App.tsx
+  // references <Lobby /> without importing it yet (Task 8 adds that
+  // import), so driving a 'state' event with mode: null here would hit an
+  // unresolved reference at render time; that case is deferred to Task 8.
+
+  it('shows the join screen once connected without a known display name', () => {
     render(<App />);
-    // App.test.tsx's canonical fixture (per the task-8 brief) drives the
-    // display-name input by setting `.value` and dispatching a raw 'input'
-    // event. That bypasses React's controlled-input value tracker (React
-    // installs its own instance-level setter to detect changes), so the
-    // dispatched event is seen as a no-op and onChange never fires -- the
-    // button stays disabled and the test can't proceed. userEvent.type
-    // drives the DOM through the same native setter React expects, which is
-    // also the established pattern in JoinScreen.test.tsx, so it's used here
-    // instead.
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' })));
+    });
+    expect(screen.getByRole('heading', { name: /poker & blackjack/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
+  });
+
+  it('shows PokerTable once seated at a holdem table', async () => {
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' })));
+    });
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
     await userEvent.click(screen.getByRole('button', { name: /join table/i }));
     act(() => {
-      handlers.get('connect')?.();
-      handlers.get('state')?.(makeWaitingState({ gameMode: 'holdem' }));
+      handlers.get('state')?.(makeAppState(makeHoldemPreflopState()));
     });
-    expect(await screen.findByRole('button', { name: /leave table/i })).toBeInTheDocument();
-    expect(screen.getByText(/waiting for hand to start/i)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Fold' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
+  });
+
+  it('shows BlackjackTable once seated at a blackjack table', async () => {
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack' })));
+    });
+    await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
+    await userEvent.click(screen.getByRole('button', { name: /join table/i }));
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeBlackjackPlayingState()));
+    });
+    expect(await screen.findByRole('button', { name: 'Hit' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
   });
 });

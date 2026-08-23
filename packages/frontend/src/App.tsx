@@ -1,46 +1,83 @@
 import { MotionConfig } from 'framer-motion';
-import { SocketProvider, useSocket } from './socket/SocketContext';
+import { SocketProvider, useSocket, type ConnectionStatus } from './socket/SocketContext';
+import type { TableStateView } from '@poker-blackjack/server/src/table';
+import type { PlayerAction, HoldemAction } from '@poker-blackjack/game-engine';
+import { AdminEntry } from './components/AdminEntry';
 import { JoinScreen } from './components/JoinScreen';
 import { PokerTable } from './components/PokerTable';
 import { BlackjackTable } from './components/BlackjackTable';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:3000';
 
-function AppContent() {
-  const { status, state, errorMessage, displayName, sendReady, sendAction, leave } = useSocket();
-
-  // `state` is the top-level AppStateView (`{ mode, isAdmin, table }`), not
-  // the table view itself -- `table` is null both before any socket state
-  // has arrived and whenever the lobby has no active game (mode: null).
-  // Falling back to JoinScreen in the latter case is a minimal stopgap, not
-  // real lobby UI: building the actual "no game active yet" / admin-start
-  // experience is a separate, later task's scope.
-  const table = state?.table ?? null;
-  if (!table || status === 'entering-name' || status === 'connecting' || status === 'error') {
-    return <JoinScreen />;
-  }
-
+function TableView({
+  table,
+  displayName,
+  connectionStatus,
+  errorMessage,
+  onReady,
+  onAction,
+  onLeave,
+}: {
+  table: TableStateView;
+  displayName: string | null;
+  connectionStatus: ConnectionStatus;
+  errorMessage: string | null;
+  onReady: () => void;
+  onAction: (action: PlayerAction | HoldemAction, amount?: number) => void;
+  onLeave: () => void;
+}) {
   const mySeatIndex =
     table.seats.find((s) => s.displayName !== null && s.displayName === displayName)?.seatIndex ?? null;
   const sharedProps = {
     seats: table.seats,
     mySeatIndex,
-    connectionStatus: status,
+    connectionStatus,
     handInProgress: table.handInProgress,
     errorMessage,
-    onReady: sendReady,
-    onLeave: leave,
+    onReady,
+    onLeave,
   };
 
   return table.gameMode === 'holdem' ? (
-    <PokerTable {...sharedProps} holdem={table.holdem} onAction={sendAction} />
+    <PokerTable {...sharedProps} holdem={table.holdem} onAction={onAction} />
   ) : (
     <BlackjackTable
       {...sharedProps}
       activeSeatIndex={table.activeSeatIndex}
       blackjackRounds={table.blackjackRounds}
-      onAction={sendAction}
+      onAction={onAction}
     />
+  );
+}
+
+function AppContent() {
+  const { status, state, errorMessage, displayName, sendReady, sendAction, leave } = useSocket();
+
+  if (status === 'connecting' || status === 'error' || !state) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-900 text-white">
+        <p>Connecting&hellip;</p>
+      </main>
+    );
+  }
+
+  return (
+    <>
+      <AdminEntry />
+      {status === 'lobby' && <Lobby />}
+      {status === 'entering-name' && <JoinScreen />}
+      {(status === 'at-table' || status === 'reconnecting') && state.table && (
+        <TableView
+          table={state.table}
+          displayName={displayName}
+          connectionStatus={status}
+          errorMessage={errorMessage}
+          onReady={sendReady}
+          onAction={sendAction}
+          onLeave={leave}
+        />
+      )}
+    </>
   );
 }
 
