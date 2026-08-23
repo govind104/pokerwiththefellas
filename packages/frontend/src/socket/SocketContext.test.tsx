@@ -143,6 +143,37 @@ describe('SocketProvider', () => {
     expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
   });
 
+  it('auto-rejoins with the remembered name after an admin mode switch clears seats, without landing on entering-name', async () => {
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+
+    // Get seated first, the same way a normal player would.
+    act(() => {
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState())); // seats[0] is 'alice' per the fixture
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+    expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBe('alice');
+
+    // Simulate the broadcast an admin's adminSwitchMode produces: seats are
+    // cleared and a (possibly new) mode is immediately active again -- see
+    // socketServer.ts's adminSwitchMode handler, which calls
+    // seatBySocketId.clear() then rebuilds the table before broadcasting.
+    // joinedRef was left `true` from the original join above; the bug was
+    // that this stale flag blocked the rejoin branch, dropping the player
+    // onto 'entering-name' instead of auto-rejoining.
+    emitted.length = 0;
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack', seats: [] })));
+    });
+
+    expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
+    expect(screen.getByTestId('status')).not.toHaveTextContent('entering-name');
+  });
+
   it('adminLogin emits adminLogin, and isAdmin reflects a successful state broadcast', async () => {
     render(
       <SocketProvider serverUrl="http://localhost:3000">

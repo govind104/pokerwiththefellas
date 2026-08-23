@@ -47,6 +47,14 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   const displayNameRef = useRef<string | null>(null);
   const statusRef = useRef<ConnectionStatus>('connecting');
   const joinedRef = useRef(false);
+  // Tracks whether we were seated as of the *previous* processed 'state'
+  // event -- distinct from joinedRef, which is a one-shot "have we ever
+  // sent a join" flag that does NOT reset across a table reset (e.g. an
+  // admin mode switch clears every seat but leaves joinedRef untouched).
+  // Comparing this event's mySeated against the prior one lets the handler
+  // notice exactly the seated -> unseated transition caused by a reset, so
+  // it can rejoin even though joinedRef is stale from the old incarnation.
+  const wasSeatedRef = useRef(false);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [state, setState] = useState<AppStateView | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -71,6 +79,9 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       setErrorMessage(null);
 
       const mySeated = nextState.table?.seats.some((s) => s.displayName === displayNameRef.current) ?? false;
+      const wasSeated = wasSeatedRef.current;
+      wasSeatedRef.current = mySeated;
+
       if (mySeated) {
         joinedRef.current = true;
         setStatus('at-table');
@@ -80,11 +91,17 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       } else if (nextState.mode === null) {
         joinedRef.current = false;
         setStatus('lobby');
-      } else if (displayNameRef.current && !joinedRef.current) {
+      } else if (displayNameRef.current && (!joinedRef.current || wasSeated)) {
         // A mode just became active (server start already resumed one, a
         // fresh admin start, or an admin switch) and we already know our
         // name from a prior session -- rejoin automatically instead of
-        // making a returning player retype it.
+        // making a returning player retype it. The `wasSeated` half of this
+        // guard covers a returning player who was seated at the *previous*
+        // table incarnation: an admin mode switch clears every seat and
+        // broadcasts fresh state, so `mySeated` just flipped to false even
+        // though `joinedRef.current` is still true from before the switch.
+        // Without checking `wasSeated` here, that stale `true` would block
+        // this branch and fall through to 'entering-name'.
         joinedRef.current = true;
         socket.emit('join', { displayName: displayNameRef.current });
       } else {
