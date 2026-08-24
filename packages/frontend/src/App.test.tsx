@@ -82,6 +82,20 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
   });
 
+  it('shows the AdminPanel alongside the table once seated as an admin', async () => {
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' }), { isAdmin: true }));
+    });
+    await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
+    await userEvent.click(screen.getByRole('button', { name: /join table/i }));
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeHoldemPreflopState(), { isAdmin: true }));
+    });
+    expect(await screen.findByRole('button', { name: 'Fold' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /admin panel/i })).toBeInTheDocument();
+  });
+
   it('shows BlackjackTable once seated at a blackjack table', async () => {
     render(<App />);
     act(() => {
