@@ -178,6 +178,16 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
         setStatus('error');
         socket.disconnect();
         socketRef.current = null;
+      } else if (statusRef.current === 'connecting') {
+        // The 'state' handler's auto-rejoin branch (first-time-tonight or
+        // post-admin-switch) emits `join` without ever touching `status`, so
+        // if that join is what just got rejected, `status` is still sitting
+        // on its initial 'connecting' value. App.tsx's connecting screen
+        // doesn't read `errorMessage`, so left alone this would strand the
+        // user on a bare "Connecting..." with the rejection recorded but
+        // never shown. Send them to 'entering-name' instead, where
+        // JoinScreen does render `errorMessage` and lets them retry.
+        setStatus('entering-name');
       }
     });
 

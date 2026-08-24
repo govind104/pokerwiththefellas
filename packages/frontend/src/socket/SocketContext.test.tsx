@@ -158,6 +158,34 @@ describe('SocketProvider', () => {
     expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
   });
 
+  it('a successful auto-rejoin still reaches at-table once the server confirms the seat', async () => {
+    // Companion to the two auto-rejoin tests above: verifies the *success*
+    // path is untouched by the 'connecting'-stuck fix below -- the fix only
+    // adds a status transition inside the 'error' handler's non-fatal
+    // branch, so a rejoin that the server accepts must behave exactly as
+    // before, landing on 'at-table' once the follow-up 'state' seats us.
+    sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, 'alice');
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+
+    act(() => {
+      // First-ever state event already has an active mode -- the auto-rejoin
+      // branch fires immediately, before status ever leaves 'connecting'.
+      handlers.get('state')?.(makeAppState(makeWaitingState({ seats: [] })));
+    });
+    expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
+    expect(screen.getByTestId('status')).toHaveTextContent('connecting');
+
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState())); // seats[0] is 'alice' per the fixture
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+    expect(screen.getByTestId('name')).toHaveTextContent('alice');
+  });
+
   it('auto-rejoins with the remembered name after an admin mode switch clears seats, without landing on entering-name', async () => {
     render(
       <SocketProvider serverUrl="http://localhost:3000">
@@ -319,6 +347,43 @@ describe('SocketProvider', () => {
         handlers.get('state')?.(makeAppState(makeWaitingState({ seats: [] })));
       });
       await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('entering-name'));
+
+      act(() => {
+        handlers.get('error')?.({ message: '"alice" is already seated' });
+      });
+
+      expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+      expect(screen.getByTestId('error')).toHaveTextContent('"alice" is already seated');
+      expect(disconnectCalls).toBe(0);
+    });
+
+    it('a rejected auto-rejoin that fires before status ever leaves connecting lands on entering-name instead of stalling', async () => {
+      // Regression case: the 'state' handler's auto-rejoin branch (a
+      // remembered name plus a mode that's already active) emits `join`
+      // without ever calling setStatus. When that first-ever 'state' event
+      // is itself what triggers the auto-rejoin, `status` is still sitting
+      // on its initial 'connecting' value when the join goes out.
+      // `hasEverReceivedStateRef.current` is already true by the time the
+      // rejection comes back (that state event is what set it), so the
+      // 'error' handler takes the non-fatal branch -- previously that branch
+      // only set `errorMessage` and never touched `status`, leaving the user
+      // stuck on App.tsx's bare "Connecting..." screen (which doesn't read
+      // `errorMessage`) with no way to see the rejection or retry.
+      sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, 'alice');
+      render(
+        <SocketProvider serverUrl="http://localhost:3000">
+          <TestConsumer />
+        </SocketProvider>
+      );
+      expect(screen.getByTestId('status')).toHaveTextContent('connecting');
+
+      act(() => {
+        handlers.get('state')?.(makeAppState(makeWaitingState({ seats: [] })));
+      });
+      expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
+      // Confirms the premise: the auto-rejoin branch really does leave
+      // status on 'connecting' rather than advancing it itself.
+      expect(screen.getByTestId('status')).toHaveTextContent('connecting');
 
       act(() => {
         handlers.get('error')?.({ message: '"alice" is already seated' });
