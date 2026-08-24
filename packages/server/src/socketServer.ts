@@ -3,7 +3,7 @@ import { Server as SocketIOServer, type Socket } from 'socket.io';
 import { Table, type TableConfig, type GameMode, type AppStateView } from './table';
 import type { PlayerStore } from './playerStore';
 import type { HandLog } from './handLog';
-import type { GameConfigStore } from './gameConfigStore';
+import type { GameConfigStore, GameConfigValues } from './gameConfigStore';
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -34,6 +34,30 @@ function isValidDisplayName(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 32;
 }
 
+// Same "reject malformed payloads before they reach anything durable"
+// rationale as isValidDisplayName. These matter more than ordinary input
+// hygiene because every value guarded here is written straight through to a
+// file that survives a restart: a NaN/undefined/negative big blind persists
+// into game-config.json and poisons every future hand, and a bad balance
+// persists into balances.json. `Number.isFinite` rejects NaN and both
+// infinities; `typeof === 'number'` rejects the string/undefined/null cases
+// a hand-rolled client could send (note that `Number('') === 0`, which is
+// exactly the coercion that made an empty admin input a silent zero).
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+// A balance of 0 is a legitimate, reachable game state (a busted player has
+// exactly that), so unlike the config values above, zero is allowed here --
+// only negatives and non-numbers are rejected.
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isGameMode(value: unknown): value is GameMode {
+  return value === 'holdem' || value === 'blackjack';
+}
+
 export async function createServer(
   staticConfig: StaticTableConfig,
   gameConfigStore: GameConfigStore,
@@ -50,9 +74,22 @@ export async function createServer(
   const adminSocketIds = new Set<string>();
   let table: Table | null = null;
   let currentMode: GameMode | null = null;
+  // Mirrors the config store's current values so every `state` broadcast can
+  // carry them synchronously (broadcast() must not await anything -- it is
+  // called from Table's onStateChange callback deep inside hand handling).
+  // Kept in step with the store by refreshing it from every read and every
+  // write below; the store remains the source of truth.
+  let currentConfig: GameConfigValues = await gameConfigStore.getConfig();
+  // Narrows the check-then-await window in adminStartGame/adminSwitchMode:
+  // two rapid clicks (or two admin sockets) could otherwise both pass their
+  // `table` check and both build a table, with the second silently
+  // discarding the first. A single boolean, not a real mutex -- the handlers
+  // it guards are the only writers of `table`/`currentMode`.
+  let modeChangeInFlight = false;
 
   async function buildTableConfig(mode: GameMode): Promise<TableConfig> {
     const values = await gameConfigStore.getConfig();
+    currentConfig = values;
     return {
       gameMode: mode,
       seatCount: staticConfig.seatCount,
@@ -65,15 +102,21 @@ export async function createServer(
     };
   }
 
+  function buildAppStateView(socketId: string | null, seatIndex: number | null): AppStateView {
+    return {
+      mode: currentMode,
+      isAdmin: socketId !== null && adminSocketIds.has(socketId),
+      table: table ? table.getStateForSeat(seatIndex) : null,
+      smallBlind: currentConfig.smallBlind,
+      bigBlind: currentConfig.bigBlind,
+      blackjackDefaultBet: currentConfig.blackjackDefaultBet,
+      defaultStartingBalance: currentConfig.defaultStartingBalance,
+    };
+  }
+
   const broadcast = () => {
     for (const [socketId, socket] of io.sockets.sockets) {
-      const seatIndex = seatBySocketId.get(socketId) ?? null;
-      const view: AppStateView = {
-        mode: currentMode,
-        isAdmin: adminSocketIds.has(socketId),
-        table: table ? table.getStateForSeat(seatIndex) : null,
-      };
-      socket.emit('state', view);
+      socket.emit('state', buildAppStateView(socketId, seatBySocketId.get(socketId) ?? null));
     }
   };
 
@@ -112,11 +155,7 @@ export async function createServer(
     // A fresh connection needs to see the current lobby/table state
     // immediately, before it does anything -- otherwise the frontend has no
     // way to know whether to show the lobby, a join screen, or a table.
-    socket.emit('state', {
-      mode: currentMode,
-      isAdmin: false,
-      table: table ? table.getStateForSeat(null) : null,
-    });
+    socket.emit('state', buildAppStateView(null, null));
 
     socket.on('join', async (payload: JoinPayload) => {
       if (!table) {
@@ -204,88 +243,140 @@ export async function createServer(
       }
     });
 
+    // Every admin handler below rejects through this helper rather than a
+    // bare socket.emit('error', ...): the `scope: 'admin'` discriminant is
+    // what lets the client route the message to the admin panel's own error
+    // surface instead of the display-name field's (see protocol.ts).
+    function rejectAdmin(message: string): void {
+      socket.emit('error', { message, scope: 'admin' });
+    }
+
+    function isAdmin(): boolean {
+      if (adminSocketIds.has(socket.id)) {
+        return true;
+      }
+      rejectAdmin('Admin only');
+      return false;
+    }
+
     socket.on('adminStartGame', async (payload: StartGamePayload) => {
-      if (!adminSocketIds.has(socket.id)) {
-        socket.emit('error', { message: 'Admin only' });
+      if (!isAdmin()) return;
+      if (!isGameMode(payload?.mode)) {
+        rejectAdmin('Invalid game mode');
         return;
       }
-      if (table) {
-        socket.emit('error', { message: 'A game is already active -- use switch instead' });
+      if (table || modeChangeInFlight) {
+        rejectAdmin('A game is already active -- use switch instead');
         return;
       }
-      currentMode = payload.mode;
-      table = createTable(await buildTableConfig(payload.mode));
+      modeChangeInFlight = true;
+      try {
+        // Config first, then both pieces of mode state together: assigning
+        // `currentMode` before this await left a window where any broadcast
+        // (a disconnect timer firing, another socket's action) would report
+        // the new mode alongside the *old* table's state view.
+        const nextConfig = await buildTableConfig(payload.mode);
+        currentMode = payload.mode;
+        table = createTable(nextConfig);
+      } finally {
+        modeChangeInFlight = false;
+      }
       broadcast();
     });
 
     socket.on('adminSwitchMode', async (payload: StartGamePayload) => {
-      if (!adminSocketIds.has(socket.id)) {
-        socket.emit('error', { message: 'Admin only' });
+      if (!isAdmin()) return;
+      if (!isGameMode(payload?.mode)) {
+        rejectAdmin('Invalid game mode');
         return;
       }
       if (!table) {
-        socket.emit('error', { message: 'No game active -- use start instead' });
+        rejectAdmin('No game active -- use start instead');
         return;
       }
       if (table.handInProgress) {
-        socket.emit('error', { message: "Can't switch modes while a hand is in progress" });
+        rejectAdmin("Can't switch modes while a hand is in progress");
         return;
       }
-      // Seat semantics differ between Poker and Blackjack, so nothing
-      // meaningful carries over -- everyone (including players who were
-      // already seated) rejoins the new table fresh. A returning player with
-      // a remembered display name auto-rejoins via the frontend's own logic
-      // (Task 6) the moment this broadcast reports the new mode; nobody
-      // needs to retype anything they'd already typed once tonight.
-      seatBySocketId.clear();
-      currentMode = payload.mode;
-      table = createTable(await buildTableConfig(payload.mode));
+      if (modeChangeInFlight) {
+        rejectAdmin('A mode change is already in progress');
+        return;
+      }
+      modeChangeInFlight = true;
+      try {
+        // Same ordering rationale as adminStartGame above. Seat semantics
+        // differ between Poker and Blackjack, so nothing meaningful carries
+        // over -- everyone (including players who were already seated)
+        // rejoins the new table fresh. A returning player with a remembered
+        // display name auto-rejoins via the frontend's own logic (Task 6)
+        // the moment this broadcast reports the new mode; nobody needs to
+        // retype anything they'd already typed once tonight.
+        const nextConfig = await buildTableConfig(payload.mode);
+        seatBySocketId.clear();
+        currentMode = payload.mode;
+        table = createTable(nextConfig);
+      } finally {
+        modeChangeInFlight = false;
+      }
       broadcast();
     });
 
     socket.on('adminAdjustBalance', async (payload) => {
-      if (!adminSocketIds.has(socket.id)) {
-        socket.emit('error', { message: 'Admin only' });
+      if (!isAdmin()) return;
+      if (!isValidDisplayName(payload?.displayName)) {
+        rejectAdmin('Invalid display name');
+        return;
+      }
+      if (!isNonNegativeNumber(payload?.balance)) {
+        rejectAdmin('Balance must be a number of 0 or more');
         return;
       }
       const seat = table?.seats.find((s) => s?.displayName === payload.displayName);
       if (seat && table!.handInProgress) {
-        socket.emit('error', { message: `Can't adjust -- ${payload.displayName} is in an active hand` });
+        rejectAdmin(`Can't adjust -- ${payload.displayName} is in an active hand`);
         return;
       }
       await playerStore.setBalance(payload.displayName, payload.balance);
-      if (seat) {
-        seat.balance = payload.balance;
-      }
+      table?.setSeatBalance(payload.displayName, payload.balance);
       broadcast();
     });
 
     socket.on('adminSetBlinds', async (payload) => {
-      if (!adminSocketIds.has(socket.id)) {
-        socket.emit('error', { message: 'Admin only' });
+      if (!isAdmin()) return;
+      if (!isPositiveNumber(payload?.smallBlind) || !isPositiveNumber(payload?.bigBlind)) {
+        rejectAdmin('Blinds must be positive numbers');
         return;
       }
-      await gameConfigStore.setConfig({ smallBlind: payload.smallBlind, bigBlind: payload.bigBlind });
+      currentConfig = await gameConfigStore.setConfig({
+        smallBlind: payload.smallBlind,
+        bigBlind: payload.bigBlind,
+      });
       table?.updateConfig({ smallBlind: payload.smallBlind, bigBlind: payload.bigBlind });
       broadcast();
     });
 
     socket.on('adminSetDefaultBet', async (payload) => {
-      if (!adminSocketIds.has(socket.id)) {
-        socket.emit('error', { message: 'Admin only' });
+      if (!isAdmin()) return;
+      if (!isPositiveNumber(payload?.blackjackDefaultBet)) {
+        rejectAdmin('Default bet must be a positive number');
         return;
       }
-      await gameConfigStore.setConfig({ blackjackDefaultBet: payload.blackjackDefaultBet });
+      currentConfig = await gameConfigStore.setConfig({
+        blackjackDefaultBet: payload.blackjackDefaultBet,
+      });
       table?.updateConfig({ blackjackDefaultBet: payload.blackjackDefaultBet });
       broadcast();
     });
 
     socket.on('adminSetStartingBalance', async (payload) => {
-      if (!adminSocketIds.has(socket.id)) {
-        socket.emit('error', { message: 'Admin only' });
+      if (!isAdmin()) return;
+      if (!isPositiveNumber(payload?.defaultStartingBalance)) {
+        rejectAdmin('Starting balance must be a positive number');
         return;
       }
-      await gameConfigStore.setConfig({ defaultStartingBalance: payload.defaultStartingBalance });
+      currentConfig = await gameConfigStore.setConfig({
+        defaultStartingBalance: payload.defaultStartingBalance,
+      });
       playerStore.setDefaultStartingBalance(payload.defaultStartingBalance);
       broadcast();
     });

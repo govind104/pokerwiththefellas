@@ -21,9 +21,18 @@ const configDefaults: GameConfigValues = {
 
 const gameConfigStore = new JsonGameConfigStore(process.env.GAME_CONFIG_PATH ?? './game-config.json', configDefaults);
 
+// Fail fast rather than warn-and-continue. Under the empty-lobby design
+// nothing can start without a successful admin login, so a server booted
+// without a passphrase is not "degraded" -- it is unusable: it accepts
+// connections and shows every client a permanent "waiting for a game to
+// start", with the only diagnosis being a console line already scrolled off.
 const adminPassphrase = process.env.ADMIN_PASSPHRASE;
 if (!adminPassphrase) {
-  console.warn('ADMIN_PASSPHRASE is not set -- admin controls are unreachable until it is.');
+  console.error(
+    'ADMIN_PASSPHRASE is not set. No game can ever be started without it, so refusing to start a server ' +
+      'that would only ever show clients an empty lobby. Set ADMIN_PASSPHRASE and try again.'
+  );
+  process.exit(1);
 }
 
 async function main() {
@@ -41,4 +50,11 @@ async function main() {
   });
 }
 
-main();
+// Without this, any rejection inside main() -- a non-ENOENT read failure in
+// gameConfigStore.getConfig(), a listen/bind failure -- surfaces only as a
+// bare unhandled-rejection stack trace with no indication that startup was
+// what failed.
+main().catch((err) => {
+  console.error('Fatal startup error:', err);
+  process.exit(1);
+});

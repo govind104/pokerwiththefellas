@@ -413,6 +413,31 @@ describe('Table.updateConfig', () => {
   });
 });
 
+describe('Table.setSeatBalance', () => {
+  // The admin balance-correction socket handler used to assign
+  // `seat.balance` directly -- the only place outside this class that
+  // mutated a Seat. This method keeps that mutation (and its state-change
+  // notification) inside Table like every other seat mutation.
+  it("sets a seated player's balance, reports success, and notifies state change", async () => {
+    const { table, getStateChangeCount } = makeTable();
+    await table.join('alice');
+    const callsBefore = getStateChangeCount();
+
+    expect(table.setSeatBalance('alice', 5000)).toBe(true);
+    expect(table.seats[0]!.balance).toBe(5000);
+    expect(table.getStateForSeat(0).seats[0].balance).toBe(5000);
+    expect(getStateChangeCount()).toBeGreaterThan(callsBefore);
+  });
+
+  it('reports false and changes nothing for a name that is not seated', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+
+    expect(table.setSeatBalance('nobody', 5000)).toBe(false);
+    expect(table.seats[0]!.balance).toBe(1000);
+  });
+});
+
 describe('Table ready-gating and hand start (Blackjack)', () => {
   it('constructs one independent BlackjackRound per seated player', async () => {
     const { table } = makeTable({ gameMode: 'blackjack' });

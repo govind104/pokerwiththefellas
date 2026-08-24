@@ -149,6 +149,31 @@ describe('socketServer', () => {
     expect(server.getTable()!.seats.every((s) => s === null)).toBe(true);
   });
 
+  it('rejects a join before any admin has started a game -- the defining empty-lobby behaviour', async () => {
+    // No startGameAsAdmin() call anywhere in this test on purpose: a freshly
+    // created server has no Table at all, and the whole empty-lobby design
+    // rests on `join` being refused until an admin picks a mode.
+    const socket = connect();
+    const errorPromise = waitForEvent<{ message: string }>(socket, 'error');
+    socket.emit('join', { displayName: 'alice' });
+    const err = await errorPromise;
+    expect(err.message).toBe('No game is active yet');
+    expect(server.getTable()).toBeNull();
+  });
+
+  it('the initial welcome state on a fresh lobby reports no mode, no table, and the current config values', async () => {
+    const socket = connect();
+    const state = await waitForEvent<AppStateView>(socket, 'state');
+    expect(state.mode).toBeNull();
+    expect(state.table).toBeNull();
+    // The admin panel prefills its inputs from these, so they must be
+    // present even before any game exists.
+    expect(state.smallBlind).toBe(configDefaults.smallBlind);
+    expect(state.bigBlind).toBe(configDefaults.bigBlind);
+    expect(state.blackjackDefaultBet).toBe(configDefaults.blackjackDefaultBet);
+    expect(state.defaultStartingBalance).toBe(configDefaults.defaultStartingBalance);
+  });
+
   it('rejects a join with a missing payload instead of throwing in the handler', async () => {
     const admin = connect();
     await startGameAsAdmin(admin, 'holdem');
@@ -320,6 +345,98 @@ describe('socketServer', () => {
     expect(state.table!.gameMode).toBe('blackjack');
     // Both previous players were unseated by the switch.
     expect(state.table!.seats.every((s) => s.displayName === null)).toBe(true);
+  });
+
+  it('broadcasts the updated config value after a successful admin config change', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    const updated = waitForState(admin, (s) => s.bigBlind === 100);
+    admin.emit('adminSetBlinds', { smallBlind: 50, bigBlind: 100 });
+    const state = await updated;
+    expect(state.smallBlind).toBe(50);
+    expect(state.bigBlind).toBe(100);
+  });
+
+  it('every admin rejection is tagged scope: "admin" so the client can route it away from the join form', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    const errorPromise = waitForEvent<{ message: string; scope?: string }>(admin, 'error');
+    admin.emit('adminSetBlinds', { smallBlind: -5, bigBlind: 10 });
+    const err = await errorPromise;
+    expect(err.scope).toBe('admin');
+  });
+
+  describe('admin payload validation', () => {
+    // Each of these used to be accepted and written straight through to a
+    // file that survives a restart (game-config.json / balances.json), or --
+    // for the missing-payload cases -- to throw an unhandled rejection
+    // inside the async handler while reading `payload.x` off `undefined`.
+    const invalidPayloadCases: { event: string; payload: unknown; expected: string }[] = [
+      { event: 'adminSetBlinds', payload: { smallBlind: 0, bigBlind: 10 }, expected: 'Blinds must be positive numbers' },
+      { event: 'adminSetBlinds', payload: { smallBlind: 5, bigBlind: -10 }, expected: 'Blinds must be positive numbers' },
+      { event: 'adminSetBlinds', payload: { smallBlind: 5 }, expected: 'Blinds must be positive numbers' },
+      { event: 'adminSetBlinds', payload: undefined, expected: 'Blinds must be positive numbers' },
+      { event: 'adminSetDefaultBet', payload: { blackjackDefaultBet: 0 }, expected: 'Default bet must be a positive number' },
+      { event: 'adminSetDefaultBet', payload: undefined, expected: 'Default bet must be a positive number' },
+      {
+        event: 'adminSetStartingBalance',
+        payload: { defaultStartingBalance: 0 },
+        expected: 'Starting balance must be a positive number',
+      },
+      { event: 'adminSetStartingBalance', payload: undefined, expected: 'Starting balance must be a positive number' },
+      {
+        event: 'adminAdjustBalance',
+        payload: { displayName: 'alice', balance: -1 },
+        expected: 'Balance must be a number of 0 or more',
+      },
+      { event: 'adminAdjustBalance', payload: { balance: 100 }, expected: 'Invalid display name' },
+      { event: 'adminAdjustBalance', payload: undefined, expected: 'Invalid display name' },
+      { event: 'adminStartGame', payload: { mode: 'roulette' }, expected: 'Invalid game mode' },
+      { event: 'adminSwitchMode', payload: { mode: 'roulette' }, expected: 'Invalid game mode' },
+      { event: 'adminSwitchMode', payload: undefined, expected: 'Invalid game mode' },
+    ];
+
+    for (const { event, payload, expected } of invalidPayloadCases) {
+      it(`rejects ${event} with ${JSON.stringify(payload) ?? 'a missing payload'}`, async () => {
+        const admin = connect();
+        await startGameAsAdmin(admin, 'holdem');
+
+        const errorPromise = waitForEvent<{ message: string; scope?: string }>(admin, 'error');
+        admin.emit(event as never, payload as never);
+        const err = await errorPromise;
+        expect(err.message).toBe(expected);
+        expect(err.scope).toBe('admin');
+      });
+    }
+
+    it('leaves the persisted config untouched after a rejected adminSetBlinds', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+
+      const errorPromise = waitForEvent<{ message: string }>(admin, 'error');
+      admin.emit('adminSetBlinds', { smallBlind: Number.NaN, bigBlind: Number.NaN });
+      await errorPromise;
+
+      const stored = await new JsonGameConfigStore(join(dir, 'game-config.json'), configDefaults).getConfig();
+      expect(stored.smallBlind).toBe(configDefaults.smallBlind);
+      expect(stored.bigBlind).toBe(configDefaults.bigBlind);
+    });
+
+    it('accepts a balance of exactly 0 -- a busted player is a real state, unlike a 0 blind', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+
+      const alice = connect();
+      alice.emit('join', { displayName: 'alice' });
+      await waitForSeated(alice, 'alice');
+
+      const zeroed = waitForState(alice, (s) => s.table?.seats[0]?.balance === 0);
+      admin.emit('adminAdjustBalance', { displayName: 'alice', balance: 0 });
+      const state = await zeroed;
+      expect(state.table!.seats[0]?.balance).toBe(0);
+    });
   });
 });
 

@@ -88,6 +88,14 @@ export interface AppStateView {
   mode: GameMode | null;
   isAdmin: boolean;
   table: TableStateView | null;
+  // The admin-tunable config values as they currently stand, carried on every
+  // broadcast so the admin panel can show what the values actually are (and
+  // so a successful change is visibly confirmed by the next broadcast)
+  // instead of presenting blank inputs with no signal either way.
+  smallBlind: number;
+  bigBlind: number;
+  blackjackDefaultBet: number;
+  defaultStartingBalance: number;
 }
 
 export class Table {
@@ -123,10 +131,32 @@ export class Table {
   // the default bet, that's the next startHand() call, never a hand already
   // in progress (which already captured its blinds into the HoldemHandConfig
   // it was constructed with).
+  //
+  // `defaultStartingBalance` is deliberately NOT accepted here: nothing in
+  // this class ever reads `config.defaultStartingBalance` (a joining player's
+  // opening balance comes from PlayerStore, which owns that default), so
+  // accepting it would only create the false impression that a Table needs
+  // to be told about it. adminSetStartingBalance correspondingly calls
+  // playerStore.setDefaultStartingBalance and nothing here.
   updateConfig(
-    update: Partial<Pick<TableConfig, 'smallBlind' | 'bigBlind' | 'blackjackDefaultBet' | 'defaultStartingBalance'>>
+    update: Partial<Pick<TableConfig, 'smallBlind' | 'bigBlind' | 'blackjackDefaultBet'>>
   ): void {
     Object.assign(this.config, update);
+  }
+
+  // Seat mutation belongs to this class -- the admin balance-correction
+  // socket handler used to reach in and assign `seat.balance` directly,
+  // which was the one place outside Table that mutated a Seat. Returns
+  // whether a matching seat existed so the caller can distinguish "corrected
+  // a seated player" from "the player isn't at this table right now".
+  setSeatBalance(displayName: string, balance: number): boolean {
+    const seat = this.seats.find((s) => s?.displayName === displayName);
+    if (!seat) {
+      return false;
+    }
+    seat.balance = balance;
+    this.deps.onStateChange();
+    return true;
   }
 
   async join(displayName: string): Promise<number> {
