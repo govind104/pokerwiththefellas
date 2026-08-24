@@ -99,6 +99,14 @@ export function BlackjackTable({
               // this label -- it exists so the table doesn't silently sit on
               // "Bet X"/"Thinking…" while the player's socket is actually
               // gone, which otherwise looks identical to them just playing normally.
+              //
+              // Unlike PokerTable's rail (which explicitly excludes
+              // mySeatIndex), `players` here includes our own seat, so this
+              // branch is reachable for isMe too in principle. In practice it
+              // never renders for ourselves: a disconnected local socket
+              // can't receive the broadcast that would report its own
+              // seat as connected:false, so `state` stays frozen on the last
+              // known-good snapshot until we reconnect.
               status = 'Disconnected';
             } else {
               status = isActive ? (isMe ? 'Your turn' : 'Thinking…') : `Bet ${totalBet}`;

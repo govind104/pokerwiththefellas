@@ -61,8 +61,8 @@ describe('BlackjackTable', () => {
         makeSeat({ seatIndex: 1, displayName: 'bob', balance: 1000, connected: false }),
       ],
       blackjackRounds: {
-        ...base.blackjackRounds,
-        1: base.blackjackRounds[0],
+        ...base.blackjackRounds!,
+        1: base.blackjackRounds![0],
       },
       activeSeatIndex: null,
     });

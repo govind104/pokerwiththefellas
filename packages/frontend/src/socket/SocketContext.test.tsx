@@ -396,13 +396,16 @@ describe('SocketProvider', () => {
     expect(disconnectCalls).toBe(0);
   });
 
-  it('a self-duplicate "already seated" error while already at-table is swallowed, not surfaced', async () => {
-    // Regression test: socket.io.on('reconnect') and the 'state' handler's
-    // auto-rejoin branch can both emit 'join' for the same name off the same
-    // transport-level reconnect. table.join()'s duplicate-name guard
-    // (table.ts) rejects whichever one loses that race -- harmless, since by
-    // the time this error arrives we're already seated -- so it must not
-    // alarm the player with a visible error banner.
+  it('a genuine "already seated" rejection still surfaces even while status is stuck on a stale at-table value mid-rejoin', async () => {
+    // Regression test for a real gap: an earlier version of the error
+    // handler swallowed "already seated" whenever `status === 'at-table'`,
+    // reasoning that meant our own join had already succeeded. That's
+    // wrong -- the auto-rejoin branch never calls setStatus, so `status`
+    // sits on its *stale* pre-mode-switch value for the entire window a
+    // rejoin is in flight. A genuine rejection (a different client actually
+    // holding this name) arriving in that exact window was being silently
+    // discarded instead of shown. It must now reach the player like any
+    // other rejection.
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
@@ -414,17 +417,53 @@ describe('SocketProvider', () => {
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
+    // Mode switch: seats clear, our rejoin fires, but `status` never moves
+    // off its stale 'at-table' value while the rejoin is in flight.
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack', seats: [] })));
+    });
+    expect(screen.getByTestId('status')).toHaveTextContent('at-table');
+
     act(() => {
       handlers.get('error')?.({ message: '"alice" is already seated' });
     });
-    expect(screen.getByTestId('status')).toHaveTextContent('at-table');
-    expect(screen.getByTestId('error')).toHaveTextContent('none');
-    expect(disconnectCalls).toBe(0);
+    expect(screen.getByTestId('error')).toHaveTextContent('"alice" is already seated');
+  });
+
+  it('no self-duplicate join is possible in the first place: a transport reconnect landing while a mode-switch rejoin is in flight does not double-emit', async () => {
+    // Companion to the "intermediate broadcast" test above, covering the
+    // other join-emit site: socket.io.on('reconnect') used to emit
+    // unconditionally, so if it fired in the same window a mode-switch
+    // auto-rejoin was already pending, both sites would independently
+    // decide nothing was in flight and each emit their own `join` for the
+    // same name. It now checks joinInFlightRef first.
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+    act(() => {
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+
+    emitted.length = 0;
+    act(() => {
+      // Mode switch fires our rejoin; it's still unresolved.
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack', seats: [] })));
+    });
+    expect(emitted).toEqual([{ event: 'join', payload: { displayName: 'alice' } }]);
+
+    act(() => {
+      // A transport-level reconnect lands in the same window.
+      ioManagerHandlers.get('reconnect')?.();
+    });
+    expect(emitted).toEqual([{ event: 'join', payload: { displayName: 'alice' } }]);
   });
 
   it('an "already seated" error before reaching at-table still surfaces normally (a genuine name conflict)', async () => {
-    // Companion to the swallow test above: the guard is scoped to the
-    // self-duplicate case specifically. A real conflict -- someone else
+    // Companion to the tests above: a real conflict -- someone else
     // already holds this name -- happens before the rejecting socket is
     // seated, so it must still reach the player.
     render(

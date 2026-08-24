@@ -67,6 +67,19 @@ describe('PokerTable', () => {
     expect(screen.getByTestId('player-info-1')).not.toHaveTextContent(/disconnected/i);
   });
 
+  it('still shows the settlement result for a disconnected opponent, not Disconnected', () => {
+    const state = makeHoldemSettledState({
+      seats: [
+        makeSeat({ seatIndex: 0, displayName: 'alice', balance: 1010 }),
+        makeSeat({ seatIndex: 1, displayName: 'bob', balance: 980, connected: false }),
+        makeSeat({ seatIndex: 2, displayName: 'carol', balance: 1000 }),
+      ],
+    });
+    render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    expect(screen.getByTestId('player-info-1')).toHaveTextContent(/lost 20/i);
+    expect(screen.getByTestId('player-info-1')).not.toHaveTextContent(/disconnected/i);
+  });
+
   it("highlights the acting opponent's rail row with data-active", () => {
     const state = makeHoldemPreflopState({
       holdem: {

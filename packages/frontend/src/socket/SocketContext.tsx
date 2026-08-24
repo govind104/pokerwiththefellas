@@ -65,19 +65,21 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   // notice exactly the seated -> unseated transition caused by a reset, so
   // it can rejoin even though joinedRef is stale from the old incarnation.
   const wasSeatedRef = useRef(false);
-  // True from the moment we emit an auto-rejoin `join` until either it lands
-  // us at-table or the mode resets to null. A mode switch's seat-clearing
-  // broadcast is not the only 'state' event a rejoining client sees before
-  // its own join is processed server-side -- every OTHER player's join
-  // succeeding in the same burst re-broadcasts to everyone, including us,
-  // still unseated. Without this flag, that intermediate broadcast falls
-  // through to the final 'entering-name' branch below (wasSeated is only
-  // ever true for the one event immediately after the reset, and joinedRef
-  // is already true from our own emit), which resets joinedRef to false --
-  // and *that* reset is what makes the NEXT broadcast satisfy the rejoin
-  // condition all over again, firing a second `join` for a name we already
-  // hold. The server's duplicate-name guard (table.ts) rejects the loser of
-  // that race harmlessly, but it doesn't have to happen at all.
+  // True from the moment any of the three `join`-emitting call sites below
+  // fires until the attempt resolves -- seated (mySeated true), the mode
+  // resets to null, or a rejection arrives (the 'error' handler clears it
+  // unconditionally, not just for join-related errors, since any error
+  // means the connection is no longer usefully "mid-join"). All three sites
+  // check it before emitting, not just the auto-rejoin branch below: a mode
+  // switch's seat-clearing broadcast is not the only 'state' event a
+  // rejoining client sees before its own join is processed server-side --
+  // every OTHER player's join succeeding in the same burst re-broadcasts to
+  // everyone, including us, still unseated -- and a transport-level
+  // reconnect (socket.io.on('reconnect') below) can land in the same
+  // window a mode-switch rejoin is already in flight. Without gating every
+  // site on this flag, either source can fire a second `join` for a name we
+  // already hold: the server's duplicate-name guard (table.ts) rejects the
+  // loser of that race harmlessly, but it doesn't have to happen at all.
   const joinInFlightRef = useRef(false);
   // True once any 'state' event has ever arrived, which is the signal that
   // the connection is established and healthy. Only an 'error' arriving
@@ -204,21 +206,21 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
         setAdminActionErrorMessage(payload.message);
         return;
       }
+      // Deliberately no special-casing of "already seated" here. An earlier
+      // version of this handler tried to swallow it when `status` was
+      // already 'at-table', reasoning that meant our own join must have
+      // already succeeded. That reasoning doesn't hold: the auto-rejoin
+      // branch above never calls setStatus, so `status` sits on its *stale*
+      // pre-mode-switch 'at-table' value for the entire window a rejoin is
+      // in flight -- which is exactly when a genuine rejection (a different
+      // client actually holding this name) can also arrive. Swallowing on
+      // that signal hid real failures, not just harmless echoes. Now that
+      // every `join`-emit site is gated on joinInFlightRef (see its
+      // declaration above), our own client can't produce a self-duplicate
+      // to swallow in the first place -- so any "already seated" error that
+      // does arrive for our name is a genuine conflict and must reach the
+      // player like any other rejection.
       joinInFlightRef.current = false;
-      if (
-        statusRef.current === 'at-table' &&
-        displayNameRef.current &&
-        payload.message === `"${displayNameRef.current}" is already seated`
-      ) {
-        // Belt-and-suspenders alongside joinInFlightRef above (which now
-        // stops the 'state' handler from emitting this duplicate in the
-        // first place): if some other timing still produces one, `status`
-        // being 'at-table' already means our own join succeeded, so this is
-        // by definition someone else's request losing table.ts's
-        // duplicate-name guard, not ours -- surfacing it would just alarm
-        // the player over a request they never made and that changed nothing.
-        return;
-      }
       setErrorMessage(payload.message);
       // Fatal only before the connection has ever proven healthy. This used
       // to key off `statusRef.current !== 'at-table'`, which was correct
@@ -253,7 +255,13 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     socket.io.on('reconnect', () => {
       joinedRef.current = false;
       const name = displayNameRef.current;
-      if (name) {
+      // The guard matters when a transport-level reconnect and a
+      // mode-switch-triggered auto-rejoin (the 'state' handler above) land
+      // in the same window -- e.g. a flaky connection dropping right as an
+      // admin switches modes. Without it, both sites would independently
+      // decide nothing is in flight yet and each emit their own `join` for
+      // the same name.
+      if (name && !joinInFlightRef.current) {
         joinInFlightRef.current = true;
         socket.emit('join', { displayName: name });
       }
