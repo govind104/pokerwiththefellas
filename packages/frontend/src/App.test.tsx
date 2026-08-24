@@ -5,6 +5,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import App from './App';
 import {
   makeAppState,
+  makeLobbyState,
   makeWaitingState,
   makeHoldemPreflopState,
   makeBlackjackPlayingState,
@@ -36,10 +37,16 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Admin' })).not.toBeInTheDocument();
   });
 
-  // 'lobby' status is covered once Lobby.tsx exists -- see Task 8. App.tsx
-  // references <Lobby /> without importing it yet (Task 8 adds that
-  // import), so driving a 'state' event with mode: null here would hit an
-  // unresolved reference at render time; that case is deferred to Task 8.
+  it('shows the Lobby (not the join screen or a table) once connected with no active game mode', () => {
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(makeLobbyState());
+    });
+    expect(screen.getByText(/waiting for a game to start/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/display name/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Fold' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Hit' })).not.toBeInTheDocument();
+  });
 
   it('shows the join screen once connected without a known display name', () => {
     render(<App />);

@@ -3,6 +3,7 @@ import { SocketProvider, useSocket, type ConnectionStatus } from './socket/Socke
 import type { TableStateView } from '@poker-blackjack/server/src/table';
 import type { PlayerAction, HoldemAction } from '@poker-blackjack/game-engine';
 import { AdminEntry } from './components/AdminEntry';
+import { Lobby } from './components/Lobby';
 import { JoinScreen } from './components/JoinScreen';
 import { PokerTable } from './components/PokerTable';
 import { BlackjackTable } from './components/BlackjackTable';
