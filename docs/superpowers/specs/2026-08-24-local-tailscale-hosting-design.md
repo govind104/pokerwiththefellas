@@ -75,6 +75,13 @@ Let's Encrypt requirement.
   two-port local dev workflow.
 - No changes to game logic, admin controls, or the lobby — this plan is
   purely about how the already-working app gets reached.
+- Support loading env vars (`ADMIN_PASSPHRASE`, blind/bet/balance
+  defaults, `PORT`, the `*_PATH` overrides) from a local `.env` file, not
+  just the shell environment. Without this, "starting a session is a
+  single command" (Section 1) isn't actually true — the host would need
+  to re-export several env vars by hand every time. A `.env` file (kept
+  out of git, `.env.example` committed as a template) is set once and
+  then just works on every future launch.
 
 ## 4. Launch & Runbook
 
@@ -82,8 +89,15 @@ Let's Encrypt requirement.
   builds the frontend and starts the server together, so running a
   session is one command rather than two terminals.
 - A runbook document covering:
-  - **One-time setup:** install Tailscale, host creates/uses their
-    tailnet, invite each friend (up to 5, filling the free 6-user tier).
+  - **One-time setup:** the hosting machine needs Node.js/npm installed
+    and the repo cloned (obvious for the user, worth stating explicitly
+    for a friend who ends up hosting and isn't a developer); install
+    Tailscale, host creates/uses their tailnet, invite each friend (up to
+    5, filling the free 6-user tier); copy `.env.example` to `.env` and
+    fill in `ADMIN_PASSPHRASE` (Section 3). Note that on first launch,
+    Windows (or macOS) will likely prompt to allow the app through the
+    firewall — this needs to be accepted (for Private/home networks) or
+    friends won't be able to reach the port at all.
   - **Per-session:** confirm Tailscale is connected, run the launch
     command, find the host's MagicDNS hostname (`tailscale ip -4`, or the
     stable `<device>.<tailnet>.ts.net` name — prefer the hostname over the
@@ -119,6 +133,17 @@ Let's Encrypt requirement.
 - **Host's machine goes to sleep / closes laptop mid-session:** ends the
   game for everyone, same as any locally-hosted LAN-party-style game.
   Acceptable for this use case; not a bug to engineer around.
+- **Rotating hosts fragment state.** Balances, game config, and hand
+  history live in local files on whichever machine ran the server
+  (Section 2) — they do not follow the game to a different host's
+  machine. If the same person (or machine) hosts every time, this is a
+  non-issue and balances carry over naturally session to session. If
+  hosting is expected to rotate between friends, that needs a deliberate
+  choice: either designate one person's machine as the canonical host
+  going forward, or accept that switching hosts means starting fresh
+  (or manually copying `balances.json`/`game-config.json`/`hand.jsonl` to
+  the new machine — not automated by this plan). Worth deciding before
+  the first real session, not after someone notices their balance reset.
 
 ## 7. Testing Strategy
 
