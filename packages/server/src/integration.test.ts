@@ -199,4 +199,61 @@ describe('integration: happy path', () => {
     const err = await errorPromise;
     expect(err.message).toMatch(/already seated/);
   });
+
+  it('admin starts a game, players join, admin changes blinds mid-session, and only the next hand uses them', async () => {
+    await startServer();
+
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    const alice = connect();
+    alice.emit('join', { displayName: 'alice' });
+    await waitForSeated(alice, 'alice');
+    const bob = connect();
+    bob.emit('join', { displayName: 'bob' });
+    await waitForSeated(bob, 'bob');
+
+    alice.emit('ready');
+    await waitForReady(alice, 'alice');
+    const firstHandStarted = waitForState(bob, (s) => s.table?.handInProgress === true);
+    bob.emit('ready');
+    const firstHandState = await firstHandStarted;
+    // `holdem.pots` is only populated once the hand reaches `street ===
+    // 'settled'` (see @poker-blackjack/game-engine's holdemHand.ts) -- mid-hand,
+    // right after blinds are posted, it's still `[]`. Sum each player's
+    // streetContributed instead to check the live pot total.
+    const firstHandPot = firstHandState.table!.holdem!.players.reduce((sum, p) => sum + p.streetContributed, 0);
+    expect(firstHandPot).toBe(15); // default 5/10 blinds
+
+    // A bare `waitForEvent(admin, 'state')` is safe here (unlike after
+    // join/ready): the adminSetBlinds handler broadcasts exactly once, with
+    // no internal pre-broadcast from Table racing ahead of it.
+    admin.emit('adminSetBlinds', { smallBlind: 25, bigBlind: 50 });
+    await waitForEvent(admin, 'state');
+
+    // The already-in-progress hand is unaffected by the config change --
+    // Table.updateConfig only takes effect starting with the next startHand().
+    const table = server.getTable()!;
+    const midHandPot = table.holdemHand!.players.reduce((sum, p) => sum + p.streetContributed, 0);
+    expect(midHandPot).toBe(15);
+
+    // End the in-progress hand through the real socket action path (routes
+    // through Table.submitAction, which does the settlement bookkeeping) --
+    // calling holdemHand.act(...) directly would bypass Table and leave
+    // handInProgress stuck true, hanging every later waitForState predicate.
+    const actingPlayerId = table.holdemHand!.actingPlayerId!;
+    const actingSocket = actingPlayerId === 'alice' ? alice : bob;
+    const otherSocket = actingPlayerId === 'alice' ? bob : alice;
+    const firstHandOver = waitForState(otherSocket, (s) => s.table?.handInProgress === false);
+    actingSocket.emit('action', { action: 'fold' });
+    await firstHandOver;
+
+    alice.emit('ready');
+    await waitForReady(alice, 'alice');
+    const secondHandStarted = waitForState(bob, (s) => s.table?.handInProgress === true);
+    bob.emit('ready');
+    const secondHandState = await secondHandStarted;
+    const secondHandPot = secondHandState.table!.holdem!.players.reduce((sum, p) => sum + p.streetContributed, 0);
+    expect(secondHandPot).toBe(75); // 25 + 50, the new blinds
+  });
 });
