@@ -11,12 +11,12 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 | 2 | Hold'em engine (`packages/game-engine`) | Done, merged to `master` |
 | 3 | Local real-time server (`packages/server`) | Done, merged to `master` |
 | 4 | Frontend (`packages/frontend`) | Done, merged to `master` |
-| 5 | Accounts (Google OAuth) | Not started |
+| 5 | Lobby & Admin Controls (`packages/server`, `packages/frontend`) | Done, merged to `master` |
 | 6 | AWS deployment (DynamoDB, EC2) | Not started |
 
 **Two follow-up UI plans landed after Plan 4**, not part of the original 6-plan
-numbering but worth knowing about since they touched the same frontend code Plan 5/6
-will build on:
+numbering but worth knowing about since they touched the same frontend code Plan 5
+built on (and Plan 6 will too):
 - **Saloon redesign** (PR #6, merge commit `9d575da`): RDR2-inspired visual restyle —
   wood/felt table, card frames, chip styling, Framer Motion animations. 7 tasks + one
   final-review fix round.
@@ -60,7 +60,39 @@ fixed with a default-import-then-destructure workaround). Verified via a real
 two-browser-tab manual click-through against the live server, not just tests. The app
 is now testable locally end to end.
 
-304/304 tests passing (68 frontend, 115 game-engine, 121 server), typecheck clean
+**Plan 5 ("Lobby & Admin Controls")** is fully merged to `master` (PR #8, fast-forward
+merge at commit `4acb538`). Originally scoped as "Accounts (Google OAuth) & Blacklisting"
+in the master spec, it was re-scoped during brainstorming to something much better suited
+to a closed friend-group app: no OAuth, no accounts, no blacklisting — instead a runtime
+lobby (one server process now switches between Poker/Blackjack without restarting) plus
+an admin toolkit (correct a player's balance, adjust blinds/default bet, adjust the
+starting balance for new joiners), all gated behind a single shared passphrase
+(`ADMIN_PASSPHRASE` env var) rather than real accounts. The server no longer constructs a
+table at startup — it starts in an empty lobby until an admin picks a mode (with automatic
+recovery of an in-progress hand's mode on restart, via a hand-log peek), and admin-adjusted
+blinds/bet/starting-balance persist across restarts in a new `game-config.json`
+(`gameMode` itself is deliberately never persisted). Implemented via
+`superpowers:subagent-driven-development` across the plan's 10 tasks plus 2 standalone
+fixes discovered mid-execution (a stale `createServer` call signature in the frontend's
+integration-test fixture; a missing regression test for admin-action error display), each
+individually task-reviewed clean or after a fix round. The **final whole-branch review**
+(opus, 2 rounds) found 2 Critical cross-task integration defects invisible to any single
+task's review — `adminSwitchMode` was unreachable dead code because `App.tsx`'s mount
+condition and `Lobby.tsx`'s render condition for the mode-switch UI were mutually
+exclusive, and a rejected admin action tore down the admin's entire session whenever they
+weren't currently seated at a table — plus 5 Important and several Minor findings (empty
+numeric admin inputs silently coercing to `0`, admin-action errors reusing the join-error
+UI channel, no visibility into current config values, a missing `ADMIN_PASSPHRASE`
+silently producing an unusable server, and more). All fixed and re-reviewed clean, with
+one further small regression from the fix round itself (a failed auto-rejoin leaving the
+client silently stuck on a fake "Connecting…" screen) caught and closed in a final commit.
+A small, fully unrelated bug fix landed in the same session before this plan's work began:
+split-hand Blackjack was paying 3:2 like a natural blackjack instead of the correct
+1:1/push (commit `849b408`). Per-task ledger detail lives in the branch's commit messages
+(`git log 849b408..4acb538`), not a committed ledger file — same pattern as the saloon and
+table-layout redesigns.
+
+390/390 tests passing (112 frontend, 118 game-engine, 160 server), typecheck clean
 across all 3 workspaces.
 
 ## Running things
@@ -74,14 +106,21 @@ npm run typecheck      # both workspaces
 Per-workspace: `npm run test --workspace=@poker-blackjack/game-engine` /
 `--workspace=@poker-blackjack/server`.
 
-**To run the app locally:** start the backend (`npm run dev --workspace=@poker-blackjack/server`,
-listens on port 3000 by default — see `packages/server/src/index.ts` for the
-`GAME_MODE`/`PORT`/etc. env vars it reads; `GAME_MODE=blackjack` switches from the
-default Hold'em table), then in a second terminal start the frontend
-(`npm run dev --workspace=@poker-blackjack/frontend`, Vite on port 5173, defaults to
-talking to `http://localhost:3000` unless `VITE_SERVER_URL` is set). Open multiple
-browser tabs/windows against `http://localhost:5173` to play as different seats — the
-table seats **6 players max** (both game modes).
+**To run the app locally:** set `ADMIN_PASSPHRASE` (required — without it the server
+warns and refuses every admin action, so no game can ever start) and start the backend
+(`npm run dev --workspace=@poker-blackjack/server`, listens on port 3000 by default — see
+`packages/server/src/index.ts` for the full list of env vars it reads: `PORT`,
+`ADMIN_PASSPHRASE`, `SMALL_BLIND`/`BIG_BLIND`/`BLACKJACK_DEFAULT_BET`/
+`DEFAULT_STARTING_BALANCE` as one-time defaults for a fresh `game-config.json`,
+`RECONNECT_GRACE_MS`, and the `*_PATH` overrides for where its JSON/JSONL state files
+live). The old `GAME_MODE` env var is gone — the server now starts in an empty lobby and
+an admin picks Poker or Blackjack at runtime (see below). Then in a second terminal start
+the frontend (`npm run dev --workspace=@poker-blackjack/frontend`, Vite on port 5173,
+defaults to talking to `http://localhost:3000` unless `VITE_SERVER_URL` is set). Open the
+"Admin" button in the top corner and enter the passphrase to unlock the lobby's mode
+picker and the in-game admin panel (balance correction, blinds/bet, starting balance,
+mode switching). Open multiple browser tabs/windows against `http://localhost:5173` to
+play as different seats — the table seats **6 players max** (both game modes).
 
 ## How this was built
 
@@ -90,20 +129,25 @@ plan (`docs/superpowers/plans/`) written via Claude Code's `superpowers:brainsto
 and `superpowers:writing-plans` skills, then executed task-by-task via
 `superpowers:subagent-driven-development` — a fresh implementer subagent per task, a
 task-scoped code review after each, and a broad whole-branch review (this is what found
-Plan 3's 3 Critical bugs, and later the saloon redesign's and table layout redesign's
-own review-round findings) before merging. If continuing this project with Claude Code,
-that same process is the established pattern for Plans 5-6 — see Plan 3's or Plan 4's
-progress ledger (`docs/superpowers/plans/*-progress-ledger.md`) for exactly how it
-played out in practice, including the judgment calls (which review findings got fixed
-immediately vs. deferred, and why). The saloon redesign and table layout redesign
-followed the same process but their per-task ledgers were git-ignored scratch, not
-committed — their equivalent detail lives in their commit messages instead (`git log
-9d575da..6891af5` for the full trail, or `git log f4db446..6891af5` for just the table
-layout redesign). The table layout redesign is a good example of the value of the
-process's closing **live manual verification** step: it caught a real overlap bug that
-survived the implementer, task review, AND two rounds of whole-branch review, because
-all of them reasoned about the CSS theoretically rather than measuring it in a real
-browser.
+Plan 3's 3 Critical bugs, later the saloon redesign's and table layout redesign's own
+review-round findings, and Plan 5's 2 Critical cross-task integration bugs) before
+merging. If continuing this project with Claude Code, that same process is the
+established pattern for Plan 6 — see Plan 3's or Plan 4's progress ledger
+(`docs/superpowers/plans/*-progress-ledger.md`) for exactly how it played out in
+practice, including the judgment calls (which review findings got fixed immediately vs.
+deferred, and why). The saloon redesign, table layout redesign, and Plan 5 all followed
+the same process but their per-task ledgers were git-ignored scratch, not committed —
+their equivalent detail lives in their commit messages instead (`git log
+9d575da..6891af5` for the saloon redesign, `git log f4db446..6891af5` for the table
+layout redesign, `git log 849b408..4acb538` for Plan 5). The table layout redesign is a
+good example of the value of the process's closing **live manual verification** step: it
+caught a real overlap bug that survived the implementer, task review, AND two rounds of
+whole-branch review, because all of them reasoned about the CSS theoretically rather than
+measuring it in a real browser. Plan 5 is a good example of the value of the **whole-branch
+review** step specifically: every one of its 10 tasks passed its own task-scoped review
+clean, yet the two most severe bugs in the entire plan (a dead-code admin feature, and a
+rejected admin action nuking the whole session) only existed in the seams *between* tasks
+— invisible to any review scoped to a single task's diff.
 
 The original full-app vision (all 6 plans, architecture, security, cost controls) is in
 `docs/superpowers/specs/2026-08-15-poker-blackjack-friends-app-design.md`.
