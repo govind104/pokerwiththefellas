@@ -17,6 +17,7 @@ export interface SocketContextValue {
   status: ConnectionStatus;
   state: AppStateView | null;
   errorMessage: string | null;
+  adminErrorMessage: string | null;
   displayName: string | null;
   isAdmin: boolean;
   joinWithName: (displayName: string) => void;
@@ -58,6 +59,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [state, setState] = useState<AppStateView | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [adminErrorMessage, setAdminErrorMessage] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -122,8 +124,14 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     });
 
     socket.on('adminLoginResult', ({ success }: AdminLoginResultPayload) => {
+      // Deliberately separate from `errorMessage` (join/table errors, read by
+      // JoinScreen): AdminEntry and JoinScreen can be mounted simultaneously,
+      // and a failed admin passphrase attempt must not appear to be a failed
+      // name-join too. See adminErrorMessage below.
       if (!success) {
-        setErrorMessage('Incorrect admin passphrase');
+        setAdminErrorMessage('Incorrect admin passphrase');
+      } else {
+        setAdminErrorMessage(null);
       }
     });
 
@@ -202,6 +210,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   }
 
   function adminLogin(passphrase: string) {
+    setAdminErrorMessage(null);
     socketRef.current?.emit('adminLogin', { passphrase });
   }
 
@@ -233,6 +242,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     status,
     state,
     errorMessage,
+    adminErrorMessage,
     displayName,
     isAdmin: state?.isAdmin ?? false,
     joinWithName,

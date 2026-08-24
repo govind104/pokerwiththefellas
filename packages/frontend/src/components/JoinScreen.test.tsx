@@ -10,6 +10,7 @@ function renderWithContext(overrides: Partial<SocketContextValue> = {}) {
     status: 'entering-name',
     state: null,
     errorMessage: null,
+    adminErrorMessage: null,
     displayName: null,
     isAdmin: false,
     joinWithName,
@@ -69,5 +70,11 @@ describe('JoinScreen', () => {
   it('does not set aria-describedby when there is no error', () => {
     renderWithContext();
     expect(screen.getByLabelText(/display name/i)).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('does not show an admin-login error as a join error', () => {
+    renderWithContext({ errorMessage: null, adminErrorMessage: 'Incorrect admin passphrase' });
+    expect(screen.queryByText('Incorrect admin passphrase')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

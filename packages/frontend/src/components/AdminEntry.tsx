@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useSocket } from '../socket/SocketContext';
 
 export function AdminEntry() {
-  const { isAdmin, adminLogin, errorMessage } = useSocket();
+  const { isAdmin, adminLogin, adminErrorMessage } = useSocket();
   const [open, setOpen] = useState(false);
   const [passphrase, setPassphrase] = useState('');
 
@@ -44,7 +44,7 @@ export function AdminEntry() {
           <button type="submit" className="rounded bg-emerald-600 px-2 py-1 text-xs font-medium">
             Unlock
           </button>
-          {errorMessage && <p className="text-xs text-red-400">{errorMessage}</p>}
+          {adminErrorMessage && <p className="text-xs text-red-400">{adminErrorMessage}</p>}
         </form>
       )}
     </div>

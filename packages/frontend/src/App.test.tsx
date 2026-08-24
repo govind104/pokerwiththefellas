@@ -51,6 +51,16 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
   });
 
+  it('shows the actual error message and a reload option on a connection error, instead of a stuck "Connecting" state', () => {
+    render(<App />);
+    act(() => {
+      handlers.get('error')?.({ message: 'Server unavailable' });
+    });
+    expect(screen.getByText('Server unavailable')).toBeInTheDocument();
+    expect(screen.queryByText(/connecting/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /reload/i })).toBeInTheDocument();
+  });
+
   it('shows PokerTable once seated at a holdem table', async () => {
     render(<App />);
     act(() => {

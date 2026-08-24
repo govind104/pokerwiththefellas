@@ -8,6 +8,7 @@ function renderWithSocket(overrides: Partial<SocketContextValue> = {}) {
     status: 'lobby',
     state: null,
     errorMessage: null,
+    adminErrorMessage: null,
     displayName: null,
     isAdmin: false,
     joinWithName: vi.fn(),
@@ -53,9 +54,15 @@ describe('AdminEntry', () => {
     expect(screen.getByText('Admin')).toBeInTheDocument();
   });
 
-  it('shows an error message from context after a failed login attempt', () => {
-    renderWithSocket({ errorMessage: 'Incorrect admin passphrase' });
+  it('shows an admin-scoped error message from context after a failed login attempt', () => {
+    renderWithSocket({ adminErrorMessage: 'Incorrect admin passphrase' });
     fireEvent.click(screen.getByRole('button', { name: 'Admin' }));
     expect(screen.getByText('Incorrect admin passphrase')).toBeInTheDocument();
+  });
+
+  it('does not show a join/table error as an admin error', () => {
+    renderWithSocket({ errorMessage: 'Some join error', adminErrorMessage: null });
+    fireEvent.click(screen.getByRole('button', { name: 'Admin' }));
+    expect(screen.queryByText('Some join error')).not.toBeInTheDocument();
   });
 });

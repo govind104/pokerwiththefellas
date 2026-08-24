@@ -53,7 +53,26 @@ function TableView({
 function AppContent() {
   const { status, state, errorMessage, displayName, sendReady, sendAction, leave } = useSocket();
 
-  if (status === 'connecting' || status === 'error' || !state) {
+  if (status === 'error') {
+    // The socket disconnects itself and is not reconnected automatically
+    // when an 'error' event arrives (see SocketContext's 'error' handler) --
+    // there is no in-app path back to a live connection, so the only real
+    // recovery is a full reload.
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-900 text-white">
+        <p>{errorMessage ?? 'Something went wrong.'}</p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-md bg-emerald-600 px-3 py-2 font-medium"
+        >
+          Reload
+        </button>
+      </main>
+    );
+  }
+
+  if (status === 'connecting' || !state) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-900 text-white">
         <p>Connecting&hellip;</p>

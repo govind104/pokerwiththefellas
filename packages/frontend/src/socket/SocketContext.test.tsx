@@ -36,12 +36,14 @@ vi.mock('socket.io-client', () => ({
 }));
 
 function TestConsumer() {
-  const { status, state, errorMessage, displayName, isAdmin, joinWithName, leave, adminLogin } = useSocket();
+  const { status, state, errorMessage, adminErrorMessage, displayName, isAdmin, joinWithName, leave, adminLogin } =
+    useSocket();
   return (
     <div>
       <p data-testid="status">{status}</p>
       <p data-testid="mode">{state?.mode ?? 'none'}</p>
       <p data-testid="error">{errorMessage ?? 'none'}</p>
+      <p data-testid="adminError">{adminErrorMessage ?? 'none'}</p>
       <p data-testid="name">{displayName ?? 'none'}</p>
       <p data-testid="isAdmin">{String(isAdmin)}</p>
       <button onClick={() => joinWithName('alice')}>join</button>
@@ -191,7 +193,7 @@ describe('SocketProvider', () => {
     await waitFor(() => expect(screen.getByTestId('isAdmin')).toHaveTextContent('true'));
   });
 
-  it('a failed adminLoginResult surfaces an error message', async () => {
+  it('a failed adminLoginResult surfaces an admin-scoped error message, leaving the join/table error untouched', async () => {
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
@@ -200,7 +202,29 @@ describe('SocketProvider', () => {
     act(() => {
       handlers.get('adminLoginResult')?.({ success: false });
     });
-    await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent('Incorrect admin passphrase'));
+    await waitFor(() => expect(screen.getByTestId('adminError')).toHaveTextContent('Incorrect admin passphrase'));
+    // AdminEntry and JoinScreen can be mounted at the same time -- a failed
+    // admin passphrase attempt must never also read as a failed name-join.
+    expect(screen.getByTestId('error')).toHaveTextContent('none');
+  });
+
+  it('a join/table error does not surface as an admin error', async () => {
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+    act(() => {
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+
+    act(() => {
+      handlers.get('error')?.({ message: "It is not alice's turn" });
+    });
+    expect(screen.getByTestId('error')).toHaveTextContent("It is not alice's turn");
+    expect(screen.getByTestId('adminError')).toHaveTextContent('none');
   });
 
   it('an error while at-table stays at-table and does not disconnect', async () => {
