@@ -39,6 +39,47 @@ describe('PokerTable', () => {
     expect(screen.getByTestId('player-info-1')).toHaveTextContent(/ready/i);
   });
 
+  it('shows Disconnected instead of Waiting/Thinking for an opponent mid-hand whose seat is disconnected', () => {
+    const state = makeHoldemPreflopState({
+      seats: [
+        makeSeat({ seatIndex: 0, displayName: 'alice', balance: 990 }),
+        makeSeat({ seatIndex: 1, displayName: 'bob', balance: 995, connected: false }),
+      ],
+    });
+    render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    expect(screen.getByTestId('player-info-1')).toHaveTextContent(/disconnected/i);
+  });
+
+  it('still shows Folded for a disconnected opponent who folded, not Disconnected', () => {
+    const base = makeHoldemPreflopState();
+    const state = makeHoldemPreflopState({
+      seats: [
+        makeSeat({ seatIndex: 0, displayName: 'alice', balance: 990 }),
+        makeSeat({ seatIndex: 1, displayName: 'bob', balance: 995, connected: false }),
+      ],
+      holdem: {
+        ...base.holdem!,
+        players: base.holdem!.players.map((p) => (p.playerId === 'bob' ? { ...p, folded: true } : p)),
+      },
+    });
+    render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    expect(screen.getByTestId('player-info-1')).toHaveTextContent(/folded/i);
+    expect(screen.getByTestId('player-info-1')).not.toHaveTextContent(/disconnected/i);
+  });
+
+  it('still shows the settlement result for a disconnected opponent, not Disconnected', () => {
+    const state = makeHoldemSettledState({
+      seats: [
+        makeSeat({ seatIndex: 0, displayName: 'alice', balance: 1010 }),
+        makeSeat({ seatIndex: 1, displayName: 'bob', balance: 980, connected: false }),
+        makeSeat({ seatIndex: 2, displayName: 'carol', balance: 1000 }),
+      ],
+    });
+    render(<PokerTable {...baseProps} seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    expect(screen.getByTestId('player-info-1')).toHaveTextContent(/lost 20/i);
+    expect(screen.getByTestId('player-info-1')).not.toHaveTextContent(/disconnected/i);
+  });
+
   it("highlights the acting opponent's rail row with data-active", () => {
     const state = makeHoldemPreflopState({
       holdem: {

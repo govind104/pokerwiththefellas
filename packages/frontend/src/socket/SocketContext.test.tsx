@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSocket, SocketProvider, DISPLAY_NAME_STORAGE_KEY } from './SocketContext';
-import { makeAppState, makeLobbyState, makeWaitingState, makeHoldemPreflopState } from '../fixtures/tableStateFixtures';
+import { makeAppState, makeLobbyState, makeWaitingState, makeHoldemPreflopState, makeSeat } from '../fixtures/tableStateFixtures';
 
 // A minimal fake socket.io-client: enough surface for SocketContext to drive
 // (emit/on/disconnect, plus the nested `.io` manager used for the 'reconnect' event)
@@ -186,6 +186,47 @@ describe('SocketProvider', () => {
     expect(screen.getByTestId('name')).toHaveTextContent('alice');
   });
 
+  it('a cold reconnect whose seat still exists but is marked disconnected still emits join, rather than treating the stale name match as already seated', async () => {
+    // Regression test: a fresh socket (page reload, new tab -- anything that
+    // isn't the same io() instance resuming, which socket.io.on('reconnect')
+    // already handles separately) can receive a first-ever 'state' broadcast
+    // where its own seat already exists from before, still connected:false
+    // because the server hasn't cleared the grace-window timer yet. A name
+    // match alone used to satisfy `mySeated` here, short-circuiting straight
+    // to 'at-table' and skipping the `join` emit below -- stranding the
+    // player behind the server's auto-check/auto-fold timeout forever, with
+    // no visible sign anything was wrong.
+    sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, 'alice');
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+
+    act(() => {
+      handlers.get('state')?.(
+        makeAppState(
+          makeWaitingState({
+            seats: [makeSeat({ seatIndex: 0, displayName: 'alice', connected: false, ready: true })],
+          })
+        )
+      );
+    });
+    expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
+    expect(screen.getByTestId('status')).not.toHaveTextContent('at-table');
+
+    act(() => {
+      handlers.get('state')?.(
+        makeAppState(
+          makeWaitingState({
+            seats: [makeSeat({ seatIndex: 0, displayName: 'alice', connected: true, ready: true })],
+          })
+        )
+      );
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+  });
+
   it('auto-rejoins with the remembered name after an admin mode switch clears seats, without landing on entering-name', async () => {
     render(
       <SocketProvider serverUrl="http://localhost:3000">
@@ -215,6 +256,73 @@ describe('SocketProvider', () => {
 
     expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
     expect(screen.getByTestId('status')).not.toHaveTextContent('entering-name');
+  });
+
+  it('an intermediate broadcast that arrives while our own post-mode-switch rejoin is still pending does not trigger a second join', async () => {
+    // Regression test for the real mechanism behind a stray "already seated"
+    // error seen live: after the mode-switch broadcast below, our rejoin's
+    // `join` is in flight but not yet resolved. A mode switch reseats
+    // several players in the same burst, and each OTHER player's join
+    // succeeding re-broadcasts to everyone -- including us, still unseated.
+    // That intermediate broadcast has wasSeated=false (only the one event
+    // right after the reset had it true) and joinedRef already true, so
+    // before joinInFlightRef existed it fell through to the final
+    // 'entering-name' branch, which reset joinedRef to false -- and that
+    // reset alone made the NEXT broadcast satisfy the rejoin condition
+    // again, firing a second `join` for a name we already hold. The
+    // server's duplicate-name guard rejects the loser of that race, but the
+    // player only ever sees a confusing "already seated" error over a
+    // request they never made.
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+
+    act(() => {
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+
+    emitted.length = 0;
+    act(() => {
+      // The mode-switch broadcast itself: seats cleared, our rejoin fires.
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack', seats: [] })));
+    });
+    expect(emitted).toEqual([{ event: 'join', payload: { displayName: 'alice' } }]);
+
+    act(() => {
+      // An intermediate broadcast: some other seat filled in, we're still
+      // not seated because our own join hasn't landed yet.
+      handlers.get('state')?.(
+        makeAppState(
+          makeWaitingState({
+            gameMode: 'blackjack',
+            seats: [makeSeat({ seatIndex: 0, displayName: 'dave' })],
+          })
+        )
+      );
+    });
+    expect(emitted).toEqual([{ event: 'join', payload: { displayName: 'alice' } }]);
+    expect(screen.getByTestId('status')).not.toHaveTextContent('entering-name');
+
+    act(() => {
+      // Our own join finally lands.
+      handlers.get('state')?.(
+        makeAppState(
+          makeWaitingState({
+            gameMode: 'blackjack',
+            seats: [
+              makeSeat({ seatIndex: 0, displayName: 'dave' }),
+              makeSeat({ seatIndex: 1, displayName: 'alice' }),
+            ],
+          })
+        )
+      );
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+    expect(emitted).toEqual([{ event: 'join', payload: { displayName: 'alice' } }]);
   });
 
   it('adminLogin emits adminLogin, and isAdmin reflects a successful state broadcast', async () => {
@@ -286,6 +394,94 @@ describe('SocketProvider', () => {
     expect(screen.getByTestId('status')).toHaveTextContent('at-table');
     expect(screen.getByTestId('error')).toHaveTextContent("It is not alice's turn");
     expect(disconnectCalls).toBe(0);
+  });
+
+  it('a genuine "already seated" rejection still surfaces even while status is stuck on a stale at-table value mid-rejoin', async () => {
+    // Regression test for a real gap: an earlier version of the error
+    // handler swallowed "already seated" whenever `status === 'at-table'`,
+    // reasoning that meant our own join had already succeeded. That's
+    // wrong -- the auto-rejoin branch never calls setStatus, so `status`
+    // sits on its *stale* pre-mode-switch value for the entire window a
+    // rejoin is in flight. A genuine rejection (a different client actually
+    // holding this name) arriving in that exact window was being silently
+    // discarded instead of shown. It must now reach the player like any
+    // other rejection.
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+    act(() => {
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+
+    // Mode switch: seats clear, our rejoin fires, but `status` never moves
+    // off its stale 'at-table' value while the rejoin is in flight.
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack', seats: [] })));
+    });
+    expect(screen.getByTestId('status')).toHaveTextContent('at-table');
+
+    act(() => {
+      handlers.get('error')?.({ message: '"alice" is already seated' });
+    });
+    expect(screen.getByTestId('error')).toHaveTextContent('"alice" is already seated');
+  });
+
+  it('no self-duplicate join is possible in the first place: a transport reconnect landing while a mode-switch rejoin is in flight does not double-emit', async () => {
+    // Companion to the "intermediate broadcast" test above, covering the
+    // other join-emit site: socket.io.on('reconnect') used to emit
+    // unconditionally, so if it fired in the same window a mode-switch
+    // auto-rejoin was already pending, both sites would independently
+    // decide nothing was in flight and each emit their own `join` for the
+    // same name. It now checks joinInFlightRef first.
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+    act(() => {
+      screen.getByText('join').click();
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+
+    emitted.length = 0;
+    act(() => {
+      // Mode switch fires our rejoin; it's still unresolved.
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack', seats: [] })));
+    });
+    expect(emitted).toEqual([{ event: 'join', payload: { displayName: 'alice' } }]);
+
+    act(() => {
+      // A transport-level reconnect lands in the same window.
+      ioManagerHandlers.get('reconnect')?.();
+    });
+    expect(emitted).toEqual([{ event: 'join', payload: { displayName: 'alice' } }]);
+  });
+
+  it('an "already seated" error before reaching at-table still surfaces normally (a genuine name conflict)', async () => {
+    // Companion to the tests above: a real conflict -- someone else
+    // already holds this name -- happens before the rejecting socket is
+    // seated, so it must still reach the player.
+    render(
+      <SocketProvider serverUrl="http://localhost:3000">
+        <TestConsumer />
+      </SocketProvider>
+    );
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ seats: [] })));
+    });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('entering-name'));
+
+    act(() => {
+      screen.getByText('join').click();
+      handlers.get('error')?.({ message: '"alice" is already seated' });
+    });
+    expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+    expect(screen.getByTestId('error')).toHaveTextContent('"alice" is already seated');
   });
 
   describe('error fatality is scoped to a connection that never became healthy', () => {
