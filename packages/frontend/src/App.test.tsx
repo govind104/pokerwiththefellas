@@ -12,12 +12,18 @@ import {
 } from './fixtures/tableStateFixtures';
 
 const handlers = new Map<string, (...args: unknown[]) => void>();
+const emitted: { event: string; payload: unknown }[] = [];
+let disconnectCalls = 0;
 
 function fakeSocket() {
   return {
     on: (event: string, handler: (...args: unknown[]) => void) => handlers.set(event, handler),
-    emit: () => {},
-    disconnect: () => {},
+    emit: (event: string, payload?: unknown) => {
+      emitted.push({ event, payload });
+    },
+    disconnect: () => {
+      disconnectCalls += 1;
+    },
     io: { on: () => {} },
   };
 }
@@ -27,6 +33,8 @@ vi.mock('socket.io-client', () => ({ io: vi.fn(() => fakeSocket()) }));
 describe('App', () => {
   beforeEach(() => {
     handlers.clear();
+    emitted.length = 0;
+    disconnectCalls = 0;
     sessionStorage.clear();
   });
 
@@ -96,18 +104,13 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /admin panel/i })).toBeInTheDocument();
   });
 
-  it('surfaces a rejected admin action (e.g. adjusting a balance mid-hand) as an alert banner alongside the AdminPanel', async () => {
-    // Regression coverage for the finding that AdminPanel.tsx never reads
-    // errorMessage/adminErrorMessage itself: a rejected admin action (the
-    // server emits a plain 'error' event, e.g. adminAdjustBalance rejected
-    // because the target is in an active hand -- see socketServer.ts) sets
-    // SocketContext's `errorMessage` (NOT `adminErrorMessage`, which is
-    // reserved for admin-login failures). That only becomes visible because
-    // GameTable renders `errorMessage` as a role="alert" banner and is always
-    // mounted alongside AdminPanel whenever there's an active table. This
-    // test drives the real 'error' event through the fake socket to prove
-    // that end-to-end path, with both components mounted as they are in
-    // real usage.
+  it("surfaces a rejected admin action inside the AdminPanel's own error surface", async () => {
+    // A rejected admin action (server-side: adminAdjustBalance refused
+    // because the target is mid-hand) arrives tagged `scope: 'admin'`, which
+    // routes it to AdminPanel's own error surface rather than the shared
+    // join/table channel that JoinScreen wires to its display-name input via
+    // aria-describedby. Driven through the real 'error' event on the fake
+    // socket, with the full tree mounted as in real usage.
     render(<App />);
     act(() => {
       handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' }), { isAdmin: true }));
@@ -117,17 +120,68 @@ describe('App', () => {
     act(() => {
       handlers.get('state')?.(makeAppState(makeHoldemPreflopState(), { isAdmin: true }));
     });
-    expect(await screen.findByRole('button', { name: /admin panel/i })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: /admin panel/i }));
 
     act(() => {
-      handlers.get('error')?.({ message: "Can't adjust -- bob is in an active hand" });
+      handlers.get('error')?.({
+        message: "Can't adjust -- bob is in an active hand",
+        scope: 'admin',
+      });
     });
 
     expect(screen.getByRole('alert')).toHaveTextContent("Can't adjust -- bob is in an active hand");
-    // AdminPanel itself is still mounted alongside the alert -- the coverage
-    // is that the *system* (AdminPanel + GameTable via App/SocketContext
-    // wiring) surfaces the error, not that AdminPanel renders it itself.
-    expect(screen.getByRole('button', { name: /admin panel/i })).toBeInTheDocument();
+    // The join/table alert banner (GameTable's) must NOT have picked it up:
+    // exactly one alert is on screen, and it is the admin panel's.
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  it("an admin can trigger adminSwitchMode from the running UI while a game is active", async () => {
+    // Reachability regression: the mode-switch UI used to live only in
+    // Lobby, which App renders only at status 'lobby' -- a status
+    // SocketContext only reaches when NO mode is active, which is precisely
+    // when Lobby's switch UI does not render. So adminSwitchMode had no path
+    // from the real app at all. This drives the whole composed tree (real
+    // SocketProvider, real fake-socket 'state' events) and asserts the
+    // adminSwitchMode emit actually goes out over the socket.
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' }), { isAdmin: true }));
+    });
+    await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
+    await userEvent.click(screen.getByRole('button', { name: /join table/i }));
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' }), { isAdmin: true }));
+    });
+
+    await userEvent.click(await screen.findByRole('button', { name: /admin panel/i }));
+    emitted.length = 0;
+    await userEvent.click(screen.getByRole('button', { name: /switch to blackjack/i }));
+
+    expect(emitted).toContainEqual({ event: 'adminSwitchMode', payload: { mode: 'blackjack' } });
+  });
+
+  it('a rejected admin action from an unseated admin does not destroy the session', async () => {
+    // The admin unlocked the panel but never took a seat, so status is
+    // 'entering-name'. A rejection used to disconnect the socket and replace
+    // the whole app with the reload screen.
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(
+        makeAppState(makeWaitingState({ gameMode: 'holdem', seats: [] }), { isAdmin: true })
+      );
+    });
+    expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
+
+    act(() => {
+      handlers.get('error')?.({
+        message: "Can't adjust -- alice is in an active hand",
+        scope: 'admin',
+      });
+    });
+
+    expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /reload/i })).not.toBeInTheDocument();
+    expect(disconnectCalls).toBe(0);
   });
 
   it('shows BlackjackTable once seated at a blackjack table', async () => {

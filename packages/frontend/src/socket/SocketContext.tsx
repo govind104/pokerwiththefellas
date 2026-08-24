@@ -17,7 +17,16 @@ export interface SocketContextValue {
   status: ConnectionStatus;
   state: AppStateView | null;
   errorMessage: string | null;
+  // Admin *login* failures only (rendered by AdminEntry).
   adminErrorMessage: string | null;
+  // Admin *action* rejections -- balance/blinds/bet/starting-balance/mode
+  // switch (rendered by AdminPanel). Deliberately a third field rather than
+  // a reuse of adminErrorMessage: the two surfaces are never mounted at the
+  // same time (AdminEntry collapses to a plain "Admin" badge once the login
+  // succeeds, which is exactly when AdminPanel appears), so sharing one
+  // field would mean a login error and an action error could only ever be
+  // told apart by which component happened to be mounted.
+  adminActionErrorMessage: string | null;
   displayName: string | null;
   isAdmin: boolean;
   joinWithName: (displayName: string) => void;
@@ -56,10 +65,20 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   // notice exactly the seated -> unseated transition caused by a reset, so
   // it can rejoin even though joinedRef is stale from the old incarnation.
   const wasSeatedRef = useRef(false);
+  // True once any 'state' event has ever arrived, which is the signal that
+  // the connection is established and healthy. Only an 'error' arriving
+  // *before* that (a connection-level failure -- the server refused us, or
+  // something went wrong before it could even send the welcome snapshot) is
+  // fatal enough to justify tearing the socket down and showing the reload
+  // screen. Every error after it -- a rejected join, an illegal action, a
+  // rejected admin action -- is an ordinary rejection of one request and
+  // must leave the session completely untouched.
+  const hasEverReceivedStateRef = useRef(false);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [state, setState] = useState<AppStateView | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [adminErrorMessage, setAdminErrorMessage] = useState<string | null>(null);
+  const [adminActionErrorMessage, setAdminActionErrorMessage] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -77,6 +96,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     socketRef.current = socket;
 
     socket.on('state', (nextState: AppStateView) => {
+      hasEverReceivedStateRef.current = true;
       setState(nextState);
       setErrorMessage(null);
 
@@ -136,13 +156,25 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     });
 
     socket.on('error', (payload: ErrorPayload) => {
+      // Admin-action rejections get their own surface: routing them through
+      // `errorMessage` would render them inside JoinScreen's form, wired via
+      // aria-describedby to the display-name input the admin never touched.
+      // The server tags them (protocol.ts's ErrorPayload.scope) rather than
+      // the client guessing from an in-flight heuristic, so this stays exact
+      // regardless of what else is happening on the connection.
+      if (payload.scope === 'admin') {
+        setAdminActionErrorMessage(payload.message);
+        return;
+      }
       setErrorMessage(payload.message);
-      // statusRef (not the closed-over `status`) is read here deliberately --
-      // this handler is registered once per mount and would otherwise always
-      // see the status from that moment, never any status reached afterward
-      // (e.g. at-table), incorrectly kicking a connected player into the
-      // error screen on any later in-game rejection.
-      if (statusRef.current !== 'at-table') {
+      // Fatal only before the connection has ever proven healthy. This used
+      // to key off `statusRef.current !== 'at-table'`, which was correct
+      // back when a failed `join` was the only non-at-table error producer,
+      // but became a session-killer once admin actions could be rejected
+      // while the admin sits in 'entering-name'/'lobby': the client would
+      // disconnect itself and show a permanent reload screen in response to
+      // an ordinary, expected rejection.
+      if (!hasEverReceivedStateRef.current) {
         setStatus('error');
         socket.disconnect();
         socketRef.current = null;
@@ -214,27 +246,38 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     socketRef.current?.emit('adminLogin', { passphrase });
   }
 
+  // Cleared when a new admin action is sent rather than on every incoming
+  // 'state' event: a rejected admin action produces no broadcast of its own,
+  // so clearing on 'state' would make the message vanish the moment any
+  // unrelated player acted. Tying it to the next admin attempt keeps a
+  // rejection readable until the admin actually does something about it.
   function adminStartGame(mode: GameMode) {
+    setAdminActionErrorMessage(null);
     socketRef.current?.emit('adminStartGame', { mode });
   }
 
   function adminSwitchMode(mode: GameMode) {
+    setAdminActionErrorMessage(null);
     socketRef.current?.emit('adminSwitchMode', { mode });
   }
 
   function adminAdjustBalance(name: string, balance: number) {
+    setAdminActionErrorMessage(null);
     socketRef.current?.emit('adminAdjustBalance', { displayName: name, balance });
   }
 
   function adminSetBlinds(smallBlind: number, bigBlind: number) {
+    setAdminActionErrorMessage(null);
     socketRef.current?.emit('adminSetBlinds', { smallBlind, bigBlind });
   }
 
   function adminSetDefaultBet(blackjackDefaultBet: number) {
+    setAdminActionErrorMessage(null);
     socketRef.current?.emit('adminSetDefaultBet', { blackjackDefaultBet });
   }
 
   function adminSetStartingBalance(defaultStartingBalance: number) {
+    setAdminActionErrorMessage(null);
     socketRef.current?.emit('adminSetStartingBalance', { defaultStartingBalance });
   }
 
@@ -243,6 +286,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     state,
     errorMessage,
     adminErrorMessage,
+    adminActionErrorMessage,
     displayName,
     isAdmin: state?.isAdmin ?? false,
     joinWithName,

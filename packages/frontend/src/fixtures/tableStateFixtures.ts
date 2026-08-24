@@ -269,6 +269,16 @@ export function makeBlackjackSettledState(overrides: Partial<TableStateView> = {
   });
 }
 
+// The admin-tunable config values every broadcast carries (see
+// AppStateView in the server's table.ts). These mirror the server's own
+// defaults in index.ts so a fixture reads like a realistic broadcast.
+export const DEFAULT_CONFIG_VIEW = {
+  smallBlind: 5,
+  bigBlind: 10,
+  blackjackDefaultBet: 25,
+  defaultStartingBalance: 1000,
+} as const;
+
 export function makeAppState(
   table: TableStateView,
   overrides: Partial<Omit<AppStateView, 'table'>> = {}
@@ -276,6 +286,7 @@ export function makeAppState(
   return {
     mode: table.gameMode,
     isAdmin: false,
+    ...DEFAULT_CONFIG_VIEW,
     ...overrides,
     table,
   };
@@ -285,7 +296,8 @@ export function makeLobbyState(overrides: Partial<Omit<AppStateView, 'table'>> =
   return {
     mode: null,
     isAdmin: false,
-    table: null,
+    ...DEFAULT_CONFIG_VIEW,
     ...overrides,
+    table: null,
   };
 }

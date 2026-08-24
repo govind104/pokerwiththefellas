@@ -36,19 +36,32 @@ vi.mock('socket.io-client', () => ({
 }));
 
 function TestConsumer() {
-  const { status, state, errorMessage, adminErrorMessage, displayName, isAdmin, joinWithName, leave, adminLogin } =
-    useSocket();
+  const {
+    status,
+    state,
+    errorMessage,
+    adminErrorMessage,
+    adminActionErrorMessage,
+    displayName,
+    isAdmin,
+    joinWithName,
+    leave,
+    adminLogin,
+    adminAdjustBalance,
+  } = useSocket();
   return (
     <div>
       <p data-testid="status">{status}</p>
       <p data-testid="mode">{state?.mode ?? 'none'}</p>
       <p data-testid="error">{errorMessage ?? 'none'}</p>
       <p data-testid="adminError">{adminErrorMessage ?? 'none'}</p>
+      <p data-testid="adminActionError">{adminActionErrorMessage ?? 'none'}</p>
       <p data-testid="name">{displayName ?? 'none'}</p>
       <p data-testid="isAdmin">{String(isAdmin)}</p>
       <button onClick={() => joinWithName('alice')}>join</button>
       <button onClick={() => leave()}>leave</button>
       <button onClick={() => adminLogin('secret')}>admin-login</button>
+      <button onClick={() => adminAdjustBalance('bob', 500)}>admin-adjust</button>
     </div>
   );
 }
@@ -245,6 +258,139 @@ describe('SocketProvider', () => {
     expect(screen.getByTestId('status')).toHaveTextContent('at-table');
     expect(screen.getByTestId('error')).toHaveTextContent("It is not alice's turn");
     expect(disconnectCalls).toBe(0);
+  });
+
+  describe('error fatality is scoped to a connection that never became healthy', () => {
+    it('an error arriving before any state event is still fatal: it disconnects and shows the reload screen', async () => {
+      // The original reason the teardown existed -- a `join` (or connection
+      // handshake) that failed before the client ever saw a healthy
+      // connection. There is no in-app way back from that, so the reload
+      // screen is correct here and must not regress.
+      render(
+        <SocketProvider serverUrl="http://localhost:3000">
+          <TestConsumer />
+        </SocketProvider>
+      );
+      act(() => {
+        handlers.get('error')?.({ message: 'Server unavailable' });
+      });
+      expect(screen.getByTestId('status')).toHaveTextContent('error');
+      expect(screen.getByTestId('error')).toHaveTextContent('Server unavailable');
+      expect(disconnectCalls).toBe(1);
+    });
+
+    it('a rejected admin action while NOT seated keeps the socket connected and the status unchanged', async () => {
+      // The bug: an admin who unlocked the panel but has not taken a seat
+      // sits in 'entering-name'. A perfectly ordinary rejection ("Can't
+      // adjust -- alice is in an active hand") used to disconnect that
+      // socket and strand the admin on a permanent reload screen.
+      render(
+        <SocketProvider serverUrl="http://localhost:3000">
+          <TestConsumer />
+        </SocketProvider>
+      );
+      act(() => {
+        handlers.get('state')?.(makeAppState(makeWaitingState({ seats: [] }), { isAdmin: true }));
+      });
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('entering-name'));
+
+      act(() => {
+        screen.getByText('admin-adjust').click();
+        handlers.get('error')?.({
+          message: "Can't adjust -- alice is in an active hand",
+          scope: 'admin',
+        });
+      });
+
+      expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+      expect(disconnectCalls).toBe(0);
+      expect(screen.getByTestId('adminActionError')).toHaveTextContent(
+        "Can't adjust -- alice is in an active hand"
+      );
+    });
+
+    it('a rejected join on a healthy connection surfaces inline without tearing the session down', async () => {
+      render(
+        <SocketProvider serverUrl="http://localhost:3000">
+          <TestConsumer />
+        </SocketProvider>
+      );
+      act(() => {
+        handlers.get('state')?.(makeAppState(makeWaitingState({ seats: [] })));
+      });
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('entering-name'));
+
+      act(() => {
+        handlers.get('error')?.({ message: '"alice" is already seated' });
+      });
+
+      expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+      expect(screen.getByTestId('error')).toHaveTextContent('"alice" is already seated');
+      expect(disconnectCalls).toBe(0);
+    });
+  });
+
+  describe('admin-action errors have their own channel', () => {
+    it('routes a scope:"admin" error away from the join/table error field', async () => {
+      render(
+        <SocketProvider serverUrl="http://localhost:3000">
+          <TestConsumer />
+        </SocketProvider>
+      );
+      act(() => {
+        screen.getByText('join').click();
+        handlers.get('state')?.(makeAppState(makeWaitingState(), { isAdmin: true }));
+      });
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+
+      act(() => {
+        handlers.get('error')?.({ message: 'Blinds must be positive numbers', scope: 'admin' });
+      });
+
+      expect(screen.getByTestId('adminActionError')).toHaveTextContent('Blinds must be positive numbers');
+      // Neither the join/table channel (JoinScreen's name field) nor the
+      // admin *login* channel (AdminEntry) may pick this up.
+      expect(screen.getByTestId('error')).toHaveTextContent('none');
+      expect(screen.getByTestId('adminError')).toHaveTextContent('none');
+    });
+
+    it('an untagged join/table error does not land in the admin-action channel', async () => {
+      render(
+        <SocketProvider serverUrl="http://localhost:3000">
+          <TestConsumer />
+        </SocketProvider>
+      );
+      act(() => {
+        screen.getByText('join').click();
+        handlers.get('state')?.(makeAppState(makeWaitingState()));
+      });
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+
+      act(() => {
+        handlers.get('error')?.({ message: "It is not alice's turn" });
+      });
+      expect(screen.getByTestId('adminActionError')).toHaveTextContent('none');
+    });
+
+    it('sending a new admin action clears the previous rejection', async () => {
+      render(
+        <SocketProvider serverUrl="http://localhost:3000">
+          <TestConsumer />
+        </SocketProvider>
+      );
+      act(() => {
+        handlers.get('state')?.(makeAppState(makeWaitingState(), { isAdmin: true }));
+      });
+      act(() => {
+        handlers.get('error')?.({ message: 'Blinds must be positive numbers', scope: 'admin' });
+      });
+      expect(screen.getByTestId('adminActionError')).toHaveTextContent('Blinds must be positive numbers');
+
+      act(() => {
+        screen.getByText('admin-adjust').click();
+      });
+      expect(screen.getByTestId('adminActionError')).toHaveTextContent('none');
+    });
   });
 
   it('disconnect while at-table moves to reconnecting, and the manager reconnect event re-joins', async () => {

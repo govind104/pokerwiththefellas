@@ -10,6 +10,7 @@ function renderWithSocket(overrides: Partial<SocketContextValue> = {}) {
     state: makeLobbyState(),
     errorMessage: null,
     adminErrorMessage: null,
+    adminActionErrorMessage: null,
     displayName: null,
     isAdmin: false,
     joinWithName: vi.fn(),

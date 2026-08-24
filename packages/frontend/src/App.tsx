@@ -56,10 +56,14 @@ function AppContent() {
   const { status, state, errorMessage, displayName, sendReady, sendAction, leave } = useSocket();
 
   if (status === 'error') {
-    // The socket disconnects itself and is not reconnected automatically
-    // when an 'error' event arrives (see SocketContext's 'error' handler) --
-    // there is no in-app path back to a live connection, so the only real
-    // recovery is a full reload.
+    // Reached only when an 'error' arrives before the connection has ever
+    // proven healthy (no 'state' event has ever been received -- see
+    // SocketContext's 'error' handler). In that one case the socket
+    // disconnects itself and is not reconnected automatically, so there is
+    // no in-app path back to a live connection and the only real recovery
+    // is a full reload. Ordinary rejections on a healthy connection
+    // (a refused join, an illegal action, a rejected admin action) never
+    // land here.
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-900 text-white">
         <p>{errorMessage ?? 'Something went wrong.'}</p>

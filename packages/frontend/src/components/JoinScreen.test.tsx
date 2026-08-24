@@ -11,6 +11,7 @@ function renderWithContext(overrides: Partial<SocketContextValue> = {}) {
     state: null,
     errorMessage: null,
     adminErrorMessage: null,
+    adminActionErrorMessage: null,
     displayName: null,
     isAdmin: false,
     joinWithName,
