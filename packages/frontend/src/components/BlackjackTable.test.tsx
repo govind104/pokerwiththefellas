@@ -53,6 +53,26 @@ describe('BlackjackTable', () => {
     expect(screen.getByTestId('player-0')).toHaveTextContent(/not ready/i);
   });
 
+  it('shows Disconnected instead of Bet X/Thinking for a player mid-round whose seat is disconnected', () => {
+    const base = makeBlackjackPlayingState();
+    const state = makeBlackjackPlayingState({
+      seats: [
+        makeSeat({ seatIndex: 0, displayName: 'alice', balance: 975 }),
+        makeSeat({ seatIndex: 1, displayName: 'bob', balance: 1000, connected: false }),
+      ],
+      blackjackRounds: {
+        ...base.blackjackRounds,
+        1: base.blackjackRounds[0],
+      },
+      activeSeatIndex: null,
+    });
+    render(
+      <BlackjackTable {...baseProps} seats={state.seats} activeSeatIndex={null} mySeatIndex={0} blackjackRounds={state.blackjackRounds} />
+    );
+    expect(screen.getByTestId('player-1')).toHaveTextContent(/disconnected/i);
+    expect(screen.getByTestId('player-1')).not.toHaveTextContent(/bet 25/i);
+  });
+
   it("shows 'Your turn' and data-active on my own box when it's my turn, not on other players'", () => {
     const state = makeBlackjackPlayingState({
       seats: [

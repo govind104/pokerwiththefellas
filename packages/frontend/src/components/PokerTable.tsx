@@ -94,6 +94,18 @@ export function PokerTable({
                 {resultLabel(result.payout, 'Won', 'Lost', 'Push')}
               </span>
             );
+          } else if (!seat.connected) {
+            // Mid-hand, an opponent's own turn is still resolved by the
+            // server's grace-window timeout (auto-check/auto-fold) whether or
+            // not this label appears -- this is purely so the table doesn't
+            // silently sit on "Thinking…"/"Waiting" while someone's socket is
+            // actually gone, which otherwise looks identical to them just
+            // taking their time.
+            statusNode = (
+              <span className="rounded border border-wood-grain px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-ember-text">
+                Disconnected
+              </span>
+            );
           } else {
             statusNode = isActive ? 'Thinking…' : 'Waiting';
           }

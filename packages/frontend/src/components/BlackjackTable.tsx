@@ -93,6 +93,13 @@ export function BlackjackTable({
             let status: string;
             if (!round) {
               status = seat.connected ? (seat.ready ? 'Ready' : 'Not ready') : 'Disconnected';
+            } else if (!seat.connected) {
+              // Mid-round, the seat's own turn (if it comes up) is still
+              // resolved by the server's grace-window timeout regardless of
+              // this label -- it exists so the table doesn't silently sit on
+              // "Bet X"/"Thinking…" while the player's socket is actually
+              // gone, which otherwise looks identical to them just playing normally.
+              status = 'Disconnected';
             } else {
               status = isActive ? (isMe ? 'Your turn' : 'Thinking…') : `Bet ${totalBet}`;
             }
@@ -148,7 +155,11 @@ export function BlackjackTable({
                   <span className="text-sm font-semibold text-parchment">
                     {seat.displayName} &middot; {seat.balance}
                   </span>
-                  <span className={`text-xs ${isActive ? 'text-brass-bright' : 'text-fg-dim'}`}>{status}</span>
+                  <span
+                    className={`text-xs ${!seat.connected ? 'text-ember-text' : isActive ? 'text-brass-bright' : 'text-fg-dim'}`}
+                  >
+                    {status}
+                  </span>
                 </div>
               </div>
             );

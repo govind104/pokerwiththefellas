@@ -65,6 +65,20 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   // notice exactly the seated -> unseated transition caused by a reset, so
   // it can rejoin even though joinedRef is stale from the old incarnation.
   const wasSeatedRef = useRef(false);
+  // True from the moment we emit an auto-rejoin `join` until either it lands
+  // us at-table or the mode resets to null. A mode switch's seat-clearing
+  // broadcast is not the only 'state' event a rejoining client sees before
+  // its own join is processed server-side -- every OTHER player's join
+  // succeeding in the same burst re-broadcasts to everyone, including us,
+  // still unseated. Without this flag, that intermediate broadcast falls
+  // through to the final 'entering-name' branch below (wasSeated is only
+  // ever true for the one event immediately after the reset, and joinedRef
+  // is already true from our own emit), which resets joinedRef to false --
+  // and *that* reset is what makes the NEXT broadcast satisfy the rejoin
+  // condition all over again, firing a second `join` for a name we already
+  // hold. The server's duplicate-name guard (table.ts) rejects the loser of
+  // that race harmlessly, but it doesn't have to happen at all.
+  const joinInFlightRef = useRef(false);
   // True once any 'state' event has ever arrived, which is the signal that
   // the connection is established and healthy. Only an 'error' arriving
   // *before* that (a connection-level failure -- the server refused us, or
@@ -109,21 +123,44 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       // displayNameRef.current is still null, would spuriously match an
       // empty seat's `displayName === null` and report this brand-new,
       // not-yet-named socket as already seated.
+      //
+      // The `s.connected` half matters for a cold reconnect (page reload,
+      // new tab, or any fresh `io()` instance rather than the same socket
+      // resuming): the old socket's seat record persists as connected:false
+      // until the grace window clears it, so a name match alone is true
+      // immediately on the very first welcome broadcast -- before this new
+      // socket has ever emitted `join`. Without this check, that false
+      // positive short-circuits into `setStatus('at-table')` and skips the
+      // `else if` branch below entirely, so `table.reconnect()` is never
+      // called: the seat stays connected:false forever, this socket is
+      // never mapped in `seatBySocketId`, and every future turn is silently
+      // resolved by the grace-window auto-check/auto-fold timeout instead of
+      // this player, with no visible indication anything is wrong.
       const mySeated =
         displayNameRef.current !== null &&
-        (nextState.table?.seats.some((s) => s.displayName === displayNameRef.current) ?? false);
+        (nextState.table?.seats.some((s) => s.displayName === displayNameRef.current && s.connected) ?? false);
       const wasSeated = wasSeatedRef.current;
       wasSeatedRef.current = mySeated;
 
       if (mySeated) {
         joinedRef.current = true;
+        joinInFlightRef.current = false;
         setStatus('at-table');
         if (displayNameRef.current) {
           sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, displayNameRef.current);
         }
       } else if (nextState.mode === null) {
         joinedRef.current = false;
+        joinInFlightRef.current = false;
         setStatus('lobby');
+      } else if (joinInFlightRef.current) {
+        // Our own auto-rejoin below is already awaiting the server's
+        // response -- this broadcast is some OTHER change (another player's
+        // join in the same burst, a ready toggle, anything) landing before
+        // ours does. Not seated yet is expected; there is nothing new to
+        // decide here, and re-running the branches below would incorrectly
+        // read as "not seated, no rejoin in progress" and reset state that's
+        // still legitimately in flight.
       } else if (displayNameRef.current && (!joinedRef.current || wasSeated)) {
         // A mode just became active (server start already resumed one, a
         // fresh admin start, or an admin switch) and we already know our
@@ -136,6 +173,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
         // Without checking `wasSeated` here, that stale `true` would block
         // this branch and fall through to 'entering-name'.
         joinedRef.current = true;
+        joinInFlightRef.current = true;
         socket.emit('join', { displayName: displayNameRef.current });
       } else {
         joinedRef.current = false;
@@ -164,6 +202,21 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       // regardless of what else is happening on the connection.
       if (payload.scope === 'admin') {
         setAdminActionErrorMessage(payload.message);
+        return;
+      }
+      joinInFlightRef.current = false;
+      if (
+        statusRef.current === 'at-table' &&
+        displayNameRef.current &&
+        payload.message === `"${displayNameRef.current}" is already seated`
+      ) {
+        // Belt-and-suspenders alongside joinInFlightRef above (which now
+        // stops the 'state' handler from emitting this duplicate in the
+        // first place): if some other timing still produces one, `status`
+        // being 'at-table' already means our own join succeeded, so this is
+        // by definition someone else's request losing table.ts's
+        // duplicate-name guard, not ours -- surfacing it would just alarm
+        // the player over a request they never made and that changed nothing.
         return;
       }
       setErrorMessage(payload.message);
@@ -201,6 +254,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       joinedRef.current = false;
       const name = displayNameRef.current;
       if (name) {
+        joinInFlightRef.current = true;
         socket.emit('join', { displayName: name });
       }
     });
@@ -219,6 +273,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     setDisplayName(name);
     setErrorMessage(null);
     joinedRef.current = true;
+    joinInFlightRef.current = true;
     socketRef.current?.emit('join', { displayName: name });
   }
 
