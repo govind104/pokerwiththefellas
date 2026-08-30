@@ -154,11 +154,11 @@ export function setupIntegrationServer(
     // App.tsx reads import.meta.env.VITE_SERVER_URL into a module-level const
     // at import time. A static top-of-file `import App from '../App'` would
     // therefore freeze SERVER_URL at whatever value existed before this hook
-    // ever ran (undefined -> the 'http://localhost:3000' fallback), and every
-    // socket the rendered App creates would try to reach a server that isn't
-    // this test's dynamically-ported one -- the join form would hang forever
-    // on "Joining...". Importing dynamically, after the env var above is set,
-    // is what makes App.tsx pick up the real per-test server URL.
+    // ever ran (undefined -> resolveServerUrl's page-origin fallback), and
+    // every socket the rendered App creates would try to reach a server that
+    // isn't this test's dynamically-ported one -- the join form would hang
+    // forever on "Joining...". Importing dynamically, after the env var above
+    // is set, is what makes App.tsx pick up the real per-test server URL.
     //
     // vi.resetModules() is required here (not just the dynamic import) once a
     // test file has more than one test: without it, the second test's
