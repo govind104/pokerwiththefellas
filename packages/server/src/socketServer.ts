@@ -1,5 +1,5 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import sirv from 'sirv';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import { Table, type TableConfig, type GameMode, type AppStateView } from './table';
@@ -19,21 +19,25 @@ export interface StaticTableConfig {
   seatCount: number;
   reconnectGraceMs: number;
   random: () => number;
-  // Directory to serve the built frontend from (sirv, SPA fallback). Undefined
-  // means API-only -- the two-port local dev workflow, where Vite serves the
-  // frontend itself. Grouped here with the server's other startup-lifetime
-  // settings rather than passed as a separate positional parameter, since it
-  // has the same "fixed for the server's lifetime" shape as seatCount/
-  // reconnectGraceMs/random and the previous bare 6th positional parameter
-  // was the same type (string | undefined) as the adjacent adminPassphrase
-  // parameter -- a transposition of the two would have compiled silently.
-  staticDir?: string;
 }
 
 export interface CreateServerResult {
   httpServer: HttpServer;
   io: SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
   getTable: () => Table | null;
+}
+
+export interface CreateServerOptions {
+  // Directory to serve the built frontend from (sirv, SPA fallback). Undefined
+  // means API-only -- the two-port local dev workflow, where Vite serves the
+  // frontend itself. A separate options object rather than a 6th positional
+  // parameter: a bare `string | undefined` there would sit directly next to
+  // `adminPassphrase` (the same type), and a transposition of the two would
+  // have compiled silently. It's also its own object rather than folded into
+  // StaticTableConfig -- that interface is otherwise pure table/game setup
+  // (seatCount, reconnectGraceMs, random), and staticDir is purely an
+  // HTTP-serving concern with nothing to do with the Table it configures.
+  staticDir?: string;
 }
 
 // Defense in depth alongside JsonPlayerStore's null-prototype balance map:
@@ -74,21 +78,39 @@ export async function createServer(
   gameConfigStore: GameConfigStore,
   playerStore: PlayerStore,
   handLog: HandLog,
-  adminPassphrase: string | undefined
+  adminPassphrase: string | undefined,
+  options: CreateServerOptions = {}
 ): Promise<CreateServerResult> {
-  const { staticDir } = staticConfig;
-  if (staticDir && !existsSync(staticDir)) {
+  const { staticDir } = options;
+  if (staticDir) {
     // sirv() walks the directory synchronously at construction time and
-    // throws a bare ENOENT/scandir error with no indication of what to do
-    // about it. This is a real, documented path (.env.example's STATIC_DIR
-    // comment describes running the server standalone), not a contrived
-    // edge case -- most likely cause is starting the server before ever
-    // running the frontend build.
-    throw new Error(
-      `STATIC_DIR is set to "${staticDir}", but that directory does not exist. ` +
-        'Build the frontend first (npm run build --workspace=@poker-blackjack/frontend), ' +
-        'or use "npm run play" to build and start in one step.'
-    );
+    // throws a bare, unhelpful error with no indication of what to do about
+    // it -- ENOENT/scandir if the path is missing, ENOTDIR if it exists but
+    // isn't a directory. This is a real, documented path (.env.example's
+    // STATIC_DIR comment describes running the server standalone), not a
+    // contrived edge case -- most likely cause is starting the server
+    // before ever running the frontend build. statSync (not existsSync) so
+    // a permission error (EACCES) surfaces as itself instead of being
+    // silently reported as "does not exist" -- existsSync returns false for
+    // any internal error, not just a missing path, which would send an
+    // operator toward rebuilding the frontend when the real problem is
+    // unreadable-but-present.
+    let stat: ReturnType<typeof statSync>;
+    try {
+      stat = statSync(staticDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(
+          `STATIC_DIR is set to "${staticDir}", but that directory does not exist. ` +
+            'Build the frontend first (npm run build --workspace=@poker-blackjack/frontend), ' +
+            'or use "npm run play" to build and start in one step.'
+        );
+      }
+      throw new Error(`STATIC_DIR is set to "${staticDir}", but it could not be read: ${(err as Error).message}`);
+    }
+    if (!stat.isDirectory()) {
+      throw new Error(`STATIC_DIR is set to "${staticDir}", but that path is not a directory.`);
+    }
   }
   const httpServer = createHttpServer(staticDir ? sirv(staticDir, { single: true }) : undefined);
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {

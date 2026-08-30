@@ -131,8 +131,9 @@ an admin picks Poker or Blackjack at runtime (see below). Then in a second termi
 the frontend (`npm run dev --workspace=@poker-blackjack/frontend`, Vite on port 5173).
 The frontend talks to the backend over the page's own origin in both dev and production
 (`packages/frontend/src/serverUrl.ts`) -- in dev, `vite.config.ts`'s `server.proxy` forwards
-`/socket.io` requests to `http://localhost:3000`, so no separate env var or override file is
-needed. Open the
+`/socket.io` requests to `http://localhost:<PORT>` (same `PORT` env var and default of 3000
+`index.ts` reads; set `PORT` before starting both dev processes if you need to change it), so
+no separate env var or override file is needed. Open the
 "Admin" button in the top corner and enter the passphrase to unlock the lobby's mode
 picker and the in-game admin panel (balance correction, blinds/bet, starting balance,
 mode switching). Open multiple browser tabs/windows against `http://localhost:5173` to

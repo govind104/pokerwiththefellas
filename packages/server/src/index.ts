@@ -12,7 +12,6 @@ const staticConfig: StaticTableConfig = {
   seatCount: 6,
   reconnectGraceMs: Number(process.env.RECONNECT_GRACE_MS ?? 120_000),
   random: Math.random,
-  staticDir: process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : undefined,
 };
 
 const configDefaults: GameConfigValues = {
@@ -46,10 +45,12 @@ async function main() {
   );
   const handLog = new JsonlHandLog(process.env.HAND_LOG_PATH ?? './hand.jsonl');
   const port = Number(process.env.PORT ?? 3000);
+  const staticDir = process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : undefined;
 
-  const { httpServer } = await createServer(staticConfig, gameConfigStore, playerStore, handLog, adminPassphrase);
+  const { httpServer } = await createServer(staticConfig, gameConfigStore, playerStore, handLog, adminPassphrase, {
+    staticDir,
+  });
   httpServer.listen(port, () => {
-    const { staticDir } = staticConfig;
     console.log(`Server listening on port ${port}${staticDir ? ` (serving frontend from ${staticDir})` : ''}`);
   });
 }

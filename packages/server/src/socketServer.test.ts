@@ -3,7 +3,7 @@ import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, type CreateServerResult, type StaticTableConfig } from './socketServer';
+import { createServer, type CreateServerResult } from './socketServer';
 import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
 import { JsonGameConfigStore } from './gameConfigStore';
@@ -641,8 +641,9 @@ describe('static file serving', () => {
     const playerStore = new JsonPlayerStore(join(dataDir, 'balances.json'), configDefaults.defaultStartingBalance);
     const handLog = new JsonlHandLog(join(dataDir, 'hand.jsonl'));
     const gameConfigStore = new JsonGameConfigStore(join(dataDir, 'game-config.json'), configDefaults);
-    const staticConfig: StaticTableConfig = { ...DEFAULT_STATIC_CONFIG, staticDir };
-    server = await createServer(staticConfig, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE);
+    server = await createServer(DEFAULT_STATIC_CONFIG, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE, {
+      staticDir,
+    });
     await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
     port = (server.httpServer.address() as { port: number }).port;
   });
@@ -671,5 +672,37 @@ describe('static file serving', () => {
     expect(response.status).toBe(200);
     const body = await response.text();
     expect(body).toContain('Poker or Blackjack');
+  });
+});
+
+describe('static file serving -- misconfigured STATIC_DIR', () => {
+  let dataDir: string;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'static-serving-bad-data-'));
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  async function buildServerArgs(staticDir: string) {
+    const playerStore = new JsonPlayerStore(join(dataDir, 'balances.json'), DEFAULT_GAME_CONFIG.defaultStartingBalance);
+    const handLog = new JsonlHandLog(join(dataDir, 'hand.jsonl'));
+    const gameConfigStore = new JsonGameConfigStore(join(dataDir, 'game-config.json'), DEFAULT_GAME_CONFIG);
+    return [DEFAULT_STATIC_CONFIG, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE, { staticDir }] as const;
+  }
+
+  it('rejects with a clear message when staticDir does not exist', async () => {
+    const missingDir = join(dataDir, 'does-not-exist');
+    await expect(createServer(...(await buildServerArgs(missingDir)))).rejects.toThrow(
+      /does not exist.*Build the frontend first/s
+    );
+  });
+
+  it('rejects with a clear message when staticDir points at a file, not a directory', async () => {
+    const filePath = join(dataDir, 'not-a-directory.txt');
+    await writeFile(filePath, 'not a directory');
+    await expect(createServer(...(await buildServerArgs(filePath)))).rejects.toThrow(/is not a directory/);
   });
 });
