@@ -105,7 +105,7 @@ implementation plan in
 `docs/superpowers/plans/2026-08-24-local-tailscale-hosting.md`. See
 `docs/HOSTING.md` for how to actually run a session once this plan lands.
 
-390/390 tests passing (112 frontend, 118 game-engine, 160 server), typecheck clean
+404/404 tests passing (123 frontend, 118 game-engine, 163 server), typecheck clean
 across all 3 workspaces.
 
 ## Running things
@@ -129,7 +129,10 @@ warns and refuses every admin action, so no game can ever start) and start the b
 live). The old `GAME_MODE` env var is gone — the server now starts in an empty lobby and
 an admin picks Poker or Blackjack at runtime (see below). Then in a second terminal start
 the frontend (`npm run dev --workspace=@poker-blackjack/frontend`, Vite on port 5173,
-defaults to talking to `http://localhost:3000` unless `VITE_SERVER_URL` is set). Open the
+talks to `http://localhost:3000` via the `VITE_SERVER_URL` set in
+`packages/frontend/.env.development`, which Vite loads automatically in dev mode; production
+builds via `npm run play` instead default to same-origin when no `VITE_SERVER_URL` override
+is present, per `packages/frontend/src/serverUrl.ts`). Open the
 "Admin" button in the top corner and enter the passphrase to unlock the lobby's mode
 picker and the in-game admin panel (balance correction, blinds/bet, starting balance,
 mode switching). Open multiple browser tabs/windows against `http://localhost:5173` to
