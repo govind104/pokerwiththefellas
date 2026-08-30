@@ -12,7 +12,7 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 | 3 | Local real-time server (`packages/server`) | Done, merged to `master` |
 | 4 | Frontend (`packages/frontend`) | Done, merged to `master` |
 | 5 | Lobby & Admin Controls (`packages/server`, `packages/frontend`) | Done, merged to `master` |
-| 6 | Local hosting over Tailscale (re-scoped from AWS deployment) | Not started |
+| 6 | Local hosting over Tailscale (re-scoped from AWS deployment) | Done, merged to `master` |
 
 **Two follow-up UI plans landed after Plan 4**, not part of the original 6-plan
 numbering but worth knowing about since they touched the same frontend code Plan 5
@@ -128,11 +128,11 @@ warns and refuses every admin action, so no game can ever start) and start the b
 `RECONNECT_GRACE_MS`, and the `*_PATH` overrides for where its JSON/JSONL state files
 live). The old `GAME_MODE` env var is gone — the server now starts in an empty lobby and
 an admin picks Poker or Blackjack at runtime (see below). Then in a second terminal start
-the frontend (`npm run dev --workspace=@poker-blackjack/frontend`, Vite on port 5173,
-talks to `http://localhost:3000` via the `VITE_SERVER_URL` set in
-`packages/frontend/.env.development`, which Vite loads automatically in dev mode; production
-builds via `npm run play` instead default to same-origin when no `VITE_SERVER_URL` override
-is present, per `packages/frontend/src/serverUrl.ts`). Open the
+the frontend (`npm run dev --workspace=@poker-blackjack/frontend`, Vite on port 5173).
+The frontend talks to the backend over the page's own origin in both dev and production
+(`packages/frontend/src/serverUrl.ts`) -- in dev, `vite.config.ts`'s `server.proxy` forwards
+`/socket.io` requests to `http://localhost:3000`, so no separate env var or override file is
+needed. Open the
 "Admin" button in the top corner and enter the passphrase to unlock the lobby's mode
 picker and the in-game admin panel (balance correction, blinds/bet, starting balance,
 mode switching). Open multiple browser tabs/windows against `http://localhost:5173` to

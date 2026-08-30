@@ -10,6 +10,12 @@ import { PokerTable } from './components/PokerTable';
 import { BlackjackTable } from './components/BlackjackTable';
 import { resolveServerUrl } from './serverUrl';
 
+// The same-origin fallback (page origin) is correct for `npm run play`
+// (single process) and for `npm run dev` (vite.config.ts proxies
+// /socket.io to the backend). There's no working default for a
+// `vite preview`-style "serve the build standalone, no backend at the
+// same origin" workflow -- not currently a workflow this repo has or
+// documents, so not handled here.
 const SERVER_URL = resolveServerUrl(import.meta.env.VITE_SERVER_URL, window.location.origin);
 
 function TableView({
