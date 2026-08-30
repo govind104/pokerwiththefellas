@@ -6,6 +6,10 @@
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "play": "npm run build --workspace=@poker-blackjack/frontend && cross-env STATIC_DIR=../frontend/dist npm run start --workspace=@poker-blackjack/server"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3"
   }
 }
