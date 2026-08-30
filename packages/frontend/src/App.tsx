@@ -8,8 +8,9 @@ import { Lobby } from './components/Lobby';
 import { JoinScreen } from './components/JoinScreen';
 import { PokerTable } from './components/PokerTable';
 import { BlackjackTable } from './components/BlackjackTable';
+import { resolveServerUrl } from './serverUrl';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:3000';
+const SERVER_URL = resolveServerUrl(import.meta.env.VITE_SERVER_URL, window.location.origin);
 
 function TableView({
   table,
