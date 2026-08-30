@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type CreateServerResult, type StaticTableConfig } from './socketServer';
@@ -624,5 +624,51 @@ describe('socketServer join-handler seat-orphan race', () => {
     carol.emit('ready');
     const state = await carolHandStarted;
     expect(state.table!.holdem).not.toBeNull();
+  });
+});
+
+describe('static file serving', () => {
+  let staticDir: string;
+  let dataDir: string;
+  let server: CreateServerResult;
+  let port: number;
+
+  const staticConfig: StaticTableConfig = { seatCount: 8, reconnectGraceMs: 50, random: Math.random };
+  const configDefaults: GameConfigValues = {
+    smallBlind: 5,
+    bigBlind: 10,
+    blackjackDefaultBet: 25,
+    defaultStartingBalance: 1000,
+  };
+
+  beforeEach(async () => {
+    staticDir = await mkdtemp(join(tmpdir(), 'static-dir-test-'));
+    await writeFile(join(staticDir, 'index.html'), '<!doctype html><title>Poker or Blackjack</title>');
+    dataDir = await mkdtemp(join(tmpdir(), 'static-serving-data-'));
+    const playerStore = new JsonPlayerStore(join(dataDir, 'balances.json'), configDefaults.defaultStartingBalance);
+    const handLog = new JsonlHandLog(join(dataDir, 'hand.jsonl'));
+    const gameConfigStore = new JsonGameConfigStore(join(dataDir, 'game-config.json'), configDefaults);
+    server = await createServer(staticConfig, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE, staticDir);
+    await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
+    port = (server.httpServer.address() as { port: number }).port;
+  });
+
+  afterEach(async () => {
+    server.io.close();
+    await rm(staticDir, { recursive: true, force: true });
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('serves the built index.html at the root path when staticDir is provided', async () => {
+    const response = await fetch(`http://localhost:${port}/`);
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('Poker or Blackjack');
+  });
+
+  it('still accepts socket.io connections when static serving is enabled', async () => {
+    const socket = ioClient(`http://localhost:${port}`, { transports: ['websocket'] });
+    await waitForEvent(socket, 'state');
+    socket.disconnect();
   });
 });

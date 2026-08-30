@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@poker-blackjack/game-engine": "*",
-    "socket.io": "^4.8.0"
+    "socket.io": "^4.8.0",
+    "sirv": "^3.0.0"
   },
   "devDependencies": {
     "socket.io-client": "^4.8.0",

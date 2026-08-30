@@ -1,4 +1,5 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import sirv from 'sirv';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import { Table, type TableConfig, type GameMode, type AppStateView } from './table';
 import type { PlayerStore } from './playerStore';
@@ -63,9 +64,10 @@ export async function createServer(
   gameConfigStore: GameConfigStore,
   playerStore: PlayerStore,
   handLog: HandLog,
-  adminPassphrase: string | undefined
+  adminPassphrase: string | undefined,
+  staticDir?: string
 ): Promise<CreateServerResult> {
-  const httpServer = createHttpServer();
+  const httpServer = staticDir ? createHttpServer(sirv(staticDir, { single: true })) : createHttpServer();
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: '*' },
   });
