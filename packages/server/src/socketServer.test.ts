@@ -667,8 +667,15 @@ describe('static file serving', () => {
   });
 
   it('still accepts socket.io connections when static serving is enabled', async () => {
-    const socket = ioClient(`http://localhost:${port}`, { transports: ['websocket'] });
+    const socket = ioClient(`http://localhost:${port}`);
     await waitForEvent(socket, 'state');
     socket.disconnect();
+  });
+
+  it('falls back to index.html for unmatched paths (SPA fallback)', async () => {
+    const response = await fetch(`http://localhost:${port}/nonexistent-route`);
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('Poker or Blackjack');
   });
 });
