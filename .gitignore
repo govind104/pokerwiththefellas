@@ -2,3 +2,4 @@ node_modules/
 dist/
 skill-observations/
 *.tsbuildinfo
+.env

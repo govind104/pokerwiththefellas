@@ -1,3 +1,5 @@
+import 'dotenv/config';
+import { resolve } from 'node:path';
 import { createServer } from './socketServer';
 import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
@@ -43,10 +45,11 @@ async function main() {
   );
   const handLog = new JsonlHandLog(process.env.HAND_LOG_PATH ?? './hand.jsonl');
   const port = Number(process.env.PORT ?? 3000);
+  const staticDir = process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : undefined;
 
-  const { httpServer } = await createServer(staticConfig, gameConfigStore, playerStore, handLog, adminPassphrase);
+  const { httpServer } = await createServer(staticConfig, gameConfigStore, playerStore, handLog, adminPassphrase, staticDir);
   httpServer.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
+    console.log(`Server listening on port ${port}${staticDir ? ` (serving frontend from ${staticDir})` : ''}`);
   });
 }
 
