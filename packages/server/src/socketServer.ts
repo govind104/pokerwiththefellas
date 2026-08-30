@@ -1,4 +1,5 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import { existsSync } from 'node:fs';
 import sirv from 'sirv';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import { Table, type TableConfig, type GameMode, type AppStateView } from './table';
@@ -18,6 +19,15 @@ export interface StaticTableConfig {
   seatCount: number;
   reconnectGraceMs: number;
   random: () => number;
+  // Directory to serve the built frontend from (sirv, SPA fallback). Undefined
+  // means API-only -- the two-port local dev workflow, where Vite serves the
+  // frontend itself. Grouped here with the server's other startup-lifetime
+  // settings rather than passed as a separate positional parameter, since it
+  // has the same "fixed for the server's lifetime" shape as seatCount/
+  // reconnectGraceMs/random and the previous bare 6th positional parameter
+  // was the same type (string | undefined) as the adjacent adminPassphrase
+  // parameter -- a transposition of the two would have compiled silently.
+  staticDir?: string;
 }
 
 export interface CreateServerResult {
@@ -64,10 +74,23 @@ export async function createServer(
   gameConfigStore: GameConfigStore,
   playerStore: PlayerStore,
   handLog: HandLog,
-  adminPassphrase: string | undefined,
-  staticDir?: string
+  adminPassphrase: string | undefined
 ): Promise<CreateServerResult> {
-  const httpServer = staticDir ? createHttpServer(sirv(staticDir, { single: true })) : createHttpServer();
+  const { staticDir } = staticConfig;
+  if (staticDir && !existsSync(staticDir)) {
+    // sirv() walks the directory synchronously at construction time and
+    // throws a bare ENOENT/scandir error with no indication of what to do
+    // about it. This is a real, documented path (.env.example's STATIC_DIR
+    // comment describes running the server standalone), not a contrived
+    // edge case -- most likely cause is starting the server before ever
+    // running the frontend build.
+    throw new Error(
+      `STATIC_DIR is set to "${staticDir}", but that directory does not exist. ` +
+        'Build the frontend first (npm run build --workspace=@poker-blackjack/frontend), ' +
+        'or use "npm run play" to build and start in one step.'
+    );
+  }
+  const httpServer = createHttpServer(staticDir ? sirv(staticDir, { single: true }) : undefined);
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: '*' },
   });

@@ -1,5 +1,7 @@
 import type { Socket as ClientSocket } from 'socket.io-client';
 import type { AppStateView, GameMode } from './table';
+import type { StaticTableConfig } from './socketServer';
+import type { GameConfigValues } from './gameConfigStore';
 
 // Shared across socketServer.test.ts, integration.test.ts, and
 // integration-resilience.test.ts -- all three spin up a real createServer()
@@ -7,6 +9,19 @@ import type { AppStateView, GameMode } from './table';
 // lobby/admin bootstrapping to get from "server just started" to "a game is
 // active" before their actual test assertions can begin.
 export const ADMIN_PASSPHRASE = 'test-passphrase';
+
+// Default createServer() boot config shared by socketServer.test.ts's three
+// describe blocks (previously each copy-pasted its own identical literal).
+// Never mutated by any test -- JsonGameConfigStore only spreads `defaults`,
+// it doesn't write into it -- so a single shared object is safe to reuse
+// across describes.
+export const DEFAULT_STATIC_CONFIG: StaticTableConfig = { seatCount: 8, reconnectGraceMs: 50, random: Math.random };
+export const DEFAULT_GAME_CONFIG: GameConfigValues = {
+  smallBlind: 5,
+  bigBlind: 10,
+  blackjackDefaultBet: 25,
+  defaultStartingBalance: 1000,
+};
 
 export function waitForEvent<T>(socket: ClientSocket, event: string): Promise<T> {
   return new Promise((resolve) => socket.once(event, resolve));

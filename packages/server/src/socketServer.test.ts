@@ -6,10 +6,19 @@ import { join } from 'node:path';
 import { createServer, type CreateServerResult, type StaticTableConfig } from './socketServer';
 import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
-import { JsonGameConfigStore, type GameConfigValues } from './gameConfigStore';
+import { JsonGameConfigStore } from './gameConfigStore';
 import type { PlayerStore } from './playerStore';
 import type { AppStateView } from './table';
-import { ADMIN_PASSPHRASE, waitForEvent, waitForState, waitForSeated, waitForReady, startGameAsAdmin } from './testHelpers';
+import {
+  ADMIN_PASSPHRASE,
+  DEFAULT_STATIC_CONFIG,
+  DEFAULT_GAME_CONFIG,
+  waitForEvent,
+  waitForState,
+  waitForSeated,
+  waitForReady,
+  startGameAsAdmin,
+} from './testHelpers';
 
 describe('socketServer', () => {
   let dir: string;
@@ -17,13 +26,8 @@ describe('socketServer', () => {
   let port: number;
   let clients: ClientSocket[];
 
-  const staticConfig: StaticTableConfig = { seatCount: 8, reconnectGraceMs: 50, random: Math.random };
-  const configDefaults: GameConfigValues = {
-    smallBlind: 5,
-    bigBlind: 10,
-    blackjackDefaultBet: 25,
-    defaultStartingBalance: 1000,
-  };
+  const staticConfig = DEFAULT_STATIC_CONFIG;
+  const configDefaults = DEFAULT_GAME_CONFIG;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'socket-server-test-'));
@@ -484,13 +488,8 @@ describe('socketServer join-handler seat-orphan race', () => {
   let clients: ClientSocket[];
   let playerStore: ControllablePlayerStore;
 
-  const staticConfig: StaticTableConfig = { seatCount: 8, reconnectGraceMs: 50, random: Math.random };
-  const configDefaults: GameConfigValues = {
-    smallBlind: 5,
-    bigBlind: 10,
-    blackjackDefaultBet: 25,
-    defaultStartingBalance: 1000,
-  };
+  const staticConfig = DEFAULT_STATIC_CONFIG;
+  const configDefaults = DEFAULT_GAME_CONFIG;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'socket-server-orphan-test-'));
@@ -633,13 +632,7 @@ describe('static file serving', () => {
   let server: CreateServerResult;
   let port: number;
 
-  const staticConfig: StaticTableConfig = { seatCount: 8, reconnectGraceMs: 50, random: Math.random };
-  const configDefaults: GameConfigValues = {
-    smallBlind: 5,
-    bigBlind: 10,
-    blackjackDefaultBet: 25,
-    defaultStartingBalance: 1000,
-  };
+  const configDefaults = DEFAULT_GAME_CONFIG;
 
   beforeEach(async () => {
     staticDir = await mkdtemp(join(tmpdir(), 'static-dir-test-'));
@@ -648,7 +641,8 @@ describe('static file serving', () => {
     const playerStore = new JsonPlayerStore(join(dataDir, 'balances.json'), configDefaults.defaultStartingBalance);
     const handLog = new JsonlHandLog(join(dataDir, 'hand.jsonl'));
     const gameConfigStore = new JsonGameConfigStore(join(dataDir, 'game-config.json'), configDefaults);
-    server = await createServer(staticConfig, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE, staticDir);
+    const staticConfig: StaticTableConfig = { ...DEFAULT_STATIC_CONFIG, staticDir };
+    server = await createServer(staticConfig, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE);
     await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
     port = (server.httpServer.address() as { port: number }).port;
   });
