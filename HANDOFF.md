@@ -12,7 +12,7 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 | 3 | Local real-time server (`packages/server`) | Done, merged to `master` |
 | 4 | Frontend (`packages/frontend`) | Done, merged to `master` |
 | 5 | Lobby & Admin Controls (`packages/server`, `packages/frontend`) | Done, merged to `master` |
-| 6 | AWS deployment (DynamoDB, EC2) | Not started |
+| 6 | Local hosting over Tailscale (re-scoped from AWS deployment) | Not started |
 
 **Two follow-up UI plans landed after Plan 4**, not part of the original 6-plan
 numbering but worth knowing about since they touched the same frontend code Plan 5
@@ -92,6 +92,19 @@ split-hand Blackjack was paying 3:2 like a natural blackjack instead of the corr
 (`git log 849b408..4acb538`), not a committed ledger file — same pattern as the saloon and
 table-layout redesigns.
 
+**Plan 6 was re-scoped during its own brainstorming**, from the original
+"AWS deployment (DynamoDB, EC2)" to local hosting over
+[Tailscale](https://tailscale.com) instead — the group plays occasionally
+(roughly weekly or less), so an always-on cloud deployment is unnecessary
+cost and complexity, AWS's free tier no longer covers what the original
+spec assumed (it changed structurally in July 2025), and Tailscale
+sidesteps the connectivity problems (no fixed home IP, CGNAT) that made
+plain port-forwarding a non-option. Full rationale in
+`docs/superpowers/specs/2026-08-24-local-tailscale-hosting-design.md`;
+implementation plan in
+`docs/superpowers/plans/2026-08-24-local-tailscale-hosting.md`. See
+`docs/HOSTING.md` for how to actually run a session once this plan lands.
+
 390/390 tests passing (112 frontend, 118 game-engine, 160 server), typecheck clean
 across all 3 workspaces.
 
@@ -121,6 +134,11 @@ defaults to talking to `http://localhost:3000` unless `VITE_SERVER_URL` is set).
 picker and the in-game admin panel (balance correction, blinds/bet, starting balance,
 mode switching). Open multiple browser tabs/windows against `http://localhost:5173` to
 play as different seats — the table seats **6 players max** (both game modes).
+
+**To host an actual session with friends** (rather than local development),
+see `docs/HOSTING.md` — it covers Tailscale setup and `npm run play`, which
+builds the frontend and starts a single process serving both the app and
+the game server together.
 
 ## How this was built
 
