@@ -58,16 +58,25 @@ to pick Poker or Blackjack and start the game, everyone else takes a seat.
 
 ## Ending a session
 
-Stop the server with Ctrl+C. Balances, blind/bet settings, and hand
-history are already saved to local files on the host's machine
-(`packages/server/balances.json`, `game-config.json`, `hand.jsonl` by
-default) — nothing else to do.
+Stop the server with Ctrl+C — it shuts down cleanly (closes all
+connections, then exits) rather than being hard-killed. Balances,
+blind/bet settings, and hand history are already saved to local files on
+the host's machine (`packages/server/balances.json`, `game-config.json`,
+`hand.jsonl` by default) — nothing else to do.
 
 ## Troubleshooting
 
 - **Port already in use:** `npm run play` defaults to port 3000. Set
   `PORT=<some other port>` in `packages/server/.env` to change it, and
   share `http://<your-hostname>:<that port>` instead.
+- **Someone's phone died / they closed the tab and came back later:** by
+  design, a seat stays reserved under that display name indefinitely —
+  reconnecting (same name, any device) just picks the seat back up,
+  hand-in-progress or not. There's no timeout that kicks a slow-to-return
+  player out of their seat; if they were mid-hand when they act on their
+  own turn, the server auto-folds/auto-stands for them after a short grace
+  window (`RECONNECT_GRACE_MS`, 2 minutes by default) so the table isn't
+  stuck waiting, but the seat itself is theirs until they explicitly leave.
 
 ## One thing to decide up front: who hosts
 

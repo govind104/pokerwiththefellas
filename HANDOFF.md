@@ -103,9 +103,51 @@ plain port-forwarding a non-option. Full rationale in
 `docs/superpowers/specs/2026-08-24-local-tailscale-hosting-design.md`;
 implementation plan in
 `docs/superpowers/plans/2026-08-24-local-tailscale-hosting.md`. See
-`docs/HOSTING.md` for how to actually run a session once this plan lands.
+`docs/HOSTING.md` for how to actually run a session.
 
-404/404 tests passing (123 frontend, 118 game-engine, 163 server), typecheck clean
+**Post-Plan-6 hardening (PR #10 → PR #11 → direct-to-master fix rounds,
+merge/commits `f75808f`..`076fbaa`)**: after Plan 6 landed, a full
+8-angle code review (`superpowers:code-review`, high effort) ran against
+the branch and found 6 non-blocking findings — fixed on
+`fix/plan6-review-findings` (PR #11), notably replacing a fragile
+`.env.development` override with a proper Vite dev-server proxy
+(`packages/frontend/vite.config.ts`) and hardening the `STATIC_DIR`
+startup guard (`statSync` instead of `existsSync`, so a permission error
+surfaces as itself instead of being misreported as "missing"). PR #11's
+*own* post-merge review then found 5 more findings (2 confirmed, 3
+plausible) — all fixed directly on `master` (commit `37872ca`), including
+moving `staticDir` out of the otherwise-pure `StaticTableConfig` into its
+own `CreateServerOptions` parameter, and making the Vite proxy's target
+port follow the same `PORT` env var `index.ts` reads instead of a
+hardcoded `3000`.
+
+That was followed by a **practical end-to-end hardening pass** — not a
+code review, but real socket.io traffic driven against real running
+server instances across 8 scenario groups run mostly in parallel via
+background subagents: full Hold'em and Blackjack play-throughs,
+disconnect/reconnect resilience, concurrency races (concurrent admin
+actions, concurrent joins, out-of-turn actions), admin edge cases,
+corrupted/missing state files on startup, table-capacity extremes, and
+the real `npm run play` single-process path. No crashes, data corruption,
+or broken core gameplay turned up anywhere — the four real findings (a
+wrong-shape-but-valid-JSON `game-config.json` silently breaking hand-start
+with zero client-visible error; `adminAdjustBalance` silently creating an
+orphaned balance entry for a never-seated display name; a raw `EISDIR`
+instead of a friendly message when a config/data path pointed at a
+directory; `io.close()` undocumentedly cascading into closing the
+`httpServer` it was handed back alongside) were fixed directly on
+`master` (commit `076fbaa`), each verified live against a real running
+server, not just by unit tests. One candidate finding — seats staying
+reclaimable by display name indefinitely past the reconnect grace window,
+rather than being evicted — was investigated and confirmed **intentional**
+for a casual friend-group app (nobody wants to be permanently kicked over
+a bad wifi moment). Full findings ledger, including the two lower-rigor
+groups run on a cheaper model tier and the one claim that was directly
+re-verified and refuted: `.superpowers/sdd/e2e-hardening-findings.md`
+(git-ignored scratch, not committed — same pattern as other plans'
+per-task ledgers).
+
+406/406 tests passing (123 frontend, 118 game-engine, 165 server), typecheck clean
 across all 3 workspaces.
 
 ## Running things

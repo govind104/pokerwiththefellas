@@ -269,6 +269,15 @@ export class Table {
     });
   }
 
+  // Deliberately does not consult timedOutSeats or check how long ago
+  // disconnect() fired: a disconnected seat stays reclaimable by matching
+  // displayName indefinitely, not just within reconnectGraceMs. Confirmed
+  // intentional (not an oversight) during a hardening-pass review -- this
+  // is a casual friend-group app, and nobody wants to be permanently
+  // locked out of their seat over a bad wifi moment. The grace window only
+  // controls the one-shot auto-fold/auto-stand in onGraceWindowElapsed
+  // below; it is not a seat-eviction timer. See docs/HOSTING.md's
+  // troubleshooting section for the player-facing version of this.
   reconnect(displayName: string): number | null {
     const seat = this.seats.find((s) => s?.displayName === displayName && !s.connected);
     if (!seat) {
