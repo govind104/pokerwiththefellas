@@ -23,6 +23,10 @@ export interface StaticTableConfig {
 
 export interface CreateServerResult {
   httpServer: HttpServer;
+  // socket.io's Server#close() unconditionally closes the underlying
+  // httpServer too -- they are not two independently-closeable resources
+  // despite being handed back separately here. Shut down with io.close()
+  // alone; calling httpServer.close() afterward throws ERR_SERVER_NOT_RUNNING.
   io: SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
   getTable: () => Table | null;
 }
@@ -195,7 +199,7 @@ export async function createServer(
     // nicety: Table.recoverFromLog's own catch block (on a corrupted log)
     // does a wholesale reset of every seat to null, which is only safe
     // because no socket-to-seat mapping can exist yet at that point.
-    await table.recoverFromLog();
+    await table.recoverFromLog(startupEntries);
   }
 
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
@@ -379,7 +383,17 @@ export async function createServer(
         return;
       }
       const seat = table?.seats.find((s) => s?.displayName === payload.displayName);
-      if (seat && table!.handInProgress) {
+      if (!seat) {
+        // Without this check, a typo'd or never-joined display name fell
+        // through to an unconditional playerStore.setBalance write with zero
+        // error feedback -- the admin panel would show success while
+        // silently creating an orphaned entry in balances.json for a player
+        // who was never seated. Balance corrections only make sense for
+        // someone actually at the table right now.
+        rejectAdmin(`No player named "${payload.displayName}" is currently seated`);
+        return;
+      }
+      if (table!.handInProgress) {
         rejectAdmin(`Can't adjust -- ${payload.displayName} is in an active hand`);
         return;
       }

@@ -47,12 +47,27 @@ async function main() {
   const port = Number(process.env.PORT ?? 3000);
   const staticDir = process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : undefined;
 
-  const { httpServer } = await createServer(staticConfig, gameConfigStore, playerStore, handLog, adminPassphrase, {
+  const { httpServer, io } = await createServer(staticConfig, gameConfigStore, playerStore, handLog, adminPassphrase, {
     staticDir,
   });
   httpServer.listen(port, () => {
     console.log(`Server listening on port ${port}${staticDir ? ` (serving frontend from ${staticDir})` : ''}`);
   });
+
+  // Without this, Ctrl+C (or a service manager's stop signal) just hard-kills
+  // the process mid-request with no chance for in-flight sockets to close
+  // cleanly. io.close() alone is correct here -- see CreateServerResult's
+  // doc comment: it already cascades to closing httpServer, and calling
+  // httpServer.close() as well would throw ERR_SERVER_NOT_RUNNING.
+  function shutdown(signal: string) {
+    console.log(`${signal} received, shutting down...`);
+    io.close(() => {
+      console.log('Server shut down cleanly.');
+      process.exit(0);
+    });
+  }
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
 // Without this, any rejection inside main() -- a non-ENOENT read failure in

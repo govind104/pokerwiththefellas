@@ -12,7 +12,7 @@ import {
 } from '@poker-blackjack/game-engine';
 import type { RoundPhase, RoundResult, HoldemStreet, HoldemResult, Pot } from '@poker-blackjack/game-engine';
 import type { PlayerStore } from './playerStore';
-import type { HandLog } from './handLog';
+import type { HandLog, HandLogEntry } from './handLog';
 
 export type GameMode = 'blackjack' | 'holdem';
 
@@ -615,13 +615,17 @@ export class Table {
     await this.deps.handLog.clear();
   }
 
-  async recoverFromLog(): Promise<void> {
+  // Accepts already-read entries so a caller that peeked the log to decide
+  // something before constructing this Table (socketServer.ts's startup-mode
+  // detection) doesn't cause every line -- including a torn-trailing-line
+  // warning -- to be read, parsed, and logged twice.
+  async recoverFromLog(entries?: HandLogEntry[]): Promise<void> {
     try {
-      const entries = await this.deps.handLog.readAll();
-      if (entries.length === 0) {
+      const loaded = entries ?? (await this.deps.handLog.readAll());
+      if (loaded.length === 0) {
         return;
       }
-      const [started, ...rest] = entries;
+      const [started, ...rest] = loaded;
 
       if (started.type === 'holdem_hand_started' && this.config.gameMode === 'holdem') {
         const { players, config } = started.data as {

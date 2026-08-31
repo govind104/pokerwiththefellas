@@ -45,6 +45,11 @@ export class JsonlHandLog implements HandLog {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return [];
       }
+      if ((err as NodeJS.ErrnoException).code === 'EISDIR') {
+        throw new Error(
+          `HAND_LOG_PATH is set to "${this.filePath}", but that path is a directory, not a file.`
+        );
+      }
       throw err;
     }
     const lines = raw.split('\n').filter((line) => line.trim().length > 0);

@@ -22,6 +22,11 @@ export class JsonPlayerStore implements PlayerStore {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return Object.create(null) as BalanceMap;
       }
+      if ((err as NodeJS.ErrnoException).code === 'EISDIR') {
+        throw new Error(
+          `PLAYER_STORE_PATH is set to "${this.filePath}", but that path is a directory, not a file.`
+        );
+      }
       throw err;
     }
     try {
