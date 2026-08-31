@@ -147,7 +147,38 @@ re-verified and refuted: `.superpowers/sdd/e2e-hardening-findings.md`
 (git-ignored scratch, not committed — same pattern as other plans'
 per-task ledgers).
 
-406/406 tests passing (123 frontend, 118 game-engine, 165 server), typecheck clean
+**A follow-up closed the one deliberately-lower-rigor gap from that
+pass**: Blackjack's payout math (natural blackjack, a split hand landing
+on 21, bust, push) hadn't been forced through the live server the way
+Hold'em's had. Fixed with a genuinely deterministic re-verification —
+an offline seed search using the actual engine code with a seeded PRNG
+reproduced table.ts's exact shoe-construction sequence, so two real
+hands' entire deals were known in advance and driven through a real
+running server via real `socket.io-client`, comparing the exact
+predicted payout against both the live broadcast and the on-disk
+`balances.json`. All four scenarios matched exactly, 3/3 clean repeated
+runs — the historical split-hand-pays-3:2 bug (fixed pre-Plan-5, commit
+`849b408`) stays fixed all the way through the live server path, not
+just at the engine level.
+
+That debugging session surfaced two real, more serious bugs along the
+way — not what was being tested for, found only because the test kept
+being pushed past "looks fine" to find out *why* a result looked wrong.
+Both `JsonPlayerStore.setBalance()` and `JsonGameConfigStore.setConfig()`
+had an unserialized read-modify-write through a file each call shared
+one `${filePath}.tmp` path for: two concurrent calls (an admin's
+`adminAdjustBalance` racing a hand's own settlement for a different
+player; or just firing `adminSetBlinds` and `adminSetDefaultBet` back to
+back, ordinary admin-panel usage) could silently lose one write, or in
+the worse case corrupt the file into unparseable JSON. Both confirmed
+directly with isolated repros against the classes alone (10 concurrent
+runs each; 5/10 and 10/10 failures respectively before the fix), both
+fixed with the same `queue`/`enqueue<T>` serialization pattern
+`JsonlHandLog` already used from day one (the original precedent both
+copied), both now covered by permanent regression tests. Commits
+`8990ce3` (playerStore) and `24e1fd5` (gameConfigStore).
+
+408/408 tests passing (123 frontend, 118 game-engine, 167 server), typecheck clean
 across all 3 workspaces.
 
 ## Running things

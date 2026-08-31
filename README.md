@@ -39,7 +39,7 @@ An npm-workspaces monorepo, split by responsibility:
 
 Testing is [Vitest](https://vitest.dev) across all three packages (plus
 [Testing Library](https://testing-library.com) for the frontend's
-component/integration tests) — 406 tests, run with one command.
+component/integration tests) — 408 tests, run with one command.
 
 ## Getting started (local development)
 
@@ -117,6 +117,11 @@ that only showed up in a real browser). A later, dedicated hardening pass
 drove the running server with real concurrent socket connections —
 simulated disconnects, races, corrupted state files, capacity limits — to
 verify the app holds up under real play, not just passing unit tests.
+A follow-up round of that same scrutiny, specifically re-verifying
+Blackjack payout math through the live server, incidentally caught two
+real data-corruption bugs in how balances and game settings were
+persisted under concurrent writes — the kind of thing that's easy to
+miss until something is actually pushed hard enough to expose it.
 
 The full story — every plan, every review round, every fix, and why
 several features were deliberately re-scoped along the way (accounts and
