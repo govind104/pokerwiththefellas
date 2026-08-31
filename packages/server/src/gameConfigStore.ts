@@ -52,10 +52,27 @@ function sanitize(stored: Partial<GameConfigValues>, filePath: string): Partial<
 }
 
 export class JsonGameConfigStore implements GameConfigStore {
+  // Same fix, same reason as JsonPlayerStore's queue/enqueue: setConfig's
+  // read-modify-write had no serialization, and its write shares one
+  // `${filePath}.tmp` path across calls. Two concurrent setConfig calls for
+  // different fields -- e.g. adminSetBlinds and adminSetDefaultBet fired in
+  // normal quick succession from the admin panel, or two co-admins each
+  // changing a different setting -- reliably lost an update or corrupted
+  // the file (confirmed via a direct isolated repro: 10/10 runs failed,
+  // 8 lost updates, 2 unparseable JSON). Serializing getConfig/setConfig
+  // through one chain closes it the same way it was closed there.
+  private queue: Promise<unknown> = Promise.resolve();
+
   constructor(
     private readonly filePath: string,
     private readonly defaults: GameConfigValues
   ) {}
+
+  private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(fn);
+    this.queue = result.catch(() => {});
+    return result;
+  }
 
   private async readStored(): Promise<Partial<GameConfigValues>> {
     let raw: string;
@@ -93,17 +110,28 @@ export class JsonGameConfigStore implements GameConfigStore {
     }
   }
 
-  async getConfig(): Promise<GameConfigValues> {
+  // Not queued itself -- called both from getConfig() (which queues at the
+  // public boundary) and from setConfig()'s own already-queued body. If
+  // setConfig called the public getConfig() internally, that inner call
+  // would try to enqueue onto a queue setConfig's own execution has already
+  // claimed, deadlocking forever waiting on itself.
+  private async getConfigUnqueued(): Promise<GameConfigValues> {
     const stored = await this.readStored();
     return { ...this.defaults, ...stored };
   }
 
+  async getConfig(): Promise<GameConfigValues> {
+    return this.enqueue(() => this.getConfigUnqueued());
+  }
+
   async setConfig(update: Partial<GameConfigValues>): Promise<GameConfigValues> {
-    const current = await this.getConfig();
-    const next = { ...current, ...update };
-    const tmpPath = `${this.filePath}.tmp`;
-    await writeFile(tmpPath, JSON.stringify(next, null, 2), 'utf-8');
-    await rename(tmpPath, this.filePath);
-    return next;
+    return this.enqueue(async () => {
+      const current = await this.getConfigUnqueued();
+      const next = { ...current, ...update };
+      const tmpPath = `${this.filePath}.tmp`;
+      await writeFile(tmpPath, JSON.stringify(next, null, 2), 'utf-8');
+      await rename(tmpPath, this.filePath);
+      return next;
+    });
   }
 }

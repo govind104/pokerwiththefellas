@@ -87,4 +87,26 @@ describe('JsonGameConfigStore', () => {
     const files = await readdir(dir);
     expect(files).toEqual(['game-config.json']);
   });
+
+  it('does not lose an update when two different fields are set concurrently', async () => {
+    // Same class of bug as JsonPlayerStore's, same fix. setConfig's
+    // read-modify-write had no serialization: two concurrent calls (e.g.
+    // adminSetBlinds and adminSetDefaultBet fired in normal quick
+    // succession from the admin panel) could both read the same starting
+    // config before either had written, so the second write silently
+    // dropped the first's change. Reproduced directly against this class
+    // in isolation: 10/10 runs failed (8 lost updates, 2 unparseable JSON)
+    // before the fix, 10/10 clean after.
+    const store = new JsonGameConfigStore(filePath, defaults);
+    await Promise.all([
+      store.setConfig({ smallBlind: 50, bigBlind: 100 }),
+      store.setConfig({ blackjackDefaultBet: 250 }),
+    ]);
+    await expect(store.getConfig()).resolves.toEqual({
+      ...defaults,
+      smallBlind: 50,
+      bigBlind: 100,
+      blackjackDefaultBet: 250,
+    });
+  });
 });
