@@ -9,10 +9,34 @@ export interface PlayerStore {
 type BalanceMap = Record<string, number>;
 
 export class JsonPlayerStore implements PlayerStore {
+  // Serializes every read-modify-write (and getBalance's own read) through
+  // one chain -- same pattern JsonlHandLog's writeQueue already uses, for
+  // the same reason. Without this, two setBalance calls for different
+  // players (e.g. adminAdjustBalance racing a hand's own settlement for
+  // someone else) can both call readAll() before either has written, so the
+  // second writeAll() silently clobbers the first. Worse: both writes also
+  // share ONE `${filePath}.tmp` path (see writeAll below), so a genuine
+  // interleave can corrupt the tmp file's bytes before either rename()
+  // lands, not just lose an update -- confirmed by a direct concurrent-call
+  // repro against this class in isolation (no game, no sockets): 5/5 runs
+  // failed, 3 as a silent lost update and 2 as outright unparseable JSON.
+  private queue: Promise<unknown> = Promise.resolve();
+
   constructor(
     private readonly filePath: string,
     private defaultStartingBalance: number
   ) {}
+
+  private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(fn);
+    // Tracked separately from the returned promise, same reasoning as
+    // JsonlHandLog.append: one failed read/write must not permanently wedge
+    // every later call (a .then() chained onto a rejected promise never
+    // runs), while each caller still observes their own operation's real
+    // success/failure via the returned `result` promise.
+    this.queue = result.catch(() => {});
+    return result;
+  }
 
   private async readAll(): Promise<BalanceMap> {
     let raw: string;
@@ -77,14 +101,18 @@ export class JsonPlayerStore implements PlayerStore {
   }
 
   async getBalance(displayName: string): Promise<number> {
-    const data = await this.readAll();
-    return data[displayName] ?? this.defaultStartingBalance;
+    return this.enqueue(async () => {
+      const data = await this.readAll();
+      return data[displayName] ?? this.defaultStartingBalance;
+    });
   }
 
   async setBalance(displayName: string, balance: number): Promise<void> {
-    const data = await this.readAll();
-    data[displayName] = balance;
-    await this.writeAll(data);
+    return this.enqueue(async () => {
+      const data = await this.readAll();
+      data[displayName] = balance;
+      await this.writeAll(data);
+    });
   }
 
   setDefaultStartingBalance(balance: number): void {

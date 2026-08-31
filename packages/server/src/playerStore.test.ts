@@ -123,6 +123,27 @@ describe('JsonPlayerStore', () => {
     await expect(new JsonPlayerStore(filePath, 1000).getBalance('alice')).resolves.toBe(1000);
   });
 
+  it('does not lose an update when two different names are set concurrently', async () => {
+    // Pre-fix, setBalance had no serialization: two concurrent calls could
+    // both readAll() the same (empty) map before either had written, so the
+    // second writeAll() silently clobbered the first -- reliably reproduced
+    // (5/5 runs) via this exact concurrent-call shape against the class in
+    // isolation, discovered while live-verifying Blackjack payouts (two
+    // players' hand settlements, or an admin's adminAdjustBalance racing a
+    // different player's settlement, both call setBalance independently).
+    const store = new JsonPlayerStore(filePath, 1000);
+    await Promise.all([store.setBalance('alice', 975), store.setBalance('bob', 1000)]);
+    await expect(store.getBalance('alice')).resolves.toBe(975);
+    await expect(store.getBalance('bob')).resolves.toBe(1000);
+    // And the file itself must still be valid, not corrupted by two writers
+    // interleaving into the shared `${filePath}.tmp` path (this was the
+    // more severe pre-fix failure mode: 2/5 runs produced unparseable JSON,
+    // not just a lost key).
+    const raw = await readFile(filePath, 'utf-8');
+    expect(() => JSON.parse(raw)).not.toThrow();
+    expect(JSON.parse(raw)).toEqual({ alice: 975, bob: 1000 });
+  });
+
   it('setDefaultStartingBalance changes the value returned for names with no prior entry', async () => {
     const store = new JsonPlayerStore(filePath, 1000);
     await expect(store.getBalance('alice')).resolves.toBe(1000);
