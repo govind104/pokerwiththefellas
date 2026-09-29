@@ -10,6 +10,10 @@ no accounts, no cloud hosting, no ongoing cost.
   without restarting the server.
 - **6-seat table**, real-time via Socket.IO — every player's browser stays
   in sync instantly.
+- **First-person 3D Blackjack table** — a moody, lamp-lit saloon view
+  (Three.js) with animated dealing, silhouetted opponents and optional
+  synthesised sound. Switch to the classic 2D table at any time; it also
+  kicks in automatically if the browser can't run WebGL. Poker stays 2D.
 - **No accounts.** Players just type a display name; a single shared
   admin passphrase gates host controls (nothing per-player to manage).
 - **Admin toolkit**: correct a player's balance, adjust blinds / the
@@ -35,7 +39,7 @@ An npm-workspaces monorepo, split by responsibility:
 |---|---|---|
 | `packages/game-engine` | Card/hand/betting logic for both games — deck, shoe, Hold'em hand evaluation and betting rounds, Blackjack rounds and payouts | TypeScript, [pokersolver](https://www.npmjs.com/package/pokersolver) |
 | `packages/server` | Real-time game server, admin controls, persistence | Node.js, TypeScript, [Socket.IO](https://socket.io), [sirv](https://github.com/lukeed/sirv) (static file serving) |
-| `packages/frontend` | The web UI | React 18, [Vite](https://vitejs.dev), Tailwind CSS, Framer Motion, socket.io-client |
+| `packages/frontend` | The web UI | React 18, [Vite](https://vitejs.dev), Tailwind CSS, Framer Motion, [Three.js](https://threejs.org) (3D Blackjack view), socket.io-client |
 
 Testing is [Vitest](https://vitest.dev) across all three packages (plus
 [Testing Library](https://testing-library.com) for the frontend's
