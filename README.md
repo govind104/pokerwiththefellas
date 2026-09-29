@@ -122,6 +122,8 @@ packages/
   frontend/      React UI (lobby, 2D table views for both games, admin panel)
     src/three/   first-person 3D tables: pure scene models, Three.js engine, shared shell
     dev3d.html   dev-only 3D harness page (not part of the production build)
+scripts/
+  playtest/      bot players, an admin conductor and a rule-checking spectator for playtesting a real server
 docs/
   README.md                  index: which docs are kept current, which are historical
   HOSTING.md                 how to run a real session with friends
