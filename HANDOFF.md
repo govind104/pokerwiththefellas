@@ -250,7 +250,7 @@ balance net of the live Blackjack bet, sanitised raise input, table-error banner
 3-4 hands each in separate browser tabs against an isolated server; scripted socket.io bot players then ran 15 Blackjack
 hands while a spectator script re-derived every outcome from the cards and asserted one dealer for all seats, reveal only
 after the last player, and nobody paid early. A whole-branch Opus review found 0 Critical / 1 Important (stale face-up
-cards across hands, fixed) / 5 Minor. The throwaway scripts lived in a scratch directory and were not committed; the method
+cards across hands, fixed) / 5 Minor. The scripts (admin conductor, bot players, rule-checking spectator) are now in `scripts/playtest/` with a README; the method
 is described in the playtest doc. Performance on a GTX 1650 Ti at 1280x720: about 1.6 / 2.2 / 2.6 ms per frame at Low / Medium /
 High.
 

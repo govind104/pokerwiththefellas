@@ -1,6 +1,6 @@
 # 3D tables -- AI playtest findings (2026-09-29)
 
-Method (reproducible; the throwaway scripts were not committed):
+Method (reproducible: the scripts are in `scripts/playtest/`, see its README):
 - An isolated server on :3100 running the real `dist` build, with scratch data files
   (`PLAYER_STORE_PATH` / `GAME_CONFIG_PATH` / `HAND_LOG_PATH`) and a throwaway `ADMIN_PASSPHRASE`, so real balances and
   `.env` are never touched. A small socket.io-client "conductor" script did the admin login and mode switch.

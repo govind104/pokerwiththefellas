@@ -3,3 +3,16 @@ dist/
 skill-observations/
 *.tsbuildinfo
 .env
+
+# Server runtime state (real player balances, admin-tuned settings, the in-progress hand log).
+# The server writes these relative to its working directory: packages/server/ under
+# `npm run dev/start --workspace=...`, or wherever the PLAYER_STORE_PATH / GAME_CONFIG_PATH /
+# HAND_LOG_PATH overrides point. The `.tmp` files are the atomic-write scratch copies.
+balances.json
+game-config.json
+hand.jsonl
+*.json.tmp
+*.jsonl.tmp
+
+# Scratch data for scripts/playtest (see scripts/playtest/README.md)
+.playtest-data/

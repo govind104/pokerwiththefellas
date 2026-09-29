@@ -14,6 +14,7 @@ it, then [HANDOFF.md](../HANDOFF.md) for where things stand and how they got the
 | [packages/frontend/THIRD_PARTY_NOTICES.md](../packages/frontend/THIRD_PARTY_NOTICES.md) | Vendored card art, Three.js, and what the 3D tables generate themselves |
 | [superpowers/playtests/](superpowers/playtests/) | Findings from playtests (currently the AI playtest of the 3D tables) |
 | [superpowers/specs/](superpowers/specs/) | The design spec behind each feature area. Written before the work; where a statement has since become false it carries a dated *Updated* or *Superseded* note in place, with the original text kept |
+| [scripts/playtest/](../scripts/playtest/README.md) | Bot players, an admin conductor and a rule-checking spectator for playtesting a real running server |
 | docs/README.md | This index |
 
 If a living doc and the code disagree, the code is right and the doc is a bug.
