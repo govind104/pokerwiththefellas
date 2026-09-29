@@ -12,7 +12,7 @@ function sharedBackMaterial(): THREE.MeshStandardMaterial {
   backTexture ??= cardBackTexture();
   backMaterial ??= new THREE.MeshStandardMaterial({
     map: backTexture,
-    color: 0x9a8c74,
+    color: 0x877c67,
     roughness: 0.82,
     alphaTest: 0.5,
     side: THREE.FrontSide,
@@ -41,7 +41,7 @@ export class CardObject {
 
   constructor(private tweens: Tweens) {
     this.frontMat = new THREE.MeshStandardMaterial({
-      color: 0x8f826a,
+      color: 0x7d735f,
       roughness: 0.78,
       alphaTest: 0.5,
       transparent: false,
@@ -51,7 +51,8 @@ export class CardObject {
     back.rotation.y = Math.PI;
     back.position.z = -0.0006;
     this.front.position.z = 0.0006;
-    this.front.castShadow = back.castShadow = true;
+    // No cast shadows: a card in flight throws a large hard-edged dark rectangle across the felt.
+    this.front.castShadow = back.castShadow = false;
     this.front.receiveShadow = back.receiveShadow = true;
     this.flipper.add(this.front, back);
     this.group.add(this.flipper);

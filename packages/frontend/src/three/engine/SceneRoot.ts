@@ -4,7 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { slotPoint, type SceneModel } from '../sceneModel';
+import { TABLE_Y, slotPoint, type SceneModel } from '../sceneModel';
 import { CardObject } from './cards';
 import { ChipStackObject } from './chips';
 import { Room, SHOE_POS, TRAY_POS } from './room';
@@ -60,11 +60,14 @@ const GradeShader = {
   `,
 };
 
-const BASE_CAM = new THREE.Vector3(0, 1.05, 1.42);
+// Hold'em has no shoe: cards come from a deck in the middle and are mucked to the far side.
+const DECK_POS = new THREE.Vector3(0, TABLE_Y + 0.03, -0.3);
+const MUCK_POS = new THREE.Vector3(0, TABLE_Y + 0.01, -0.62);
+
+const BASE_CAM = new THREE.Vector3(0, 1.05, 1.3);
 const BASE_LOOK = new THREE.Vector3(0, 0.52, -0.2);
-const LEAN_CAM = new THREE.Vector3(0, 0.98, 1.2);
-const LEAN_LOOK = new THREE.Vector3(0, 0.6, 0.2);
-const TARGET_HFOV = (84 * Math.PI) / 180;
+const LEAN_CAM = new THREE.Vector3(0, 0.92, 1.02);
+const LEAN_LOOK = new THREE.Vector3(0, 0.6, 0.18);
 
 export class SceneRoot {
   private renderer: THREE.WebGLRenderer;
@@ -77,6 +80,7 @@ export class SceneRoot {
   private time = 0;
   private lastTs = 0;
   private cards = new Map<string, CardObject>();
+  private sweeping = new Set<CardObject>();
   private chips = new Map<string, ChipStackObject>();
   private figures = new Map<string, Silhouette>();
   private raf = 0;
@@ -117,14 +121,6 @@ export class SceneRoot {
     this.scene.add(this.room.group);
     this.camera.position.copy(BASE_CAM);
 
-    // The dealer is always present and always the same figure.
-    const dealerFig = new Silhouette({ hat: 'flat', hatColor: 0x1b1512, coatColor: 0x241a14, dealer: true });
-    const dp = slotPoint(0, 1.34);
-    dealerFig.group.position.set(dp.x, -0.12, dp.z);
-    dealerFig.faceToward(0, 0);
-    this.scene.add(dealerFig.group);
-    this.figures.set('dealer', dealerFig);
-
     opts.canvas.addEventListener('pointermove', this.onPointer);
     this.applyQuality(opts.quality);
     this.raf = requestAnimationFrame(this.loop);
@@ -139,7 +135,11 @@ export class SceneRoot {
     this.width = Math.max(1, w);
     this.height = Math.max(1, h);
     const aspect = this.width / this.height;
-    const vfov = (2 * Math.atan(Math.tan(TARGET_HFOV / 2) / aspect) * 180) / Math.PI;
+    // Landscape wants the wide view (side seats in frame); a portrait phone gets a
+    // tighter one so the cards stay a usable size.
+    const t = Math.min(1, Math.max(0, (aspect - 0.6) / 0.8));
+    const hfov = (58 + (84 - 58) * t) * (Math.PI / 180);
+    const vfov = (2 * Math.atan(Math.tan(hfov / 2) / aspect) * 180) / Math.PI;
     this.camera.fov = Math.min(72, Math.max(38, vfov));
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
@@ -166,7 +166,7 @@ export class SceneRoot {
       const composer = new EffectComposer(this.renderer);
       composer.addPass(new RenderPass(this.scene, this.camera));
       if (q === 'high') {
-        composer.addPass(new UnrealBloomPass(new THREE.Vector2(this.width, this.height), 0.5, 0.7, 0.96));
+        composer.addPass(new UnrealBloomPass(new THREE.Vector2(this.width, this.height), 0.38, 0.6, 0.97));
       }
       composer.addPass(new OutputPass());
       this.grade = new ShaderPass(GradeShader);
@@ -217,8 +217,23 @@ export class SceneRoot {
     if (this.nextDealAt < now) this.nextDealAt = now;
     this.leanTarget = model.myTurn ? 1 : 0;
 
+    this.room.setMode(model.kind);
+    const origin = model.kind === 'blackjack' ? SHOE_POS : DECK_POS;
+    const sweepTo = model.kind === 'blackjack' ? TRAY_POS : MUCK_POS;
+
     // Seated figures (never the local player: that's the camera).
-    const wanted = new Set<string>(['dealer']);
+    const wanted = new Set<string>();
+    if (model.dealerFigure) {
+      wanted.add('dealer');
+      if (!this.figures.has('dealer')) {
+        const dealerFig = new Silhouette({ hat: 'flat', hatColor: 0x1b1512, coatColor: 0x241a14, dealer: true });
+        const dp = slotPoint(0, 1.34);
+        dealerFig.group.position.set(dp.x, -0.12, dp.z);
+        dealerFig.faceToward(0, 0);
+        this.scene.add(dealerFig.group);
+        this.figures.set('dealer', dealerFig);
+      }
+    }
     for (const seat of model.seats) {
       if (seat.isMe) continue;
       const id = `seat:${seat.seatIndex}`;
@@ -244,16 +259,29 @@ export class SceneRoot {
 
     // Cards.
     const keep = new Set<string>();
+    let sweepIdx = 0;
     for (const slot of model.cards) {
       keep.add(slot.key);
       const target = { x: slot.x, y: slot.y, z: slot.z, rotY: slot.rotY };
       let obj = this.cards.get(slot.key);
+      if (
+        obj &&
+        obj.card &&
+        (!slot.card || obj.card.rank !== slot.card.rank || obj.card.suit !== slot.card.suit)
+      ) {
+        // Keys repeat from one hand to the next (and a split rekeys a hand), so a slot that now
+        // holds a different card -- or a face-down one -- is a new card: retire the old one and
+        // deal a fresh one instead of relabelling it in place (which would show last hand's card).
+        this.cards.delete(slot.key);
+        this.retire(obj, sweepTo, 0.04 * sweepIdx++);
+        obj = undefined;
+      }
       if (!obj) {
         const created = new CardObject(this.tweens);
         obj = created;
         created.setCard(slot.card);
         created.setFaceUpImmediate(false);
-        created.placeAt({ x: SHOE_POS.x, y: SHOE_POS.y + 0.03, z: SHOE_POS.z, rotY: 0.6 });
+        created.placeAt({ x: origin.x, y: origin.y + 0.03, z: origin.z, rotY: 0.6 });
         this.scene.add(created.group);
         this.cards.set(slot.key, created);
         const delay = this.nextDealAt - now;
@@ -270,10 +298,10 @@ export class SceneRoot {
           },
         });
       } else {
-        if (slot.card && (!obj.card || obj.card.rank !== slot.card.rank || obj.card.suit !== slot.card.suit)) {
-          const wasHidden = !obj.card;
+        if (slot.card && !obj.card) {
+          // The dealer's hole card (or an opponent's showdown hand) is being turned over.
           obj.setCard(slot.card);
-          if (wasHidden && obj.landed) {
+          if (obj.landed) {
             const delay = this.nextDealAt - now;
             this.nextDealAt += 0.5;
             obj.flip(true, delay, () => this.sound.cardFlip());
@@ -287,22 +315,10 @@ export class SceneRoot {
       }
     }
     // Cards no longer in play get swept to the discard tray.
-    let sweepIdx = 0;
     for (const [key, obj] of this.cards) {
       if (keep.has(key)) continue;
       this.cards.delete(key);
-      obj.moveTo(
-        { x: TRAY_POS.x, y: TRAY_POS.y + 0.02, z: TRAY_POS.z, rotY: 0.2 },
-        {
-          duration: 0.55,
-          delay: 0.04 * sweepIdx++,
-          arc: 0.06,
-          onLand: () => {
-            this.scene.remove(obj.group);
-            obj.dispose();
-          },
-        },
-      );
+      this.retire(obj, sweepTo, 0.04 * sweepIdx++);
     }
 
     // Chip stacks.
@@ -336,6 +352,24 @@ export class SceneRoot {
     }
   }
 
+  // Sweep a card off the table; it is disposed when it lands (or on scene teardown).
+  private retire(obj: CardObject, to: THREE.Vector3, delay: number): void {
+    this.sweeping.add(obj);
+    obj.moveTo(
+      { x: to.x, y: to.y + 0.02, z: to.z, rotY: 0.2 },
+      {
+        duration: 0.55,
+        delay,
+        arc: 0.06,
+        onLand: () => {
+          this.sweeping.delete(obj);
+          this.scene.remove(obj.group);
+          obj.dispose();
+        },
+      },
+    );
+  }
+
   private loop = (ts: number) => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
@@ -367,8 +401,8 @@ export class SceneRoot {
     this.pointerSmooth.lerp(this.pointer, Math.min(1, dt * 3));
     const sway = still ? 0 : 1;
     this.camera.position.lerpVectors(BASE_CAM, LEAN_CAM, k);
-    this.camera.position.x += (Math.sin(t * 0.37) * 0.012 + this.pointerSmooth.x * 0.05) * sway;
-    this.camera.position.y += (Math.sin(t * 0.83) * 0.006 - this.pointerSmooth.y * 0.02) * sway;
+    this.camera.position.x += (Math.sin(t * 0.37) * 0.006 + this.pointerSmooth.x * 0.04) * sway;
+    this.camera.position.y += (Math.sin(t * 0.83) * 0.003 - this.pointerSmooth.y * 0.015) * sway;
     this.tmp.lerpVectors(BASE_LOOK, LEAN_LOOK, k);
     this.tmp.x += this.pointerSmooth.x * 0.16 * sway;
     this.tmp.y += -this.pointerSmooth.y * 0.07 * sway;
@@ -390,6 +424,8 @@ export class SceneRoot {
     this.composer?.dispose();
     for (const f of this.figures.values()) f.dispose();
     for (const c of this.cards.values()) c.dispose();
+    for (const c of this.sweeping) c.dispose();
+    this.sweeping.clear();
     this.scene.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
     });

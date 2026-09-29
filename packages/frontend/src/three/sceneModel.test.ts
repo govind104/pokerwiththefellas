@@ -1,6 +1,6 @@
 import type { BlackjackRoundView, SeatView } from '@poker-blackjack/server/src/table';
 import type { Card, PlayerHand } from '@poker-blackjack/game-engine';
-import { MY_SLOT, OTHER_SLOTS, buildSceneModel, chipsFor } from './sceneModel';
+import { MY_SLOT, OTHER_SLOTS, buildSceneModel, chipsFor, pickDealerRound } from './sceneModel';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 const hand = (cards: Card[], bet = 25): PlayerHand => ({ cards, bet, doubled: false, done: false });
@@ -147,6 +147,56 @@ describe('buildSceneModel', () => {
     });
     expect(model.seats.map((s) => s.name)).toEqual(['a', 'c']);
     expect(model.hasRound).toBe(false);
+  });
+});
+
+describe('per-seat dealers', () => {
+  it('shows the local player own dealer hand, not the first seat one', () => {
+    const mine = round({ dealerUpcard: c('9', 'hearts') });
+    const other = round({ dealerUpcard: c('K', 'spades') });
+    const rounds = { 0: other, 1: mine };
+    expect(pickDealerRound(rounds, 1)).toBe(mine);
+    expect(pickDealerRound(rounds, null)).toBe(other);
+    expect(pickDealerRound(null, 0)).toBeUndefined();
+    const model = buildSceneModel({ seats: seats(['a', 'b']), activeSeatIndex: 1, mySeatIndex: 1, blackjackRounds: rounds });
+    expect(model.cards.find((k) => k.key === 'd:0')?.card).toEqual(c('9', 'hearts'));
+  });
+
+  it('marks a seat done once its round settles even if still listed active', () => {
+    const settled = round({
+      phase: 'settled',
+      dealerCards: [c('K', 'spades'), c('7', 'hearts')],
+      results: [{ outcome: 'win', payout: 25 }],
+    });
+    const model = buildSceneModel({
+      seats: seats(['a', 'b']),
+      activeSeatIndex: 1,
+      mySeatIndex: 0,
+      blackjackRounds: { 0: round(), 1: settled },
+    });
+    expect(model.seats[1].isActive).toBe(false);
+    expect(model.seats[1].status).toBe('Win');
+    const mine = buildSceneModel({
+      seats: seats(['a']),
+      activeSeatIndex: 0,
+      mySeatIndex: 0,
+      blackjackRounds: { 0: settled },
+    });
+    expect(mine.myTurn).toBe(false);
+  });
+});
+
+describe('at-risk balance', () => {
+  it('shows a live hand’s bets as already out of the balance, and the full balance once settled', () => {
+    const live = buildSceneModel({ seats: seats(['a']), activeSeatIndex: 0, mySeatIndex: 0, blackjackRounds: { 0: round() } });
+    expect(live.seats[0].balance).toBe(975); // 1000 - the 25 bet
+    const settled = buildSceneModel({
+      seats: seats(['a']),
+      activeSeatIndex: null,
+      mySeatIndex: 0,
+      blackjackRounds: { 0: round({ phase: 'settled', dealerCards: [c('K', 'spades'), c('7', 'hearts')], results: [{ outcome: 'win', payout: 25 }] }) },
+    });
+    expect(settled.seats[0].balance).toBe(1000);
   });
 });
 

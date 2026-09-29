@@ -30,20 +30,25 @@ built on (and Plan 6 will too):
   `packages/server/src/index.ts`), and the table shell width changed from a fixed
   864px cap to 96% of the viewport so 6 players never need to scroll.
 
-**3D Blackjack view** (branch `feat/3d-blackjack`, not yet merged; plan:
-`docs/superpowers/plans/2026-09-29-3d-blackjack.md`): first-person Three.js table for
-Blackjack only (Poker stays 2D), RDR2-inspired but original art. `App.tsx` lazy-loads
+**3D table views** (PR #12 `feat/3d-blackjack` for Blackjack, stacked PR `feat/3d-poker` for
+Hold'em; plan: `docs/superpowers/plans/2026-09-29-3d-blackjack.md`): first-person Three.js
+tables, RDR2-inspired but original art. Shared shell in `three/TableStage.tsx`; per-game
+models `sceneModel.ts` (Blackjack) and `pokerModel.ts` (Hold'em, no dealer figure, far-centre
+seat, pot stack + label, hole cards face-down until the server reveals them). `App.tsx` lazy-loads
 `packages/frontend/src/three/Blackjack3D.tsx` (same props as `BlackjackTable`); a
-persisted toggle (`localStorage` `bj.view`, default 3D on screens >= 900px) switches
+persisted toggle (`localStorage` `table.view`, default 3D on screens >= 900px) switches
 views and WebGL failure falls back to 2D. Architecture: `sceneModel.ts` is a PURE
 snapshot -> scene-model translation (unit-tested); `engine/SceneRoot.ts` reconciles it
 by stable card/chip keys into deal/flip/sweep animations (the server only sends full
 snapshots, never events). Everything is procedural or synthesised (no downloaded assets,
 audio is WebAudio, off until the user clicks Sound). Verify visually with
-`npm run dev --workspace=@poker-blackjack/frontend` and open `/dev3d.html?step=1..8&quality=low|medium|high`
+`npm run dev --workspace=@poker-blackjack/frontend` and open `/dev3d.html?step=1..8&quality=low|medium|high` (add `game=poker` for Hold'em, steps 0..5)
 (scripted hand, no server/admin needed; `window.__bj3d.advance(seconds)` steps the
-simulation because rAF is throttled in the preview pane). Not yet done: live playtest
-against the real server with several browsers, tuning on weak GPUs, Poker 3D.
+simulation because rAF is throttled in the preview pane). Blackjack is now ONE shoe and ONE dealer hand per table hand (`SharedDealer` in game-engine,
+`Table.advanceBlackjackTurn` in the server): the dealer plays once after the last seat and everyone settles
+together. AI playtest findings and fixes: `docs/superpowers/playtests/2026-09-29-3d-tables-playtest.md`
+(harness scripts used for it lived in a scratch dir; rebuild them from that doc if needed). Not yet done: live playtest
+against the real server with several browsers, tuning on weak GPUs.
 
 **Plan 3** is fully merged to `master` (PR #3, merge commit `b1dfae1`), including a
 2-round critical-bug-fix pass. 0 Critical, 0 Important findings remain. Full detail in

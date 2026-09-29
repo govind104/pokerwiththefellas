@@ -1,5 +1,6 @@
 import {
   BlackjackRound,
+  SharedDealer,
   HoldemHand,
   createDeck,
   shuffle,
@@ -102,6 +103,9 @@ export class Table {
   seats: (Seat | null)[];
   handInProgress = false;
   holdemHand: HoldemHand | null = null;
+  // One shoe and one dealer hand per Blackjack hand; every seat's round draws from and
+  // settles against it, and the dealer only plays after the last seat has acted.
+  blackjackDealer: SharedDealer | null = null;
   blackjackRounds: Map<number, BlackjackRound> = new Map();
   activeSeatIndex: number | null = null;
   blackjackSettledSeats: Set<number> = new Set();
@@ -386,25 +390,27 @@ export class Table {
         this.holdemHand = new HoldemHand(players, holdemConfig);
         this.holdemSettled = false;
       } else {
-        const rounds = seatedSeats.map((s) => ({
+        const players = seatedSeats.map((s) => ({
           seatIndex: s.seatIndex,
           displayName: s.displayName,
           initialBet: this.config.blackjackDefaultBet,
-          shoe: this.buildShuffledDeck(6),
         }));
+        const shoe = this.buildShuffledDeck(6);
 
-        await this.deps.handLog.append({ type: 'blackjack_hand_started', data: { rounds } });
+        await this.deps.handLog.append({ type: 'blackjack_hand_started', data: { players, shoe } });
+        this.blackjackDealer = new SharedDealer({ shoe });
         this.blackjackRounds = new Map(
-          rounds.map((r) => [r.seatIndex, new BlackjackRound(r.initialBet, { shoe: r.shoe })])
+          players.map((p) => [p.seatIndex, new BlackjackRound(p.initialBet, { dealer: this.blackjackDealer! })])
         );
-        this.activeSeatIndex = rounds[0].seatIndex;
-        await this.advancePastSettledBlackjackRounds();
+        this.activeSeatIndex = players[0].seatIndex;
+        await this.advanceBlackjackTurn();
       }
     } catch (err) {
       console.error('Table: failed to start hand, reverting to no hand in progress:', err);
       this.handInProgress = false;
       this.holdemHand = null;
       this.blackjackRounds = new Map();
+      this.blackjackDealer = null;
       // Must be reset alongside the rounds themselves: advancePastSettledBlackjackRounds
       // runs inside the try above, and settleBlackjackSeatIfNeeded adds a seat to this
       // set *before* its durable writes. A stale entry surviving into a later, unrelated
@@ -459,7 +465,7 @@ export class Table {
       this.assertCanAffordBlackjackAction(seat, round, action as PlayerAction);
       round.act(action as PlayerAction);
       await this.deps.handLog.append({ type: 'blackjack_action', data: { seatIndex, action } });
-      await this.advancePastSettledBlackjackRounds();
+      await this.advanceBlackjackTurn();
     }
 
     this.deps.onStateChange();
@@ -583,31 +589,40 @@ export class Table {
     }
   }
 
-  private async advancePastSettledBlackjackRounds(): Promise<void> {
+  // Moves the turn past every seat that has finished its hands. Once the last
+  // seat is done the dealer plays out ONCE and every seat settles against that
+  // same hand together -- nobody is paid before the last player has acted.
+  private async advanceBlackjackTurn(): Promise<void> {
     const dealtSeatIndices = Array.from(this.blackjackRounds.keys()).sort((a, b) => a - b);
     while (this.activeSeatIndex !== null) {
       const round = this.blackjackRounds.get(this.activeSeatIndex)!;
-      if (round.phase !== 'settled') {
+      if (!round.playingComplete) {
         return;
-      }
-      // Caught here rather than inside settleBlackjackSeatIfNeeded on purpose.
-      // The write-ahead marker append must NOT be swallowed down there: if it
-      // fails, the setBalance after it has to be skipped, or a crash would
-      // leave a persisted payout with no marker and recovery would pay it
-      // twice. But that throw must not escape this loop either -- it would
-      // leave activeSeatIndex pinned to an already-'settled' round, so every
-      // later submitAction/leave throws and the hand can never finish. So:
-      // let the settlement abort, log loudly, and still advance.
-      try {
-        await this.settleBlackjackSeatIfNeeded(this.activeSeatIndex);
-      } catch (err) {
-        console.error(
-          `Table: failed to settle Blackjack seat ${this.activeSeatIndex}; advancing past it so the hand can still finish (the payout survives in memory and self-corrects on the next successful write; a restart before then loses it, which is the intended bias over risking a double payment):`,
-          err
-        );
       }
       const pos = dealtSeatIndices.indexOf(this.activeSeatIndex);
       this.activeSeatIndex = dealtSeatIndices[pos + 1] ?? null;
+    }
+
+    const rounds = dealtSeatIndices.map((i) => this.blackjackRounds.get(i)!);
+    if (rounds.some((r) => r.phase !== 'settled')) {
+      this.blackjackDealer!.playAndSettle(rounds);
+    }
+    for (const seatIndex of dealtSeatIndices) {
+      // Caught per seat on purpose. The write-ahead marker append inside
+      // settleBlackjackSeatIfNeeded must NOT be swallowed there: if it fails,
+      // the setBalance after it has to be skipped, or a crash would leave a
+      // persisted payout with no marker and recovery would pay it twice. But
+      // that throw must not escape this loop either -- it would skip the other
+      // seats' payouts and leave the hand unfinishable. So: let that seat's
+      // settlement abort, log loudly, and carry on with the rest.
+      try {
+        await this.settleBlackjackSeatIfNeeded(seatIndex);
+      } catch (err) {
+        console.error(
+          `Table: failed to settle Blackjack seat ${seatIndex}; continuing so the hand can still finish (the payout survives in memory and self-corrects on the next successful write; a restart before then loses it, which is the intended bias over risking a double payment):`,
+          err
+        );
+      }
     }
     await this.finishBlackjackHandIfComplete();
   }
@@ -616,6 +631,7 @@ export class Table {
     this.handInProgress = false;
     this.lastSettledBlackjackRounds = this.blackjackRounds;
     this.blackjackRounds = new Map();
+    this.blackjackDealer = null;
     this.blackjackSettledSeats = new Set();
     for (const seat of this.seats) {
       if (seat) seat.ready = false;
@@ -669,11 +685,19 @@ export class Table {
         this.holdemHand = hand;
         this.handInProgress = true;
       } else if (started.type === 'blackjack_hand_started' && this.config.gameMode === 'blackjack') {
-        const { rounds } = started.data as {
-          rounds: { seatIndex: number; displayName: string; initialBet: number; shoe: Card[] }[];
+        const { players, shoe } = started.data as {
+          players?: { seatIndex: number; displayName: string; initialBet: number }[];
+          shoe?: Card[];
         };
+        if (!Array.isArray(players) || !Array.isArray(shoe)) {
+          // A log from before the shared-dealer change (one shoe per seat): it can't be replayed.
+          console.warn('Table: Blackjack hand log is from an older format (per-seat shoes) -- discarding it.');
+          await this.deps.handLog.clear();
+          return;
+        }
+        const dealer = new SharedDealer({ shoe });
         const reconstructed = new Map(
-          rounds.map((r) => [r.seatIndex, new BlackjackRound(r.initialBet, { shoe: r.shoe })])
+          players.map((p) => [p.seatIndex, new BlackjackRound(p.initialBet, { dealer })])
         );
         const alreadySettledSeats = new Set<number>();
         for (const entry of rest) {
@@ -685,7 +709,7 @@ export class Table {
             alreadySettledSeats.add(seatIndex);
           }
         }
-        for (const r of rounds) {
+        for (const r of players) {
           const balance = await this.deps.playerStore.getBalance(r.displayName);
           this.seats[r.seatIndex] = {
             seatIndex: r.seatIndex,
@@ -695,11 +719,12 @@ export class Table {
             balance,
           };
         }
+        this.blackjackDealer = dealer;
         this.blackjackRounds = reconstructed;
         this.blackjackSettledSeats = alreadySettledSeats;
-        this.activeSeatIndex = rounds[0].seatIndex;
+        this.activeSeatIndex = players[0].seatIndex;
         this.handInProgress = true;
-        await this.advancePastSettledBlackjackRounds();
+        await this.advanceBlackjackTurn();
       } else {
         // Without this branch, an unrecognized entry type -- or a log written
         // by the other game mode after a reconfigured restart -- fell through
@@ -724,6 +749,7 @@ export class Table {
       this.handInProgress = false;
       this.holdemHand = null;
       this.blackjackRounds = new Map();
+      this.blackjackDealer = null;
       this.blackjackSettledSeats = new Set();
       this.activeSeatIndex = null;
       try {

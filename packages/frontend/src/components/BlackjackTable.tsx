@@ -6,6 +6,8 @@ import { Chip } from './Chip';
 import { GameTable } from './GameTable';
 import { Button } from './Button';
 import { PANEL_CLASS, PANEL_CLASS_SM } from './panelStyles';
+import { pickDealerRound } from '../three/sceneModel';
+import { blackjackAvailability } from './blackjackActions';
 
 const OUTCOME_LABELS: Record<Outcome, string> = {
   blackjack: 'Blackjack!',
@@ -55,7 +57,11 @@ export function BlackjackTable({
   onAction,
 }: BlackjackTableProps) {
   const isMyTurn = mySeatIndex !== null && mySeatIndex === activeSeatIndex;
-  const dealerRound = blackjackRounds ? Object.values(blackjackRounds)[0] : undefined;
+  // Each seat has its own dealer hand server-side; show the local player's own.
+  const dealerRound = pickDealerRound(blackjackRounds, mySeatIndex);
+
+  const myBalance = seats.find((s) => s.seatIndex === mySeatIndex)?.balance ?? 0;
+  const can = blackjackAvailability(mySeatIndex !== null ? blackjackRounds?.[mySeatIndex] : undefined, myBalance);
 
   const players = seats.filter((s) => s.displayName).sort((a, b) => a.seatIndex - b.seatIndex);
 
@@ -182,10 +188,10 @@ export function BlackjackTable({
             <Button variant="neutral" onClick={() => onAction('stand')}>
               Stand
             </Button>
-            <Button variant="primary" onClick={() => onAction('double')}>
+            <Button variant="primary" disabled={!can.double} onClick={() => onAction('double')}>
               Double
             </Button>
-            <Button variant="danger" onClick={() => onAction('split')}>
+            <Button variant="danger" disabled={!can.split} onClick={() => onAction('split')}>
               Split
             </Button>
           </div>

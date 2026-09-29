@@ -100,11 +100,18 @@ export function feltTexture(seed = 3): THREE.CanvasTexture {
     const x = r() * 512;
     const y = r() * 512;
     const rad = 40 + r() * 90;
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, rad);
-    grad.addColorStop(0, r() < 0.5 ? 'rgba(15,20,10,0.22)' : 'rgba(150,170,120,0.08)');
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    const dark = r() < 0.5;
+    // Drawn at every wrapped offset so a stain near the canvas edge continues on the
+    // opposite side; otherwise the tiled felt shows a hard seam line.
+    for (const ox of [-512, 0, 512]) {
+      for (const oy of [-512, 0, 512]) {
+        const grad = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rad);
+        grad.addColorStop(0, dark ? 'rgba(15,20,10,0.22)' : 'rgba(150,170,120,0.08)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(x + ox - rad, y + oy - rad, rad * 2, rad * 2);
+      }
+    }
   }
   return tex(c, { repeat: [3, 2] });
 }

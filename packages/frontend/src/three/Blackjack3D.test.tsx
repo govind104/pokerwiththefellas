@@ -99,8 +99,10 @@ describe('Blackjack3D', () => {
     const { rerender } = render(<Blackjack3D {...p} />);
     await userEvent.click(screen.getByRole('button', { name: 'Hit' }));
     expect(p.onAction).toHaveBeenCalledWith('hit');
-    await userEvent.click(screen.getByRole('button', { name: 'Split' }));
-    expect(p.onAction).toHaveBeenLastCalledWith('split');
+    // 7 + 4 is not a pair, so Split is unavailable; the first two cards can still Double.
+    expect(screen.getByRole('button', { name: 'Split' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Double' }));
+    expect(p.onAction).toHaveBeenLastCalledWith('double');
 
     rerender(<Blackjack3D {...p} activeSeatIndex={1} />);
     expect(screen.queryByRole('button', { name: 'Hit' })).not.toBeInTheDocument();

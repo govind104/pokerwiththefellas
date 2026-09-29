@@ -32,6 +32,9 @@ vi.mock('socket.io-client', () => ({ io: vi.fn(() => fakeSocket()) }));
 
 // jsdom has no WebGL, so the lazy 3D table is replaced with a stub that exposes
 // the two callbacks App wires up.
+vi.mock('./three/Poker3D', () => ({
+  default: () => <div data-testid="poker3d" />,
+}));
 vi.mock('./three/Blackjack3D', () => ({
   default: (p: { onSwitchTo2D: () => void; onUnsupported: () => void }) => (
     <div data-testid="bj3d">
@@ -223,30 +226,48 @@ describe('App', () => {
     }
 
     it('shows the 3D table when that is the stored preference, and switching to 2D is remembered', async () => {
-      window.localStorage.setItem('bj.view', '3d');
+      window.localStorage.setItem('table.view', '3d');
       await seatAtBlackjack();
       expect(await screen.findByTestId('bj3d')).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: 'stub-to-2d' }));
       expect(await screen.findByRole('button', { name: 'Hit' })).toBeInTheDocument();
-      expect(window.localStorage.getItem('bj.view')).toBe('2d');
+      expect(window.localStorage.getItem('table.view')).toBe('2d');
     });
 
     it('offers a 3D view button on the 2D table and remembers the choice', async () => {
       await seatAtBlackjack();
       await userEvent.click(await screen.findByRole('button', { name: '3D view' }));
       expect(await screen.findByTestId('bj3d')).toBeInTheDocument();
-      expect(window.localStorage.getItem('bj.view')).toBe('3d');
+      expect(window.localStorage.getItem('table.view')).toBe('3d');
+    });
+
+    it('auto-dismisses a rejected-action banner after a few seconds while seated', async () => {
+      await seatAtBlackjack();
+      await screen.findByRole('button', { name: 'Hit' });
+      vi.useFakeTimers();
+      try {
+        act(() => {
+          handlers.get('error')?.({ message: 'Cannot check while facing a bet' });
+        });
+        expect(screen.getByRole('alert')).toHaveTextContent('Cannot check while facing a bet');
+        act(() => {
+          vi.advanceTimersByTime(6100);
+        });
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('falls back to 2D when WebGL is unsupported, without overwriting the stored preference', async () => {
-      window.localStorage.setItem('bj.view', '3d');
+      window.localStorage.setItem('table.view', '3d');
       await seatAtBlackjack();
       await userEvent.click(await screen.findByRole('button', { name: 'stub-unsupported' }));
       expect(await screen.findByRole('button', { name: 'Hit' })).toBeInTheDocument();
-      expect(window.localStorage.getItem('bj.view')).toBe('3d');
+      expect(window.localStorage.getItem('table.view')).toBe('3d');
     });
 
-    it('never offers the 3D view for Holdem', async () => {
+    it('offers the 3D table for Hold’em too, using the same stored preference', async () => {
       render(<App />);
       act(() => {
         handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' })));
@@ -256,7 +277,9 @@ describe('App', () => {
       act(() => {
         handlers.get('state')?.(makeAppState(makeHoldemPreflopState()));
       });
-      expect(screen.queryByRole('button', { name: '3D view' })).not.toBeInTheDocument();
+      await userEvent.click(await screen.findByRole('button', { name: '3D view' }));
+      expect(await screen.findByTestId('poker3d')).toBeInTheDocument();
+      expect(window.localStorage.getItem('table.view')).toBe('3d');
     });
   });
 });

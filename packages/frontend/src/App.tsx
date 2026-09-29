@@ -10,11 +10,13 @@ import { JoinScreen } from './components/JoinScreen';
 import { PokerTable } from './components/PokerTable';
 import { BlackjackTable } from './components/BlackjackTable';
 import { resolveServerUrl } from './serverUrl';
+import { View3DBoundary } from './three/View3DBoundary';
 
 // three.js is only fetched when the 3D Blackjack view is actually shown.
 const Blackjack3D = lazy(() => import('./three/Blackjack3D'));
+const Poker3D = lazy(() => import('./three/Poker3D'));
 
-const VIEW_KEY = 'bj.view';
+const VIEW_KEY = 'table.view';
 
 function readView(): '2d' | '3d' {
   try {
@@ -77,12 +79,9 @@ function TableView({
     onLeave,
   };
 
-  if (table.gameMode === 'holdem') {
-    return <PokerTable {...sharedProps} holdem={table.holdem} onAction={onAction} />;
-  }
-
   if (view === '3d') {
     return (
+      <View3DBoundary onError={() => setView('2d')}>
       <Suspense
         fallback={
           <main className="flex min-h-screen items-center justify-center bg-black text-fg-dim">
@@ -90,16 +89,27 @@ function TableView({
           </main>
         }
       >
-        <Blackjack3D
-          {...sharedProps}
-          activeSeatIndex={table.activeSeatIndex}
-          blackjackRounds={table.blackjackRounds}
-          onAction={onAction}
-          onSwitchTo2D={() => chooseView('2d')}
-          // No WebGL: fall back without overwriting the user's stored preference.
-          onUnsupported={() => setView('2d')}
-        />
+        {table.gameMode === 'holdem' ? (
+          <Poker3D
+            {...sharedProps}
+            holdem={table.holdem}
+            onAction={onAction}
+            onSwitchTo2D={() => chooseView('2d')}
+            // No WebGL: fall back without overwriting the user's stored preference.
+            onUnsupported={() => setView('2d')}
+          />
+        ) : (
+          <Blackjack3D
+            {...sharedProps}
+            activeSeatIndex={table.activeSeatIndex}
+            blackjackRounds={table.blackjackRounds}
+            onAction={onAction}
+            onSwitchTo2D={() => chooseView('2d')}
+            onUnsupported={() => setView('2d')}
+          />
+        )}
       </Suspense>
+      </View3DBoundary>
     );
   }
 
@@ -112,12 +122,16 @@ function TableView({
       >
         3D view
       </button>
-      <BlackjackTable
-        {...sharedProps}
-        activeSeatIndex={table.activeSeatIndex}
-        blackjackRounds={table.blackjackRounds}
-        onAction={onAction}
-      />
+      {table.gameMode === 'holdem' ? (
+        <PokerTable {...sharedProps} holdem={table.holdem} onAction={onAction} />
+      ) : (
+        <BlackjackTable
+          {...sharedProps}
+          activeSeatIndex={table.activeSeatIndex}
+          blackjackRounds={table.blackjackRounds}
+          onAction={onAction}
+        />
+      )}
     </>
   );
 }

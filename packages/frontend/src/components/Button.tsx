@@ -19,7 +19,7 @@ const SIZE_CLASS: Record<NonNullable<ButtonProps['size']>, string> = {
 export function Button({ variant, size = 'sm', className, ...rest }: ButtonProps) {
   return (
     <button
-      className={`rounded-md border ${VARIANT_CLASS[variant]} ${SIZE_CLASS[size]} ${className ?? ''}`}
+      className={`rounded-md border disabled:cursor-not-allowed disabled:opacity-40 ${VARIANT_CLASS[variant]} ${SIZE_CLASS[size]} ${className ?? ''}`}
       {...rest}
     />
   );

@@ -157,6 +157,32 @@ function makeDeterministicRandom(seed: number): () => number {
   };
 }
 
+// ---- Shared-dealer hand-log fixtures -------------------------------------
+// Shared shoe order: the dealer's two cards, then alice's two, then bob's two, then draws.
+type Suit = 'clubs' | 'diamonds' | 'hearts' | 'spades';
+const SUITS: Record<string, Suit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
+function parseCards(codes: string[]) {
+  return codes.map((code) => ({ rank: code.slice(0, -1), suit: SUITS[code.slice(-1)] }));
+}
+function bjStart(shoe: ReturnType<typeof parseCards>) {
+  return {
+    type: 'blackjack_hand_started' as const,
+    data: {
+      players: [
+        { seatIndex: 0, displayName: 'alice', initialBet: 25 },
+        { seatIndex: 1, displayName: 'bob', initialBet: 25 },
+      ],
+      shoe,
+    },
+  };
+}
+// Dealer 9,8 | alice 5,6 | bob 4,5 | next draws: 2, 3 -- nobody has a natural.
+const SHOE_IN_PROGRESS = parseCards(['9h', '8h', '5c', '6c', '4d', '5d', '2s', '3s']);
+// Dealer 9,9 (18) | alice A,K (natural) | bob 5,6 | draws: 3
+const SHOE_ALICE_NATURAL = parseCards(['9c', '9d', 'As', 'Kh', '5d', '6d', '3s']);
+// Dealer 9,9 | alice A,K | bob A,Q -- both naturals
+const SHOE_BOTH_NATURAL = parseCards(['9c', '9d', 'As', 'Kh', 'Ad', 'Qd']);
+
 function makeTable(overrides: Partial<TableConfig> = {}) {
   const config: TableConfig = {
     gameMode: 'holdem',
@@ -462,22 +488,30 @@ describe('Table ready-gating and hand start (Blackjack)', () => {
     expect(table.blackjackRounds.get(1)!.playerHands[0].bet).toBe(25);
   });
 
-  it('gives each round an independent shoe (different card sequences)', async () => {
-    // The default deterministic random is a stateful generator whose output
-    // advances across calls, so alice's and bob's sequential
-    // buildShuffledDeck calls produce different shoes deterministically --
-    // verified below by checking their first cards differ, with no flake
-    // risk (unlike relying on Math.random's small-but-real chance of a
-    // 6-deck shoe collision on the very first card, ~1.92% per run).
-    const { table } = makeTable({ gameMode: 'blackjack' });
-    await table.join('alice');
-    await table.join('bob');
-    await table.setReady(0);
-    await table.setReady(1);
+  it('recovers exactly the cards live play produced, after a split and a hit', async () => {
+    // Recovery replays the logged shoe and actions; with one shared shoe every seat and
+    // the dealer draw from the same sequence, so any ordering drift would show up here.
+    // Seed 38 deals alice a splittable pair (see the split test above).
+    const live = makeTable({ gameMode: 'blackjack', random: makeDeterministicRandom(38) });
+    await live.table.join('alice');
+    await live.table.join('bob');
+    await live.table.setReady(0);
+    await live.table.setReady(1);
+    await live.table.submitAction(0, 'split');
+    await live.table.submitAction(0, 'hit');
+    expect(live.table.handInProgress).toBe(true);
 
-    const aliceFirstCard = table.blackjackRounds.get(0)!.playerHands[0].cards[0];
-    const bobFirstCard = table.blackjackRounds.get(1)!.playerHands[0].cards[0];
-    expect(aliceFirstCard).not.toEqual(bobFirstCard);
+    const recovered = makeTable({ gameMode: 'blackjack' });
+    recovered.handLog.entries = JSON.parse(JSON.stringify(live.handLog.entries));
+    await recovered.table.recoverFromLog();
+
+    const cardsOf = (t: Table, seat: number) => t.blackjackRounds.get(seat)!.playerHands.map((h) => h.cards);
+    expect(cardsOf(recovered.table, 0)).toEqual(cardsOf(live.table, 0));
+    expect(cardsOf(recovered.table, 1)).toEqual(cardsOf(live.table, 1));
+    expect(recovered.table.blackjackRounds.get(0)!.getDealerCards()).toEqual(
+      live.table.blackjackRounds.get(0)!.getDealerCards()
+    );
+    expect(recovered.table.activeSeatIndex).toBe(live.table.activeSeatIndex);
   });
 
   it('sets activeSeatIndex to the lowest seated index', async () => {
@@ -584,17 +618,57 @@ describe('Table submitAction (Blackjack)', () => {
     await expect(table.submitAction(1, 'stand')).rejects.toThrow();
   });
 
-  it('advances to the next seat once the active seat\'s round settles', async () => {
-    const { table } = makeTable({ gameMode: 'blackjack' });
+  it('advances to the next seat once the active seat is done, without settling anyone yet', async () => {
+    const { table, playerStore } = makeTable({ gameMode: 'blackjack' });
+    await playerStore.setBalance('alice', 1000);
     await table.join('alice');
     await table.join('bob');
     await table.setReady(0);
     await table.setReady(1);
 
     await table.submitAction(0, 'stand');
-    expect(table.blackjackRounds.get(0)!.phase).toBe('settled');
+    // Alice is finished but the dealer has not played and nobody is paid: that waits for bob.
+    expect(table.blackjackRounds.get(0)!.playingComplete).toBe(true);
+    expect(table.blackjackRounds.get(0)!.phase).toBe('playing');
     expect(table.activeSeatIndex).toBe(1);
     expect(table.handInProgress).toBe(true);
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
+  });
+
+  it('deals every seat from ONE shoe against ONE dealer hand', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const a = table.blackjackRounds.get(0)!;
+    const b = table.blackjackRounds.get(1)!;
+    expect(a.getDealerUpcard()).toEqual(b.getDealerUpcard());
+    expect(a.getDealerCards()).toBe(b.getDealerCards());
+  });
+
+  it('plays the dealer once after the LAST seat acts, then settles every seat together', async () => {
+    const { table, playerStore } = makeTable({ gameMode: 'blackjack', blackjackDefaultBet: 25 });
+    await playerStore.setBalance('alice', 1000);
+    await playerStore.setBalance('bob', 1000);
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const rounds = [table.blackjackRounds.get(0)!, table.blackjackRounds.get(1)!];
+    const dealerBefore = rounds[0].getDealerCards().length;
+
+    await table.submitAction(0, 'stand');
+    expect(rounds[0].getDealerCards()).toHaveLength(dealerBefore); // the dealer has not played yet
+    expect(table.getStateForSeat(0).blackjackRounds![0].dealerCards).toBeNull(); // hole card still hidden
+    expect(rounds.every((r) => r.phase !== 'settled')).toBe(true);
+
+    await table.submitAction(1, 'stand');
+    expect(rounds.every((r) => r.phase === 'settled')).toBe(true);
+    expect(table.handInProgress).toBe(false);
+    const total = (await playerStore.getBalance('alice')) + (await playerStore.getBalance('bob'));
+    expect(total).toBeGreaterThanOrEqual(1950);
+    expect(total).toBeLessThanOrEqual(2075);
   });
 
   it('finishes the table hand and commits balances once every seat\'s round settles', async () => {
@@ -649,7 +723,7 @@ describe('Table submitAction (Blackjack)', () => {
     // Settlement reduces over round.results (one entry per split hand), so a
     // player who splits must have BOTH hands' payouts reflected in their
     // final balance, not just the first hand's -- the bug this guards
-    // against is silently using `results[0].payout` alone. Seed 20 is
+    // against is silently using `results[0].payout` alone. Seed 38 is
     // verified (by direct simulation) to: deal neither seat a natural; deal
     // alice a splittable Qd/Js opening hand; and, after splitting and
     // standing on both resulting hands (Qd7d and Js4c), have BOTH hands lose
@@ -661,7 +735,7 @@ describe('Table submitAction (Blackjack)', () => {
     const { table, playerStore } = makeTable({
       gameMode: 'blackjack',
       blackjackDefaultBet: 25,
-      random: makeDeterministicRandom(20),
+      random: makeDeterministicRandom(38),
     });
     await playerStore.setBalance('alice', 1000);
     await playerStore.setBalance('bob', 1000);
@@ -675,9 +749,9 @@ describe('Table submitAction (Blackjack)', () => {
 
     await table.submitAction(0, 'stand'); // resolves the first split hand
     await table.submitAction(0, 'stand'); // resolves the second split hand
+    await table.submitAction(1, 'stand'); // the dealer only plays, and everyone settles, after bob
 
-    expect(table.blackjackRounds.get(0)!.phase).toBe('settled');
-    expect(table.blackjackRounds.get(0)!.results).toEqual([
+    expect(table.getStateForSeat(0).blackjackRounds![0].results).toEqual([
       { outcome: 'lose', payout: -25 },
       { outcome: 'lose', payout: -25 },
     ]);
@@ -821,7 +895,7 @@ describe('Table disconnect/reconnect', () => {
     table.disconnect(0);
     await wait(100);
 
-    expect(table.blackjackRounds.get(0)?.phase).toBe('settled');
+    expect(table.blackjackRounds.get(0)?.playingComplete).toBe(true); // alice auto-stood
     expect(table.activeSeatIndex).toBe(1); // advanced to the next seat
   });
 
@@ -867,7 +941,7 @@ describe('Table disconnect/reconnect', () => {
     process.on('unhandledRejection', onUnhandledRejection);
     try {
       await wait(100); // past the grace window -- only one timer should still be armed
-      expect(table.blackjackRounds.get(0)?.phase).toBe('settled'); // alice auto-stood exactly once
+      expect(table.blackjackRounds.get(0)?.playingComplete).toBe(true); // alice auto-stood exactly once
       expect(table.activeSeatIndex).toBe(1); // advanced cleanly to bob, nothing thrown
       await wait(50); // give a stray leaked timer a chance to misfire before asserting clean
       expect(unhandledRejection).toBeNull();
@@ -1129,7 +1203,7 @@ describe('Table Blackjack action affordability (C2)', () => {
   });
 
   it('rejects a split the seat cannot cover', async () => {
-    // Seed 20 is the same one the split-payout test documents: it deals alice
+    // Seed 38 is the same one the split-payout test documents: it deals alice
     // a splittable Qd/Js opening hand, so the affordability check is what
     // rejects this rather than the engine's own split eligibility check.
     const { table, playerStore, getStateChangeCount } = makeTable({
@@ -1499,21 +1573,10 @@ describe('Table.recoverFromLog', () => {
     await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
   });
 
-  it('reconstructs in-progress Blackjack rounds from hand-crafted shoes', async () => {
+  it('reconstructs an in-progress Blackjack hand from a hand-crafted shared shoe', async () => {
     const { table, handLog } = makeTable({ gameMode: 'blackjack' });
-    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
     // Neither seat's first two cards are a natural blackjack.
-    const aliceShoe = [card('5', 'clubs'), card('6', 'clubs'), card('7', 'hearts'), card('8', 'hearts'), card('2', 'spades')];
-    const bobShoe = [card('4', 'diamonds'), card('5', 'diamonds'), card('9', 'hearts'), card('10', 'hearts'), card('3', 'spades')];
-    await handLog.append({
-      type: 'blackjack_hand_started',
-      data: {
-        rounds: [
-          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
-          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
-        ],
-      },
-    });
+    await handLog.append(bjStart(SHOE_IN_PROGRESS));
     await handLog.append({ type: 'blackjack_action', data: { seatIndex: 0, action: 'hit' } });
 
     await table.recoverFromLog();
@@ -1525,52 +1588,28 @@ describe('Table.recoverFromLog', () => {
     expect(table.seats[1]?.displayName).toBe('bob');
   });
 
-  it('auto-settles a round that was already complete at deal time (natural blackjack) during recovery', async () => {
+  it('skips a seat that was already complete at deal time (natural blackjack) during recovery, without paying it early', async () => {
     const { table, handLog, playerStore } = makeTable({ gameMode: 'blackjack' });
     await playerStore.setBalance('alice', 1000);
     await playerStore.setBalance('bob', 1000);
-    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
-    // alice: natural blackjack (settles instantly at construction, no action needed).
-    const aliceShoe = [card('A', 'spades'), card('K', 'hearts'), card('9', 'clubs'), card('9', 'diamonds')];
-    const bobShoe = [card('5', 'diamonds'), card('6', 'diamonds'), card('9', 'hearts'), card('10', 'hearts'), card('3', 'spades')];
-    await handLog.append({
-      type: 'blackjack_hand_started',
-      data: {
-        rounds: [
-          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
-          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
-        ],
-      },
-    });
+    await handLog.append(bjStart(SHOE_ALICE_NATURAL));
 
     await table.recoverFromLog();
 
-    expect(table.activeSeatIndex).toBe(1); // seat 0 auto-settled and skipped
-    await expect(playerStore.getBalance('alice')).resolves.toBe(1037.5); // 25 * 1.5 blackjack payout
+    expect(table.activeSeatIndex).toBe(1); // seat 0 is complete and skipped
+    // ...but nobody is paid until the last seat has acted and the dealer has played.
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
+    expect(handLog.entries.filter((e) => e.type === 'blackjack_seat_settled')).toEqual([]);
   });
 
   it('preserves seats and completes cleanup when every Blackjack seat was already settled and marked before the crash', async () => {
-    // Represents a crash that happened between the last seat's payout commit
-    // and the final handLog.clear() that should have followed it -- i.e. both
-    // settlements were already applied and logged (settleBlackjackSeatIfNeeded
-    // appends a blackjack_seat_settled marker right after its PlayerStore
-    // write), so recovery must finish the interrupted cleanup WITHOUT
-    // re-paying either seat.
+    // A crash between the last seat's payout commit and the final handLog.clear():
+    // every settlement was already applied and marked, so recovery must finish the
+    // interrupted cleanup WITHOUT re-paying anyone.
     const { table, handLog, playerStore } = makeTable({ gameMode: 'blackjack' });
     await playerStore.setBalance('alice', 1500); // reflects a payout already applied pre-crash
     await playerStore.setBalance('bob', 800); // reflects a payout already applied pre-crash
-    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
-    const aliceShoe = [card('A', 'spades'), card('K', 'hearts'), card('9', 'clubs'), card('9', 'diamonds')];
-    const bobShoe = [card('A', 'diamonds'), card('Q', 'diamonds'), card('9', 'hearts'), card('10', 'hearts')];
-    await handLog.append({
-      type: 'blackjack_hand_started',
-      data: {
-        rounds: [
-          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
-          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
-        ],
-      },
-    });
+    await handLog.append(bjStart(SHOE_BOTH_NATURAL));
     await handLog.append({ type: 'blackjack_seat_settled', data: { seatIndex: 0 } });
     await handLog.append({ type: 'blackjack_seat_settled', data: { seatIndex: 1 } });
 
@@ -1578,152 +1617,68 @@ describe('Table.recoverFromLog', () => {
 
     expect(table.handInProgress).toBe(false);
     await expect(handLog.readAll()).resolves.toEqual([]);
-    // Seats are preserved (marked disconnected, same as an ordinary disconnect)
-    // instead of being wiped from the table -- the improvement over the old
-    // discard-everything behavior, now safe because per-seat markers (not a
-    // coarse discard) are what prevent double payment.
     expect(table.seats[0]?.displayName).toBe('alice');
     expect(table.seats[0]?.connected).toBe(false);
     expect(table.seats[1]?.displayName).toBe('bob');
     expect(table.seats[1]?.connected).toBe(false);
-    // Balances are exactly what they were pre-recovery -- both settlements are
-    // skipped as already-applied (markers present), not re-paid.
     await expect(playerStore.getBalance('alice')).resolves.toBe(1500);
     await expect(playerStore.getBalance('bob')).resolves.toBe(800);
   });
 
-  it('pays a Blackjack seat with no settlement marker during recovery and lands activeSeatIndex on the still-in-progress seat', async () => {
-    // Mirror image of the marked-seats test above: seat 0's natural blackjack
-    // settled at deal time but has NO blackjack_seat_settled marker, simulating
-    // a crash before that payout/marker write ever committed. This is exactly
-    // the history the original recovery design could not distinguish from
-    // "already paid" (both replay to the identical blackjack_hand_started-only
-    // log) -- marker absence must mean "never applied", so recovery pays it
-    // now, exactly once, while correctly leaving the still-in-progress seat 1
-    // untouched and active.
+  it('pays every seat exactly once when the hand completes after recovery', async () => {
+    // Alice has a natural, bob is still to act. Nothing is paid at recovery; once
+    // bob stands, the dealer plays once and BOTH seats are paid exactly once.
     const { table, handLog, playerStore } = makeTable({ gameMode: 'blackjack' });
     await playerStore.setBalance('alice', 1000);
     await playerStore.setBalance('bob', 1000);
-    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
-    // alice: natural blackjack (settles instantly at construction, no action needed).
-    const aliceShoe = [card('A', 'spades'), card('K', 'hearts'), card('9', 'clubs'), card('9', 'diamonds')];
-    // bob: not a natural, no action taken -- round stays in progress.
-    const bobShoe = [
-      card('5', 'diamonds'),
-      card('6', 'diamonds'),
-      card('9', 'hearts'),
-      card('10', 'hearts'),
-      card('3', 'spades'),
-    ];
-    await handLog.append({
-      type: 'blackjack_hand_started',
-      data: {
-        rounds: [
-          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
-          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
-        ],
-      },
-    });
-    // No blackjack_seat_settled marker for seat 0.
+    await handLog.append(bjStart(SHOE_ALICE_NATURAL));
 
     await table.recoverFromLog();
-
-    // Marker absent -> safe to apply now: seat 0 gets paid during recovery.
-    await expect(playerStore.getBalance('alice')).resolves.toBe(1037.5); // 25 * 1.5 blackjack payout
-    // Recovery's own settlement write appends the marker exactly once, same as live play.
-    expect(handLog.entries.filter((e) => e.type === 'blackjack_seat_settled')).toEqual([
-      { type: 'blackjack_seat_settled', data: { seatIndex: 0 } },
-    ]);
-    // Seat 1's round never reached 'settled' (no action taken), so recovery
-    // correctly stops there instead of skipping past it.
     expect(table.activeSeatIndex).toBe(1);
     expect(table.handInProgress).toBe(true);
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
+
+    await table.submitAction(1, 'stand');
+
+    // Dealer 9,9 = 18. Alice's natural pays 3:2; bob's 5,6 = 11 loses.
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1037.5);
+    await expect(playerStore.getBalance('bob')).resolves.toBe(975);
+    expect(table.handInProgress).toBe(false);
   });
 
-  it('resumes at the still-in-progress seat without re-paying a marked-settled Blackjack seat', async () => {
-    // Complementary case to the "no settlement marker" test above, and the
-    // exact scenario the marker mechanism was built to guard: seat 0's
-    // natural blackjack settled AND was marked (a crash landed after that
-    // payout/marker write fully committed) while seat 1 is still mid-hand
-    // (no action taken yet). Recovery must skip re-paying seat 0 (marker
-    // present) while still correctly resuming play at seat 1 -- not just
-    // correctly skip seat 0 in isolation, and not short-circuit into
-    // full-hand cleanup the way the "every seat marked" test above does,
-    // since seat 1 has not settled.
+  it('finishes only the unpaid seat when a crash landed between two seats settlements', async () => {
+    // The real crash window in the shared-dealer flow: every action is logged (the
+    // hand is complete), seat 0 was paid AND marked, but the process died before
+    // seat 1's payout. Recovery must NOT re-pay seat 0, and must pay seat 1 once.
     const { table, handLog, playerStore } = makeTable({ gameMode: 'blackjack' });
-    await playerStore.setBalance('alice', 1500); // reflects a payout already applied pre-crash
+    await playerStore.setBalance('alice', 1500); // reflects the payout already applied pre-crash
     await playerStore.setBalance('bob', 1000);
-    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
-    // alice: natural blackjack (settles instantly at construction, no action needed).
-    const aliceShoe = [card('A', 'spades'), card('K', 'hearts'), card('9', 'clubs'), card('9', 'diamonds')];
-    // bob: not a natural, no action taken -- round stays in progress.
-    const bobShoe = [
-      card('5', 'diamonds'),
-      card('6', 'diamonds'),
-      card('9', 'hearts'),
-      card('10', 'hearts'),
-      card('3', 'spades'),
-    ];
-    await handLog.append({
-      type: 'blackjack_hand_started',
-      data: {
-        rounds: [
-          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
-          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
-        ],
-      },
-    });
+    await handLog.append(bjStart(SHOE_ALICE_NATURAL));
+    await handLog.append({ type: 'blackjack_action', data: { seatIndex: 1, action: 'stand' } });
     await handLog.append({ type: 'blackjack_seat_settled', data: { seatIndex: 0 } });
 
+    const appendSpy = vi.spyOn(handLog, 'append');
     await table.recoverFromLog();
 
-    // Marker present -> recovery must NOT re-pay seat 0.
-    await expect(playerStore.getBalance('alice')).resolves.toBe(1500);
-    // Recovery must not re-append a duplicate marker for the already-marked seat either.
-    expect(handLog.entries.filter((e) => e.type === 'blackjack_seat_settled')).toHaveLength(1);
-    expect(table.handInProgress).toBe(true);
-    // Recovery correctly resumes at the still-in-progress seat, not just
-    // correctly skips the marked one.
-    expect(table.activeSeatIndex).toBe(1);
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1500); // not re-paid
+    await expect(playerStore.getBalance('bob')).resolves.toBe(975); // paid now: 5,6 loses to dealer 18
+    const markers = appendSpy.mock.calls.filter(([e]) => e.type === 'blackjack_seat_settled');
+    expect(markers).toHaveLength(1); // only bob's new marker; alice's already existed
+    expect(markers[0][0].data).toEqual({ seatIndex: 1 });
+    expect(table.handInProgress).toBe(false);
   });
 
   it('writes the settlement marker before committing the balance (write-ahead ordering)', async () => {
-    // Pins the Critical fix from round 2: settleBlackjackSeatIfNeeded must
-    // append the blackjack_seat_settled marker BEFORE calling
-    // playerStore.setBalance, so a crash between the two durable writes
-    // leaves a recoverable "lost payout" rather than a re-payable "double
-    // payout" on the next recovery. Nothing else in the suite observes the
-    // *relative order* of these two calls -- swapping them back would leave
-    // every other test green. Recovery (rather than live play) is used to
-    // exercise the settlement path here because it's the same
-    // settleBlackjackSeatIfNeeded call site either way, and reuses the
-    // existing natural-blackjack recovery fixture.
+    // settleBlackjackSeatIfNeeded must append the blackjack_seat_settled marker
+    // BEFORE calling playerStore.setBalance, so a crash between the two durable
+    // writes leaves a recoverable "lost payout" rather than a re-payable "double
+    // payout". Recovery of a complete hand exercises the same call site as live play.
     const { table, handLog, playerStore } = makeTable({ gameMode: 'blackjack' });
     await playerStore.setBalance('alice', 1000);
     await playerStore.setBalance('bob', 1000);
-    const card = (rank: string, suit: 'clubs' | 'diamonds' | 'hearts' | 'spades') => ({ suit, rank });
-    // alice: natural blackjack (settles instantly at construction, no action needed).
-    const aliceShoe = [card('A', 'spades'), card('K', 'hearts'), card('9', 'clubs'), card('9', 'diamonds')];
-    // bob: not a natural, no action taken -- round stays in progress.
-    const bobShoe = [
-      card('5', 'diamonds'),
-      card('6', 'diamonds'),
-      card('9', 'hearts'),
-      card('10', 'hearts'),
-      card('3', 'spades'),
-    ];
-    await handLog.append({
-      type: 'blackjack_hand_started',
-      data: {
-        rounds: [
-          { seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: aliceShoe },
-          { seatIndex: 1, displayName: 'bob', initialBet: 25, shoe: bobShoe },
-        ],
-      },
-    });
+    await handLog.append(bjStart(SHOE_ALICE_NATURAL));
+    await handLog.append({ type: 'blackjack_action', data: { seatIndex: 1, action: 'stand' } });
 
-    // Attach spies after the setup append above, so only calls made DURING
-    // recoverFromLog() are captured.
     const appendSpy = vi.spyOn(handLog, 'append');
     const setBalanceSpy = vi.spyOn(playerStore, 'setBalance');
 
@@ -1736,11 +1691,24 @@ describe('Table.recoverFromLog', () => {
     expect(markerCallIndex).toBeGreaterThanOrEqual(0);
     expect(balanceCallIndex).toBeGreaterThanOrEqual(0);
     // invocationCallOrder uses a global counter shared across all mocks, so
-    // comparing across these two different spies genuinely proves relative
-    // call order, not just that both were eventually called.
+    // comparing across these two spies genuinely proves relative call order.
     expect(appendSpy.mock.invocationCallOrder[markerCallIndex]).toBeLessThan(
       setBalanceSpy.mock.invocationCallOrder[balanceCallIndex]
     );
+  });
+
+  it('discards a Blackjack hand log written in the old per-seat-shoe format', async () => {
+    const { table, handLog } = makeTable({ gameMode: 'blackjack' });
+    await handLog.append({
+      type: 'blackjack_hand_started',
+      data: { rounds: [{ seatIndex: 0, displayName: 'alice', initialBet: 25, shoe: [] }] },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await table.recoverFromLog();
+    expect(table.handInProgress).toBe(false);
+    await expect(handLog.readAll()).resolves.toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('recovers cleanly from a corrupted/torn log entry instead of crash-looping on every future boot', async () => {
@@ -1852,13 +1820,14 @@ describe('Table.getStateForSeat', () => {
     expect(view.blackjackRounds![0].results).toBeNull();
   });
 
-  it('reveals the full dealer hand and results once a round settles', async () => {
+  it('reveals the full dealer hand and results once the hand settles', async () => {
     const { table } = makeTable({ gameMode: 'blackjack' });
     await table.join('alice');
     await table.join('bob');
     await table.setReady(0);
     await table.setReady(1);
     await table.submitAction(0, 'stand');
+    await table.submitAction(1, 'stand');
 
     const view = table.getStateForSeat(0);
     expect(view.blackjackRounds![0].dealerCards).not.toBeNull();
