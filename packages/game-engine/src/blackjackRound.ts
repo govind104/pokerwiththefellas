@@ -20,6 +20,68 @@ export interface BlackjackRoundOptions {
   random?: RandomFn;
   /** Pre-built card sequence, drawn from the front. Primarily for tests. */
   shoe?: Card[];
+  /**
+   * Play this round against a dealer (and shoe) shared with other rounds. The
+   * round then stops after its own hands are done and waits for
+   * `SharedDealer.playAndSettle` -- the dealer plays once, after the last
+   * player, and every round settles against that one hand.
+   */
+  dealer?: SharedDealer;
+}
+
+/**
+ * One shoe and one dealer hand for a whole table. Rounds constructed with
+ * `{ dealer }` draw from this shoe and are settled together, so every player
+ * is paid against the same dealer hand and nobody settles before the last
+ * player has acted.
+ */
+export class SharedDealer {
+  private shoe: Card[];
+  private cards: Card[];
+
+  constructor(options: { deckCount?: number; random?: RandomFn; shoe?: Card[] } = {}) {
+    this.shoe = options.shoe
+      ? [...options.shoe]
+      : createShoe(options.deckCount ?? 6, options.random ?? Math.random);
+    // The dealer's two cards come off the top before any player is dealt in.
+    this.cards = [this.draw(), this.draw()];
+  }
+
+  draw(): Card {
+    const drawn = this.shoe.shift();
+    if (!drawn) {
+      throw new Error('Shoe is empty');
+    }
+    return drawn;
+  }
+
+  /** Safe to show clients at any time. */
+  getUpcard(): Card {
+    return this.cards[0];
+  }
+
+  /** Full hand including the hole card: only reveal once the rounds are settled. */
+  getCards(): Card[] {
+    return this.cards;
+  }
+
+  /**
+   * Plays the dealer's hand (only if some player still has a live hand) and
+   * settles every round against it. Every round must have finished its own hands.
+   */
+  playAndSettle(rounds: BlackjackRound[]): void {
+    if (rounds.some((r) => !r.playingComplete)) {
+      throw new Error('Cannot play the dealer while a player is still to act');
+    }
+    if (rounds.some((r) => r.hasLiveHand())) {
+      while (dealerShouldHit(this.cards)) {
+        this.cards.push(this.draw());
+      }
+    }
+    for (const r of rounds) {
+      r.settleAgainst(this.cards);
+    }
+  }
 }
 
 function isTwoCardTwentyOne(cards: Card[]): boolean {
@@ -28,7 +90,9 @@ function isTwoCardTwentyOne(cards: Card[]): boolean {
 
 export class BlackjackRound {
   private shoe: Card[];
-  private dealerCards: Card[];
+  private ownDealerCards: Card[];
+  private sharedDealer: SharedDealer | null;
+  private playingDone = false;
   private splitUsed = false;
   private activeHandIndex = 0;
   // Tracked by object identity rather than a field on PlayerHand itself, so
@@ -43,9 +107,12 @@ export class BlackjackRound {
   results: RoundResult[] = [];
 
   constructor(initialBet: number, options: BlackjackRoundOptions = {}) {
-    this.shoe = options.shoe
-      ? [...options.shoe]
-      : createShoe(options.deckCount ?? 6, options.random ?? Math.random);
+    this.sharedDealer = options.dealer ?? null;
+    this.shoe = this.sharedDealer
+      ? []
+      : options.shoe
+        ? [...options.shoe]
+        : createShoe(options.deckCount ?? 6, options.random ?? Math.random);
 
     const initialCards = [this.draw(), this.draw()];
     this.playerHands = [
@@ -56,12 +123,19 @@ export class BlackjackRound {
         done: isTwoCardTwentyOne(initialCards),
       },
     ];
-    this.dealerCards = [this.draw(), this.draw()];
+    this.ownDealerCards = this.sharedDealer ? [] : [this.draw(), this.draw()];
 
     this.advanceIfNeeded();
   }
 
+  private get dealerCards(): Card[] {
+    return this.sharedDealer ? this.sharedDealer.getCards() : this.ownDealerCards;
+  }
+
   private draw(): Card {
+    if (this.sharedDealer) {
+      return this.sharedDealer.draw();
+    }
     const drawn = this.shoe.shift();
     if (!drawn) {
       throw new Error('Shoe is empty');
@@ -72,6 +146,16 @@ export class BlackjackRound {
   /** Safe to show clients at any time, including while phase is 'playing'. */
   getDealerUpcard(): Card {
     return this.dealerCards[0];
+  }
+
+  /** True once every one of this player's hands is finished (the dealer may still be waiting on others). */
+  get playingComplete(): boolean {
+    return this.phase !== 'playing' || this.playingDone;
+  }
+
+  /** Whether any hand is still in the running (not bust): if none, the dealer needn't draw. */
+  hasLiveHand(): boolean {
+    return this.playerHands.some((h) => !isBust(h.cards));
   }
 
   /**
@@ -162,22 +246,32 @@ export class BlackjackRound {
       this.activeHandIndex += 1;
     }
     if (this.activeHandIndex >= this.playerHands.length) {
-      this.playDealerAndSettle();
+      if (this.sharedDealer) {
+        // Wait for the rest of the table; SharedDealer.playAndSettle finishes the round.
+        this.playingDone = true;
+      } else {
+        this.playDealerAndSettle();
+      }
     }
   }
 
   private playDealerAndSettle(): void {
     this.phase = 'dealer';
 
-    const anyHandStillLive = this.playerHands.some((h) => !isBust(h.cards));
-    if (anyHandStillLive) {
+    if (this.hasLiveHand()) {
       while (dealerShouldHit(this.dealerCards)) {
         this.dealerCards.push(this.draw());
       }
     }
 
+    this.settleAgainst(this.dealerCards);
+  }
+
+  /** Resolve every hand against a finished dealer hand. Called by SharedDealer.playAndSettle. */
+  settleAgainst(dealerCards: Card[]): void {
+    this.phase = 'dealer';
     this.results = this.playerHands.map((h) =>
-      resolveHand(h.cards, this.dealerCards, h.bet, !this.blackjackIneligibleHands.has(h))
+      resolveHand(h.cards, dealerCards, h.bet, !this.blackjackIneligibleHands.has(h))
     );
     this.phase = 'settled';
   }

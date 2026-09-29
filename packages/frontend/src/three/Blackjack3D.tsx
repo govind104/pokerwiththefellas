@@ -3,6 +3,7 @@ import type { SeatView, BlackjackRoundView } from '@poker-blackjack/server/src/t
 import type { PlayerAction, Card } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
 import { Button } from '../components/Button';
+import { blackjackAvailability } from '../components/blackjackActions';
 import { buildSceneModel, pickDealerRound } from './sceneModel';
 import { TableStage } from './TableStage';
 
@@ -45,6 +46,8 @@ export function Blackjack3D({
     [seats, activeSeatIndex, mySeatIndex, blackjackRounds],
   );
   const dealerRound = pickDealerRound(blackjackRounds, mySeatIndex);
+  const myBalance = seats.find((s) => s.seatIndex === mySeatIndex)?.balance ?? 0;
+  const can = blackjackAvailability(mySeatIndex !== null ? blackjackRounds?.[mySeatIndex] : undefined, myBalance);
   const dealerText = dealerRound
     ? (dealerRound.dealerCards ?? [dealerRound.dealerUpcard, null]).map(describeCard).join(', ')
     : 'no hand in progress';
@@ -96,10 +99,10 @@ export function Blackjack3D({
           <Button variant="neutral" size="md" onClick={() => onAction('stand')}>
             Stand
           </Button>
-          <Button variant="primary" size="md" onClick={() => onAction('double')}>
+          <Button variant="primary" size="md" disabled={!can.double} title={can.double ? undefined : 'Only on your first two cards'} onClick={() => onAction('double')}>
             Double
           </Button>
-          <Button variant="danger" size="md" onClick={() => onAction('split')}>
+          <Button variant="danger" size="md" disabled={!can.split} title={can.split ? undefined : 'Only a pair, once per round'} onClick={() => onAction('split')}>
             Split
           </Button>
         </div>

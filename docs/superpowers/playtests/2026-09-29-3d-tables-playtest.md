@@ -4,15 +4,18 @@ Method: isolated server on :3100 (scratch data, throwaway admin passphrase, real
 three Sonnet subagents per game in separate browser tabs (alice, bob, and cara as the visual
 reviewer), 3-4 hands each. Blackjack and Hold'em. Console was clean in every run.
 
-## Needs a product decision (NOT fixed)
+## Blackjack dealers were per seat -- FIXED (shared shoe + dealer)
 
-**Blackjack dealers are per seat.** `packages/server/src/table.ts` (~L389-398) deals every seat its own
-shuffled 6-deck shoe and its own dealer hand; each seat's round settles the moment that player
-finishes. Consequences seen by all three testers: the dealer on screen never matches other
-players' results, results arrive before the last player has acted, and the dealer's cards appear
-"early". Mitigation shipped: both tables now show the *local player's own* dealer hand (their
-result matches what they see). Proper fix = one shared shoe + dealer per hand, settle after the
-last player -- an engine/server change.
+`packages/server/src/table.ts` used to deal every seat its own shuffled 6-deck shoe and its own dealer hand, and
+settled each seat the moment that player finished. Testers saw results that never matched the dealer on screen,
+results arriving before the last player acted, and the dealer's cards appearing "early".
+
+Fix: `SharedDealer` (game-engine) owns ONE shoe and ONE dealer hand per table hand. Each seat's `BlackjackRound` is
+built with `{ dealer }`, stops when its own hands are done (`playingComplete`), and the server plays the dealer once
+after the last seat and settles everyone together (`Table.advanceBlackjackTurn`). Hand-log format changed
+(`blackjack_hand_started` now `{ players, shoe }`); an old-format log left on disk is discarded on boot with a warning.
+Verified live: 5 bot players over 15 hands, a spectator re-derived every outcome from the cards and checked that all
+seats see the same dealer, the dealer is revealed only when everyone settles together, and no seat is paid early.
 
 ## Fixed in this branch
 
@@ -34,15 +37,19 @@ Reload mid-hand re-seats with cards intact (~4 s); 2D<->3D switch mid-hand keeps
 rejoin keeps seat and balance; fold, all-in with side pots and showdown reveals behave; opponents'
 hole cards stay hidden (never shown for folded players); balances always summed to 3000.
 
+## Also resolved in the follow-up
+- Double/Split are now disabled unless legal (two cards; a pair and only once per round; balance covers the extra stake) in both the 2D and 3D tables (`components/blackjackActions.ts`).
+- 3D Blackjack plates show the balance net of the live bet (the server only debits at settlement).
+- The seated table-error banner auto-dismisses after 6 s (any state broadcast already cleared it; this covers a quiet table).
+- Settled Hold'em "Pot" excluded nothing before: `pots` includes an uncalled bet as its own single-player pot, so the label overstated it (200 vs a 160 pot). It now shows only the contested pots.
+- Sound: the audio graph starts (`AudioContext` running, piano loop scheduled, SFX calls don't throw) and toggles cleanly. Whether it *sounds* right can't be checked by an AI.
+- Performance on this machine (GTX 1650 Ti, 1280x720, dpr 1): about 1.6 / 2.2 / 2.6 ms per frame at Low / Medium / High. Integrated GPUs and high-DPI phones will be slower; the quality toggle exists for that.
+- Six seats: laid out and checked in the harness (`/dev3d.html?step=8`).
+
 ## Known / left alone
-- Stale error banner persists across streets until the next valid action (SocketContext, both UIs).
-- Double/Split are clickable when illegal (server rejects with an alert; turn preserved).
-- Blackjack balances are not debited until settlement (server behaviour).
-- Settled Hold'em `pots` sum looked larger than net payouts in one bot hand (200 vs +/-80); not yet
-  root-caused -- check `HoldemHand` pot bookkeeping before trusting the settled "Pot" label.
 - Test artefacts, not bugs: quality preference flips between tabs (shared localStorage), background tabs
   throttle rAF so animations only advance when drawn, ref clicks fail in background tabs.
 
 ## Not yet verified
-Sound (audible), animation feel in a foreground tab at 60 fps, performance on weak GPUs and phones,
-a full 5-6 player table.
+Whether the sound is pleasant (needs ears), animation feel at 60 fps on a real display, and behaviour on weak
+integrated GPUs and real phones.

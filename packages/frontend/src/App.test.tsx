@@ -241,6 +241,24 @@ describe('App', () => {
       expect(window.localStorage.getItem('table.view')).toBe('3d');
     });
 
+    it('auto-dismisses a rejected-action banner after a few seconds while seated', async () => {
+      await seatAtBlackjack();
+      await screen.findByRole('button', { name: 'Hit' });
+      vi.useFakeTimers();
+      try {
+        act(() => {
+          handlers.get('error')?.({ message: 'Cannot check while facing a bet' });
+        });
+        expect(screen.getByRole('alert')).toHaveTextContent('Cannot check while facing a bet');
+        act(() => {
+          vi.advanceTimersByTime(6100);
+        });
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('falls back to 2D when WebGL is unsupported, without overwriting the stored preference', async () => {
       window.localStorage.setItem('table.view', '3d');
       await seatAtBlackjack();

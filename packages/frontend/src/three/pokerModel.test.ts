@@ -144,6 +144,18 @@ describe('livePot / amountToCall', () => {
     expect(livePot(seats(['a', 'b', 'c']), h)).toBe(100);
   });
 
+  it('excludes an uncalled bet (a single-player side pot) from the settled pot', () => {
+    // 120 was put in by one player but only 80 was matched: the extra 40 is its own one-player pot.
+    const h = hand({
+      street: 'settled',
+      pots: [
+        { amount: 160, eligiblePlayerIds: ['a', 'b'] },
+        { amount: 40, eligiblePlayerIds: ['a'] },
+      ],
+    });
+    expect(livePot(seats(['a', 'b', 'c']), h)).toBe(160);
+  });
+
   it('keeps this street’s bets out of the centre stack (they sit in front of each player)', () => {
     const h = hand({
       players: [player('a', { stack: 900, streetContributed: 40 }), player('b', { stack: 900, streetContributed: 40 }), player('c', { stack: 1000 })],

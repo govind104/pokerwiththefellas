@@ -276,6 +276,15 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A rejected table action (illegal move, "not your turn") is only news for a moment.
+  // Any state broadcast already clears it; this covers a quiet table where nothing
+  // else happens. Only while seated: join-form errors must stay until the player retries.
+  useEffect(() => {
+    if (!errorMessage || status !== 'at-table') return;
+    const timer = setTimeout(() => setErrorMessage(null), 6000);
+    return () => clearTimeout(timer);
+  }, [errorMessage, status]);
+
   function joinWithName(name: string) {
     displayNameRef.current = name;
     setDisplayName(name);

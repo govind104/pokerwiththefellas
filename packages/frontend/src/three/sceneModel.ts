@@ -153,9 +153,9 @@ export interface SceneInput {
   blackjackRounds: Record<number, BlackjackRoundView> | null;
 }
 
-// Each seat plays its own round (the server deals every seat its own shoe and
-// dealer hand), so "the dealer" on screen is the local player's dealer -- the
-// one their result is computed against. Spectators fall back to the first seat's.
+// Every seat is dealt from one shoe against one dealer hand, so any round can
+// supply the dealer; prefer the local player's, falling back to the first seat's
+// (spectators).
 export function pickDealerRound(
   rounds: Record<number, BlackjackRoundView> | null,
   mySeatIndex: number | null,
@@ -242,7 +242,8 @@ export function buildSceneModel(input: SceneInput): SceneModel {
     seatModels.push({
       seatIndex: seat.seatIndex,
       name: seat.displayName as string,
-      balance: seat.balance,
+      // The server only debits a bet at settlement; while a hand is live show what is not at risk.
+      balance: round && round.phase !== 'settled' ? seat.balance - round.playerHands.reduce((sum, h) => sum + h.bet, 0) : seat.balance,
       isMe,
       isActive,
       connected: seat.connected,

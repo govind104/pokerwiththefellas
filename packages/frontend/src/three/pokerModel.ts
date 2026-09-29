@@ -46,7 +46,13 @@ export function actingSeatIndex(seats: SeatView[], holdem: HoldemView | null): n
 // balance (pre-hand) minus their live in-hand stack, so the running pot is the
 // sum of that across everyone dealt in.
 export function livePot(seats: SeatView[], holdem: HoldemView): number {
-  if (holdem.street === 'settled') return holdem.pots.reduce((sum, p) => sum + p.amount, 0);
+  if (holdem.street === 'settled') {
+    // `pots` also holds any uncalled part of a big bet as its own single-player pot;
+    // that money just goes back, so the pot that was actually played for excludes it.
+    const contested = holdem.pots.filter((p) => p.eligiblePlayerIds.length > 1);
+    const pool = contested.length > 0 ? contested : holdem.pots;
+    return pool.reduce((sum, p) => sum + p.amount, 0);
+  }
   let total = 0;
   for (const p of holdem.players) {
     const seat = seats.find((s) => s.displayName === p.playerId);

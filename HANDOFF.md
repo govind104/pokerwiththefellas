@@ -44,7 +44,10 @@ snapshots, never events). Everything is procedural or synthesised (no downloaded
 audio is WebAudio, off until the user clicks Sound). Verify visually with
 `npm run dev --workspace=@poker-blackjack/frontend` and open `/dev3d.html?step=1..8&quality=low|medium|high` (add `game=poker` for Hold'em, steps 0..5)
 (scripted hand, no server/admin needed; `window.__bj3d.advance(seconds)` steps the
-simulation because rAF is throttled in the preview pane). Not yet done: live playtest
+simulation because rAF is throttled in the preview pane). Blackjack is now ONE shoe and ONE dealer hand per table hand (`SharedDealer` in game-engine,
+`Table.advanceBlackjackTurn` in the server): the dealer plays once after the last seat and everyone settles
+together. AI playtest findings and fixes: `docs/superpowers/playtests/2026-09-29-3d-tables-playtest.md`
+(harness scripts used for it lived in a scratch dir; rebuild them from that doc if needed). Not yet done: live playtest
 against the real server with several browsers, tuning on weak GPUs.
 
 **Plan 3** is fully merged to `master` (PR #3, merge commit `b1dfae1`), including a

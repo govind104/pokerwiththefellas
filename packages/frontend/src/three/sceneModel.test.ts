@@ -186,6 +186,20 @@ describe('per-seat dealers', () => {
   });
 });
 
+describe('at-risk balance', () => {
+  it('shows a live hand’s bets as already out of the balance, and the full balance once settled', () => {
+    const live = buildSceneModel({ seats: seats(['a']), activeSeatIndex: 0, mySeatIndex: 0, blackjackRounds: { 0: round() } });
+    expect(live.seats[0].balance).toBe(975); // 1000 - the 25 bet
+    const settled = buildSceneModel({
+      seats: seats(['a']),
+      activeSeatIndex: null,
+      mySeatIndex: 0,
+      blackjackRounds: { 0: round({ phase: 'settled', dealerCards: [c('K', 'spades'), c('7', 'hearts')], results: [{ outcome: 'win', payout: 25 }] }) },
+    });
+    expect(settled.seats[0].balance).toBe(1000);
+  });
+});
+
 describe('chipsFor', () => {
   it('breaks a bet into the fewest chips, largest first', () => {
     expect(chipsFor(0)).toEqual([]);

@@ -54,6 +54,7 @@ function allRounds(
     [hand([c('A', 'spades'), c('6', 'diamonds')], 25)],
     [hand([c('10', 'diamonds'), c('J', 'clubs')], 100)],
     [hand([c('5', 'hearts'), c('5', 'spades')], 25)],
+    [hand([c('K', 'hearts'), c('4', 'clubs')], 75)],
   ];
   const out: Record<number, BlackjackRoundView> = {};
   for (let i = 0; i < n; i++) out[i] = round(phase, i === 0 ? mine : others[i - 1], dealerCards, results?.(i) ?? null);
@@ -87,7 +88,7 @@ const STEPS: Step[] = [
     ]),
   },
   { label: 'Next hand', count: 4, inProgress: false, active: null, rounds: null },
-  { label: 'Six seats', count: 6, inProgress: true, active: 0, rounds: null },
+  { label: 'Six seats', count: 6, inProgress: true, active: 0, rounds: allRounds(6, MINE, 'playing', null) },
 ];
 
 type P = HoldemView['players'][number];

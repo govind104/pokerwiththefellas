@@ -1,4 +1,4 @@
-export { BlackjackRound } from './blackjackRound';
+export { BlackjackRound, SharedDealer } from './blackjackRound';
 export type {
   PlayerAction,
   PlayerHand,

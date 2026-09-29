@@ -43,7 +43,7 @@ An npm-workspaces monorepo, split by responsibility:
 
 Testing is [Vitest](https://vitest.dev) across all three packages (plus
 [Testing Library](https://testing-library.com) for the frontend's
-component/integration tests) — 408 tests, run with one command.
+component/integration tests) — 471 tests, run with one command.
 
 ## Getting started (local development)
 
