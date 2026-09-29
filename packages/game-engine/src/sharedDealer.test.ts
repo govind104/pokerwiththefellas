@@ -117,3 +117,42 @@ describe('SharedDealer', () => {
     expect(round.phase).toBe('settled');
   });
 });
+
+describe('an exhausted shoe', () => {
+  it('rejects a hit without changing the hand', () => {
+    // Dealer 9,8 | player 5,6 -- and nothing left to draw.
+    const { rounds } = table([card('9'), card('8'), card('5'), card('6')], [10]);
+    const before = JSON.stringify(rounds[0].playerHands);
+    expect(() => rounds[0].act('hit')).toThrow('Shoe is empty');
+    expect(JSON.stringify(rounds[0].playerHands)).toBe(before);
+    rounds[0].act('stand'); // the player can still stand
+    expect(rounds[0].playingComplete).toBe(true);
+  });
+
+  it('rejects a double without doubling the bet or marking the hand doubled', () => {
+    const { rounds } = table([card('9'), card('8'), card('5'), card('6')], [10]);
+    expect(() => rounds[0].act('double')).toThrow('Shoe is empty');
+    expect(rounds[0].playerHands[0].bet).toBe(10);
+    expect(rounds[0].playerHands[0].doubled).toBe(false);
+    expect(rounds[0].playerHands[0].done).toBe(false);
+  });
+
+  it('rejects a split without splitting, even when only one card is left', () => {
+    // Dealer 9,8 | player 8,8 (a pair) | exactly one spare card: a split needs two.
+    const { rounds } = table([card('9'), card('8'), card('8'), card('8', 'hearts'), card('2')], [10]);
+    expect(() => rounds[0].act('split')).toThrow('Shoe is empty');
+    expect(rounds[0].playerHands).toHaveLength(1);
+    expect(rounds[0].playerHands[0].cards).toHaveLength(2);
+    // The spare card was not consumed by the failed split: a hit still gets it.
+    rounds[0].act('hit');
+    expect(rounds[0].playerHands[0].cards[2]).toEqual(card('2'));
+  });
+
+  it('throws from playAndSettle when the dealer needs a card and there is none', () => {
+    // Dealer 6,5 (11) must draw; player stands on 19; the shoe is empty.
+    const { dealer, rounds } = table([card('6'), card('5'), card('10'), card('9')], [10]);
+    rounds[0].act('stand');
+    expect(() => dealer.playAndSettle(rounds)).toThrow('Shoe is empty');
+    expect(rounds[0].phase).toBe('playing'); // nothing was settled
+  });
+});

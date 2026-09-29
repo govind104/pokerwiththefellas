@@ -46,7 +46,7 @@ audio is WebAudio, off until the user clicks Sound). Verify visually with
 (scripted hand, no server/admin needed; `window.__bj3d.advance(seconds)` steps the
 simulation because rAF is throttled in the preview pane). Blackjack is now ONE shoe and ONE dealer hand per table hand (`SharedDealer` in game-engine,
 `Table.advanceBlackjackTurn` in the server): the dealer plays once after the last seat and everyone settles
-together. AI playtest findings and fixes: `docs/superpowers/playtests/2026-09-29-3d-tables-playtest.md`
+together. Game actions (both games) are written to the hand log BEFORE the engine applies them, so a failed write just rejects the action; recovery skips any logged action the engine rejected live (it throws identically on replay). An exhausted shoe rejects a hit/double/split without changing the hand, and if the dealer cannot play the whole hand is voided with no balance changes (`Table.voidBlackjackHand`). AI playtest findings and fixes: `docs/superpowers/playtests/2026-09-29-3d-tables-playtest.md`
 (harness scripts used for it lived in a scratch dir; rebuild them from that doc if needed). Not yet done: live playtest
 against the real server with several browsers, tuning on weak GPUs.
 

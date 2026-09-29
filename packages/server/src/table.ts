@@ -449,11 +449,16 @@ export class Table {
       if (hand.actingPlayerId !== seat.displayName) {
         throw new Error(`It is not ${seat.displayName}'s turn`);
       }
-      hand.act(seat.displayName, action as HoldemAction, amount);
+      // Write-ahead: the log entry goes down BEFORE the engine applies the action. If the
+      // write fails the action is simply rejected and nothing has changed, instead of the
+      // hand having moved on (cards drawn) with no record recovery could replay. An action
+      // the engine then rejects is logged too, but replay skips exactly the actions that
+      // threw live (see recoverFromLog), so the reconstruction is still identical.
       await this.deps.handLog.append({
         type: 'holdem_action',
         data: { playerId: seat.displayName, action, amount },
       });
+      hand.act(seat.displayName, action as HoldemAction, amount);
       if (hand.street === 'settled') {
         await this.settleHoldem(hand);
       }
@@ -463,8 +468,11 @@ export class Table {
       }
       const round = this.blackjackRounds.get(seatIndex)!;
       this.assertCanAffordBlackjackAction(seat, round, action as PlayerAction);
-      round.act(action as PlayerAction);
+      // Write-ahead, as for Hold'em above. This matters more with one shared shoe: an action
+      // that drew cards but never reached the log would make recovery deal every seat and the
+      // dealer different cards from then on.
       await this.deps.handLog.append({ type: 'blackjack_action', data: { seatIndex, action } });
+      round.act(action as PlayerAction);
       await this.advanceBlackjackTurn();
     }
 
@@ -605,7 +613,14 @@ export class Table {
 
     const rounds = dealtSeatIndices.map((i) => this.blackjackRounds.get(i)!);
     if (rounds.some((r) => r.phase !== 'settled')) {
-      this.blackjackDealer!.playAndSettle(rounds);
+      try {
+        this.blackjackDealer!.playAndSettle(rounds);
+      } catch (err) {
+        // Only an exhausted shoe can get here (6 decks at 6 seats cannot, but a locked-up
+        // table with a hand stuck in progress is the wrong failure mode either way).
+        await this.voidBlackjackHand(err);
+        return;
+      }
     }
     for (const seatIndex of dealtSeatIndices) {
       // Caught per seat on purpose. The write-ahead marker append inside
@@ -625,6 +640,27 @@ export class Table {
       }
     }
     await this.finishBlackjackHandIfComplete();
+  }
+
+  // The hand cannot be completed fairly, so cancel it: nobody's balance changes, everyone
+  // goes back to "not ready", and the table is free to deal again.
+  private async voidBlackjackHand(err: unknown): Promise<void> {
+    console.error('Table: the Blackjack hand could not be completed; voiding it with no balance changes:', err);
+    this.handInProgress = false;
+    this.blackjackRounds = new Map();
+    this.blackjackDealer = null;
+    this.blackjackSettledSeats = new Set();
+    this.lastSettledBlackjackRounds = null;
+    this.activeSeatIndex = null;
+    for (const seat of this.seats) {
+      if (seat) seat.ready = false;
+    }
+    this.timedOutSeats.clear();
+    try {
+      await this.deps.handLog.clear();
+    } catch (clearErr) {
+      console.error('Table: failed to clear the hand log after voiding a hand:', clearErr);
+    }
   }
 
   private async finishBlackjackHandIfComplete(): Promise<void> {
@@ -665,7 +701,13 @@ export class Table {
               action: HoldemAction;
               amount?: number;
             };
-            hand.act(playerId, action, amount);
+            // Actions are logged before they are applied, so the log can hold one the engine
+            // rejected live. It throws identically here; skipping it reproduces the live state.
+            try {
+              hand.act(playerId, action, amount);
+            } catch {
+              /* rejected live too */
+            }
           }
         }
         if (hand.street === 'settled') {
@@ -703,7 +745,11 @@ export class Table {
         for (const entry of rest) {
           if (entry.type === 'blackjack_action') {
             const { seatIndex, action } = entry.data as { seatIndex: number; action: PlayerAction };
-            reconstructed.get(seatIndex)!.act(action);
+            try {
+              reconstructed.get(seatIndex)!.act(action);
+            } catch {
+              /* rejected live too (see the Hold'em replay above) */
+            }
           } else if (entry.type === 'blackjack_seat_settled') {
             const { seatIndex } = entry.data as { seatIndex: number };
             alreadySettledSeats.add(seatIndex);

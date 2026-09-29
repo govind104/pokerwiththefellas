@@ -988,7 +988,7 @@ describe('Table disconnect/reconnect', () => {
 });
 
 describe("Table Hold'em settlement concurrency guard (C2)", () => {
-  it('two overlapping calls into settlement apply the payout exactly once instead of doubling it', async () => {
+  it('a settlement triggered twice (write-ahead action, then a duplicate call) applies the payout exactly once', async () => {
     const handLog = new ControllableHandLog();
     const playerStore = new FakePlayerStore(1000);
     const config: TableConfig = {
@@ -1011,44 +1011,26 @@ describe("Table Hold'em settlement concurrency guard (C2)", () => {
     expect(table.holdemHand!.actingPlayerId).toBe('alice');
     const hand = table.holdemHand!;
 
-    // From here on, handLog.append returns a Promise that only resolves when
-    // we explicitly call releaseNextAppend() -- reproducing the real await
-    // point (submitAction's `await handLog.append(...)`) that the production
-    // race suspends on, using the actual code path instead of a synthetic one.
+    // From here on, handLog.append only resolves when the test releases it, which
+    // suspends submitAction at its (write-ahead) log write.
     handLog.holdAppends = true;
-
-    // Call 1: a real submitAction fold. `hand.act(...)` runs synchronously --
-    // folding heads-up settles the engine-level hand immediately, so
-    // hand.street flips to 'settled' and hand.results is populated -- and
-    // THEN submitAction suspends on the handLog.append await, before it ever
-    // reaches its own `if (hand.street === 'settled') settleHoldem(...)` call.
     const call1 = table.submitAction(0, 'fold');
-    expect(hand.street).toBe('settled'); // settled by hand.act; call1 has not invoked settleHoldem yet
 
-    // Call 2: directly invoke the private settlement path while call 1 is
-    // still suspended mid-flight. This stands in for the second,
-    // independently-triggered submitAction (e.g. a timer-driven auto-act)
-    // that in production reaches settleHoldem while the first call is still
-    // awaiting handLog.append.
-    await (table as unknown as { settleHoldem(h: typeof hand): Promise<void> }).settleHoldem(hand);
+    // Write-ahead: while the log write is pending the fold has NOT been applied.
+    expect(hand.street).toBe('preflop');
+    expect(table.handInProgress).toBe(true);
 
-    const aliceAfterCall2 = await playerStore.getBalance('alice');
-    const bobAfterCall2 = await playerStore.getBalance('bob');
-    // The payout was genuinely applied exactly once at this point already:
-    expect(aliceAfterCall2).toBe(995); // alice folded the 5-chip small blind
-    expect(bobAfterCall2).toBe(1005); // bob won alice's small blind
-
-    // Now let call 1 resume. Without the holdemSettled guard, it would reach
-    // its own `settleHoldem(hand)` call and double-apply the same payout.
     handLog.releaseNextAppend();
     await call1;
+    expect(hand.street).toBe('settled');
+    await expect(playerStore.getBalance('alice')).resolves.toBe(995); // alice folded the 5-chip small blind
+    await expect(playerStore.getBalance('bob')).resolves.toBe(1005); // bob won alice's small blind
 
-    const aliceFinal = await playerStore.getBalance('alice');
-    const bobFinal = await playerStore.getBalance('bob');
-    // Unchanged by call 1's resumed (guarded, no-op) attempt -- proving the
-    // guard, not just trusting that it exists.
-    expect(aliceFinal).toBe(aliceAfterCall2);
-    expect(bobFinal).toBe(bobAfterCall2);
+    // A second, independently triggered settlement of the same hand (e.g. a timer-driven
+    // auto-act racing the first) must be a no-op thanks to the holdemSettled guard.
+    await (table as unknown as { settleHoldem(h: typeof hand): Promise<void> }).settleHoldem(hand);
+    await expect(playerStore.getBalance('alice')).resolves.toBe(995);
+    await expect(playerStore.getBalance('bob')).resolves.toBe(1005);
     expect(table.handInProgress).toBe(false);
     expect(table.holdemHand).toBeNull();
   });
@@ -1901,5 +1883,100 @@ describe('Table.getStateForSeat', () => {
     expect(view.blackjackRounds![0].results).not.toBeNull();
     expect(view.blackjackRounds![1].dealerCards).not.toBeNull();
     expect(view.blackjackRounds![1].results).not.toBeNull();
+  });
+});
+
+
+describe('Table hand-log write-ahead and shoe exhaustion', () => {
+  it('rejects a Blackjack action when its log write fails, leaving the hand exactly as it was', async () => {
+    const { table, handLog } = makeTable({ gameMode: 'blackjack', random: makeDeterministicRandom(3) });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const cardsBefore = JSON.stringify(table.blackjackRounds.get(0)!.playerHands);
+    const dealerBefore = JSON.stringify(table.blackjackRounds.get(0)!.getDealerCards());
+
+    vi.spyOn(handLog, 'append').mockRejectedValueOnce(new Error('disk full'));
+    await expect(table.submitAction(0, 'hit')).rejects.toThrow('disk full');
+
+    expect(JSON.stringify(table.blackjackRounds.get(0)!.playerHands)).toBe(cardsBefore); // no card drawn
+    expect(JSON.stringify(table.blackjackRounds.get(0)!.getDealerCards())).toBe(dealerBefore);
+    expect(table.activeSeatIndex).toBe(0);
+    // ...and the same action goes through once the log works again.
+    await table.submitAction(0, 'hit');
+    expect(table.blackjackRounds.get(0)!.playerHands[0].cards.length).toBeGreaterThan(2);
+  });
+
+  it("rejects a Hold'em action when its log write fails, leaving the hand exactly as it was", async () => {
+    const { table, handLog } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const hand = table.holdemHand!;
+
+    vi.spyOn(handLog, 'append').mockRejectedValueOnce(new Error('disk full'));
+    await expect(table.submitAction(0, 'call')).rejects.toThrow('disk full');
+
+    expect(table.holdemHand!.actingPlayerId).toBe('alice');
+    expect(hand.players.find((p) => p.playerId === 'alice')!.streetContributed).toBe(5); // still just the small blind
+    await table.submitAction(0, 'call');
+    expect(hand.actingPlayerId).toBe('bob');
+  });
+
+  it('replays a hand identically even though a rejected action was logged (write-ahead)', async () => {
+    // Seed 3: alice hits to a live 3-card hand, so a following double is rejected by the engine
+    // AFTER its log entry was written.
+    const live = makeTable({ gameMode: 'blackjack', random: makeDeterministicRandom(3) });
+    await live.table.join('alice');
+    await live.table.join('bob');
+    await live.table.setReady(0);
+    await live.table.setReady(1);
+    await live.table.submitAction(0, 'hit');
+    await expect(live.table.submitAction(0, 'double')).rejects.toThrow('first two cards');
+    expect(live.handLog.entries.filter((e) => e.type === 'blackjack_action')).toHaveLength(2);
+
+    const recovered = makeTable({ gameMode: 'blackjack' });
+    recovered.handLog.entries = JSON.parse(JSON.stringify(live.handLog.entries));
+    await recovered.table.recoverFromLog();
+
+    const cards = (t: Table) => t.blackjackRounds.get(0)!.playerHands.map((h) => h.cards);
+    expect(cards(recovered.table)).toEqual(cards(live.table));
+    expect(recovered.table.activeSeatIndex).toBe(live.table.activeSeatIndex);
+    expect(recovered.table.blackjackRounds.get(0)!.playerHands[0].bet).toBe(25); // the rejected double did not stick
+  });
+
+  it('voids the Blackjack hand with no balance changes if the dealer cannot play, instead of locking the table', async () => {
+    const { SharedDealer } = await import('@poker-blackjack/game-engine');
+    const { table, playerStore, handLog } = makeTable({ gameMode: 'blackjack', blackjackDefaultBet: 25 });
+    await playerStore.setBalance('alice', 1000);
+    await playerStore.setBalance('bob', 1000);
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'stand');
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dealerSpy = vi.spyOn(SharedDealer.prototype, 'playAndSettle').mockImplementation(() => {
+      throw new Error('Shoe is empty');
+    });
+    await table.submitAction(1, 'stand');
+    dealerSpy.mockRestore();
+    errorSpy.mockRestore();
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.activeSeatIndex).toBeNull();
+    expect(table.blackjackRounds.size).toBe(0);
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
+    await expect(playerStore.getBalance('bob')).resolves.toBe(1000);
+    await expect(handLog.readAll()).resolves.toEqual([]);
+    expect(table.seats.every((s) => !s || !s.ready)).toBe(true);
+
+    // The table is usable again: both ready up and a fresh hand deals.
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(true);
   });
 });

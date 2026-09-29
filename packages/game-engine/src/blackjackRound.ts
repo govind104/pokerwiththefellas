@@ -55,6 +55,11 @@ export class SharedDealer {
     return drawn;
   }
 
+  /** Cards left in the shoe. */
+  remaining(): number {
+    return this.shoe.length;
+  }
+
   /** Safe to show clients at any time. */
   getUpcard(): Card {
     return this.cards[0];
@@ -132,6 +137,15 @@ export class BlackjackRound {
     return this.sharedDealer ? this.sharedDealer.getCards() : this.ownDealerCards;
   }
 
+  // An action that needs cards must fail BEFORE it changes anything, so an exhausted shoe
+  // rejects the action cleanly (the player can still stand) instead of leaving a half-applied hand.
+  private assertCanDraw(count: number): void {
+    const left = this.sharedDealer ? this.sharedDealer.remaining() : this.shoe.length;
+    if (left < count) {
+      throw new Error('Shoe is empty');
+    }
+  }
+
   private draw(): Card {
     if (this.sharedDealer) {
       return this.sharedDealer.draw();
@@ -178,6 +192,7 @@ export class BlackjackRound {
 
     switch (action) {
       case 'hit': {
+        this.assertCanDraw(1);
         hand.cards.push(this.draw());
         if (isBust(hand.cards)) {
           hand.done = true;
@@ -192,6 +207,7 @@ export class BlackjackRound {
         if (hand.cards.length !== 2) {
           throw new Error('Can only double on the first two cards');
         }
+        this.assertCanDraw(1);
         hand.bet *= 2;
         hand.doubled = true;
         hand.cards.push(this.draw());
@@ -205,6 +221,7 @@ export class BlackjackRound {
         if (!canSplit(hand.cards)) {
           throw new Error('Hand is not eligible to split');
         }
+        this.assertCanDraw(2);
         this.splitUsed = true;
         const [first, second] = hand.cards;
 
