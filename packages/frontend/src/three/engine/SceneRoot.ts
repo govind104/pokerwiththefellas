@@ -80,6 +80,7 @@ export class SceneRoot {
   private time = 0;
   private lastTs = 0;
   private cards = new Map<string, CardObject>();
+  private sweeping = new Set<CardObject>();
   private chips = new Map<string, ChipStackObject>();
   private figures = new Map<string, Silhouette>();
   private raf = 0;
@@ -258,10 +259,23 @@ export class SceneRoot {
 
     // Cards.
     const keep = new Set<string>();
+    let sweepIdx = 0;
     for (const slot of model.cards) {
       keep.add(slot.key);
       const target = { x: slot.x, y: slot.y, z: slot.z, rotY: slot.rotY };
       let obj = this.cards.get(slot.key);
+      if (
+        obj &&
+        obj.card &&
+        (!slot.card || obj.card.rank !== slot.card.rank || obj.card.suit !== slot.card.suit)
+      ) {
+        // Keys repeat from one hand to the next (and a split rekeys a hand), so a slot that now
+        // holds a different card -- or a face-down one -- is a new card: retire the old one and
+        // deal a fresh one instead of relabelling it in place (which would show last hand's card).
+        this.cards.delete(slot.key);
+        this.retire(obj, sweepTo, 0.04 * sweepIdx++);
+        obj = undefined;
+      }
       if (!obj) {
         const created = new CardObject(this.tweens);
         obj = created;
@@ -284,10 +298,10 @@ export class SceneRoot {
           },
         });
       } else {
-        if (slot.card && (!obj.card || obj.card.rank !== slot.card.rank || obj.card.suit !== slot.card.suit)) {
-          const wasHidden = !obj.card;
+        if (slot.card && !obj.card) {
+          // The dealer's hole card (or an opponent's showdown hand) is being turned over.
           obj.setCard(slot.card);
-          if (wasHidden && obj.landed) {
+          if (obj.landed) {
             const delay = this.nextDealAt - now;
             this.nextDealAt += 0.5;
             obj.flip(true, delay, () => this.sound.cardFlip());
@@ -301,22 +315,10 @@ export class SceneRoot {
       }
     }
     // Cards no longer in play get swept to the discard tray.
-    let sweepIdx = 0;
     for (const [key, obj] of this.cards) {
       if (keep.has(key)) continue;
       this.cards.delete(key);
-      obj.moveTo(
-        { x: sweepTo.x, y: sweepTo.y + 0.02, z: sweepTo.z, rotY: 0.2 },
-        {
-          duration: 0.55,
-          delay: 0.04 * sweepIdx++,
-          arc: 0.06,
-          onLand: () => {
-            this.scene.remove(obj.group);
-            obj.dispose();
-          },
-        },
-      );
+      this.retire(obj, sweepTo, 0.04 * sweepIdx++);
     }
 
     // Chip stacks.
@@ -348,6 +350,24 @@ export class SceneRoot {
         onDone: () => this.scene.remove(stack.group),
       });
     }
+  }
+
+  // Sweep a card off the table; it is disposed when it lands (or on scene teardown).
+  private retire(obj: CardObject, to: THREE.Vector3, delay: number): void {
+    this.sweeping.add(obj);
+    obj.moveTo(
+      { x: to.x, y: to.y + 0.02, z: to.z, rotY: 0.2 },
+      {
+        duration: 0.55,
+        delay,
+        arc: 0.06,
+        onLand: () => {
+          this.sweeping.delete(obj);
+          this.scene.remove(obj.group);
+          obj.dispose();
+        },
+      },
+    );
   }
 
   private loop = (ts: number) => {
@@ -404,6 +424,8 @@ export class SceneRoot {
     this.composer?.dispose();
     for (const f of this.figures.values()) f.dispose();
     for (const c of this.cards.values()) c.dispose();
+    for (const c of this.sweeping) c.dispose();
+    this.sweeping.clear();
     this.scene.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
     });

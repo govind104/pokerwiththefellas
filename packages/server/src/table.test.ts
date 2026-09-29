@@ -488,22 +488,30 @@ describe('Table ready-gating and hand start (Blackjack)', () => {
     expect(table.blackjackRounds.get(1)!.playerHands[0].bet).toBe(25);
   });
 
-  it('gives each round an independent shoe (different card sequences)', async () => {
-    // The default deterministic random is a stateful generator whose output
-    // advances across calls, so alice's and bob's sequential
-    // buildShuffledDeck calls produce different shoes deterministically --
-    // verified below by checking their first cards differ, with no flake
-    // risk (unlike relying on Math.random's small-but-real chance of a
-    // 6-deck shoe collision on the very first card, ~1.92% per run).
-    const { table } = makeTable({ gameMode: 'blackjack' });
-    await table.join('alice');
-    await table.join('bob');
-    await table.setReady(0);
-    await table.setReady(1);
+  it('recovers exactly the cards live play produced, after a split and a hit', async () => {
+    // Recovery replays the logged shoe and actions; with one shared shoe every seat and
+    // the dealer draw from the same sequence, so any ordering drift would show up here.
+    // Seed 38 deals alice a splittable pair (see the split test above).
+    const live = makeTable({ gameMode: 'blackjack', random: makeDeterministicRandom(38) });
+    await live.table.join('alice');
+    await live.table.join('bob');
+    await live.table.setReady(0);
+    await live.table.setReady(1);
+    await live.table.submitAction(0, 'split');
+    await live.table.submitAction(0, 'hit');
+    expect(live.table.handInProgress).toBe(true);
 
-    const aliceFirstCard = table.blackjackRounds.get(0)!.playerHands[0].cards[0];
-    const bobFirstCard = table.blackjackRounds.get(1)!.playerHands[0].cards[0];
-    expect(aliceFirstCard).not.toEqual(bobFirstCard);
+    const recovered = makeTable({ gameMode: 'blackjack' });
+    recovered.handLog.entries = JSON.parse(JSON.stringify(live.handLog.entries));
+    await recovered.table.recoverFromLog();
+
+    const cardsOf = (t: Table, seat: number) => t.blackjackRounds.get(seat)!.playerHands.map((h) => h.cards);
+    expect(cardsOf(recovered.table, 0)).toEqual(cardsOf(live.table, 0));
+    expect(cardsOf(recovered.table, 1)).toEqual(cardsOf(live.table, 1));
+    expect(recovered.table.blackjackRounds.get(0)!.getDealerCards()).toEqual(
+      live.table.blackjackRounds.get(0)!.getDealerCards()
+    );
+    expect(recovered.table.activeSeatIndex).toBe(live.table.activeSeatIndex);
   });
 
   it('sets activeSeatIndex to the lowest seated index', async () => {

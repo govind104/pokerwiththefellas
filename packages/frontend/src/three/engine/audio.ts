@@ -33,9 +33,12 @@ export class SoundStage {
       this.sfx.connect(this.master);
       this.buildAmbience();
     }
-    await this.ctx.resume();
+    const ctx = this.ctx;
+    await ctx.resume();
+    // dispose() may have run while resume() was pending.
+    if (this.ctx !== ctx) return;
     this.enabled = true;
-    this.master?.gain.setTargetAtTime(0.9, this.ctx.currentTime, 0.2);
+    this.master?.gain.setTargetAtTime(0.9, ctx.currentTime, 0.2);
     this.startPiano();
   }
 

@@ -144,7 +144,10 @@ export function TableStage({
     if (readPref(SOUND_KEY, ['on', 'off'], 'off') === 'on') {
       // Browsers block audio until a gesture, so a stored "on" only takes effect after a click.
       arm = () => {
-        void sound.enable().then(() => setSoundOn(sound.enabled));
+        void sound.enable().then(
+          () => setSoundOn(sound.enabled),
+          () => undefined,
+        );
         window.removeEventListener('pointerdown', arm as () => void);
       };
       window.addEventListener('pointerdown', arm);
@@ -175,9 +178,13 @@ export function TableStage({
       setSoundOn(false);
       writePref(SOUND_KEY, 'off');
     } else {
-      await sound.enable();
+      try {
+        await sound.enable();
+      } catch {
+        return; // the browser refused to start audio; stay off
+      }
       setSoundOn(sound.enabled);
-      writePref(SOUND_KEY, 'on');
+      if (sound.enabled) writePref(SOUND_KEY, 'on');
     }
   }
 
