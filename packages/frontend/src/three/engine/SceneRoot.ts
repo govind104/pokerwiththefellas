@@ -4,7 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { slotPoint, type SceneModel } from '../sceneModel';
+import { TABLE_Y, slotPoint, type SceneModel } from '../sceneModel';
 import { CardObject } from './cards';
 import { ChipStackObject } from './chips';
 import { Room, SHOE_POS, TRAY_POS } from './room';
@@ -59,6 +59,10 @@ const GradeShader = {
     }
   `,
 };
+
+// Hold'em has no shoe: cards come from a deck in the middle and are mucked to the far side.
+const DECK_POS = new THREE.Vector3(0, TABLE_Y + 0.03, -0.3);
+const MUCK_POS = new THREE.Vector3(0, TABLE_Y + 0.01, -0.62);
 
 const BASE_CAM = new THREE.Vector3(0, 1.05, 1.42);
 const BASE_LOOK = new THREE.Vector3(0, 0.52, -0.2);
@@ -116,14 +120,6 @@ export class SceneRoot {
     this.scene.fog = new THREE.FogExp2(0x0a0604, 0.055);
     this.scene.add(this.room.group);
     this.camera.position.copy(BASE_CAM);
-
-    // The dealer is always present and always the same figure.
-    const dealerFig = new Silhouette({ hat: 'flat', hatColor: 0x1b1512, coatColor: 0x241a14, dealer: true });
-    const dp = slotPoint(0, 1.34);
-    dealerFig.group.position.set(dp.x, -0.12, dp.z);
-    dealerFig.faceToward(0, 0);
-    this.scene.add(dealerFig.group);
-    this.figures.set('dealer', dealerFig);
 
     opts.canvas.addEventListener('pointermove', this.onPointer);
     this.applyQuality(opts.quality);
@@ -217,8 +213,23 @@ export class SceneRoot {
     if (this.nextDealAt < now) this.nextDealAt = now;
     this.leanTarget = model.myTurn ? 1 : 0;
 
+    this.room.setMode(model.kind);
+    const origin = model.kind === 'blackjack' ? SHOE_POS : DECK_POS;
+    const sweepTo = model.kind === 'blackjack' ? TRAY_POS : MUCK_POS;
+
     // Seated figures (never the local player: that's the camera).
-    const wanted = new Set<string>(['dealer']);
+    const wanted = new Set<string>();
+    if (model.dealerFigure) {
+      wanted.add('dealer');
+      if (!this.figures.has('dealer')) {
+        const dealerFig = new Silhouette({ hat: 'flat', hatColor: 0x1b1512, coatColor: 0x241a14, dealer: true });
+        const dp = slotPoint(0, 1.34);
+        dealerFig.group.position.set(dp.x, -0.12, dp.z);
+        dealerFig.faceToward(0, 0);
+        this.scene.add(dealerFig.group);
+        this.figures.set('dealer', dealerFig);
+      }
+    }
     for (const seat of model.seats) {
       if (seat.isMe) continue;
       const id = `seat:${seat.seatIndex}`;
@@ -253,7 +264,7 @@ export class SceneRoot {
         obj = created;
         created.setCard(slot.card);
         created.setFaceUpImmediate(false);
-        created.placeAt({ x: SHOE_POS.x, y: SHOE_POS.y + 0.03, z: SHOE_POS.z, rotY: 0.6 });
+        created.placeAt({ x: origin.x, y: origin.y + 0.03, z: origin.z, rotY: 0.6 });
         this.scene.add(created.group);
         this.cards.set(slot.key, created);
         const delay = this.nextDealAt - now;
@@ -292,7 +303,7 @@ export class SceneRoot {
       if (keep.has(key)) continue;
       this.cards.delete(key);
       obj.moveTo(
-        { x: TRAY_POS.x, y: TRAY_POS.y + 0.02, z: TRAY_POS.z, rotY: 0.2 },
+        { x: sweepTo.x, y: sweepTo.y + 0.02, z: sweepTo.z, rotY: 0.2 },
         {
           duration: 0.55,
           delay: 0.04 * sweepIdx++,

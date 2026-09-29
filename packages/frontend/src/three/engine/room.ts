@@ -25,6 +25,7 @@ export class Room {
   private smoke: THREE.Sprite[] = [];
   private ember: THREE.Mesh;
   private baseSpot = 22;
+  private dealerProps = new THREE.Group();
 
   constructor() {
     const g = this.group;
@@ -175,7 +176,8 @@ export class Room {
     );
     tray.position.copy(TRAY_POS);
     tray.receiveShadow = true;
-    g.add(shoe, tray);
+    this.dealerProps.add(shoe, tray);
+    g.add(this.dealerProps);
 
     // Whiskey glass and a cigar in a saucer, near the local player's hand.
     const glassProfile = [
@@ -293,6 +295,11 @@ export class Room {
       g.add(s);
       this.smoke.push(s);
     }
+  }
+
+  // The shoe and discard tray belong to Blackjack only.
+  setMode(kind: 'blackjack' | 'holdem'): void {
+    this.dealerProps.visible = kind === 'blackjack';
   }
 
   setQuality(q: 'low' | 'medium' | 'high'): void {

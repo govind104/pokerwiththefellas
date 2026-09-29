@@ -22,9 +22,9 @@ export const DEALER_SLOT = 0;
 export const MY_SLOT = 180;
 export const OTHER_SLOTS = [295, 65, 330, 30, 250];
 
-const HAND_FACTOR = 0.55;
-const RAIL_FACTOR = 1.02;
-const BODY_FACTOR = 1.3;
+export const HAND_FACTOR = 0.55;
+export const RAIL_FACTOR = 1.02;
+export const BODY_FACTOR = 1.3;
 
 export interface Vec2 {
   x: number;
@@ -37,7 +37,7 @@ export function slotPoint(angleDeg: number, factor: number): Vec2 {
 }
 
 // Direction along which cards in a hand fan out for a given slot.
-function tangent(angleDeg: number): Vec2 {
+export function tangent(angleDeg: number): Vec2 {
   const r = (angleDeg * Math.PI) / 180;
   return { x: -Math.cos(r), z: -Math.sin(r) };
 }
@@ -94,7 +94,17 @@ export interface OutcomeLabel {
   z: number;
 }
 
+export interface PotModel {
+  amount: number;
+  x: number;
+  z: number;
+}
+
 export interface SceneModel {
+  kind: 'blackjack' | 'holdem';
+  // Blackjack has a standing dealer with a shoe; Hold'em is players only.
+  dealerFigure: boolean;
+  pot: PotModel | null;
   cards: CardSlot[];
   chips: ChipStackModel[];
   seats: SeatModel[];
@@ -151,6 +161,28 @@ function seatStatus(seat: SeatView, round: BlackjackRoundView | undefined, isAct
   return isActive ? (isMe ? 'Your turn' : 'Thinking…') : `Bet ${totalBet}`;
 }
 
+// Order players clockwise starting after the local player, so the table looks
+// the same from every chair.
+export function orderSeated<T extends { seatIndex: number }>(seated: T[], mySeatIndex: number | null, n: number): T[] {
+  const rel = (s: T) => (mySeatIndex === null ? s.seatIndex : (s.seatIndex - mySeatIndex + n) % n);
+  return [...seated].sort((a, b) => rel(a) - rel(b));
+}
+
+export function assignSlots(
+  ordered: { seatIndex: number }[],
+  mySeatIndex: number | null,
+  others: number[],
+): Map<number, number> {
+  const slotOf = new Map<number, number>();
+  // A spectator has no chair of their own, so the near slot is free for the first player.
+  const free = mySeatIndex === null ? [MY_SLOT, ...others] : [...others];
+  for (const s of ordered) {
+    if (s.seatIndex === mySeatIndex) slotOf.set(s.seatIndex, MY_SLOT);
+    else slotOf.set(s.seatIndex, free.shift() ?? MY_SLOT);
+  }
+  return slotOf;
+}
+
 export function buildSceneModel(input: SceneInput): SceneModel {
   const { seats, activeSeatIndex, mySeatIndex, blackjackRounds } = input;
   const seated = seats.filter((s) => s.displayName).sort((a, b) => a.seatIndex - b.seatIndex);
@@ -158,15 +190,8 @@ export function buildSceneModel(input: SceneInput): SceneModel {
 
   // Local player is always the near slot; the rest are placed in seat order
   // relative to them so the table looks the same from every chair.
-  const rel = (s: SeatView) => (mySeatIndex === null ? s.seatIndex : (s.seatIndex - mySeatIndex + n) % n);
-  const ordered = [...seated].sort((a, b) => rel(a) - rel(b));
-  const slotOf = new Map<number, number>();
-  // A spectator has no chair of their own, so the near slot is free for the first player.
-  const free = mySeatIndex === null ? [MY_SLOT, ...OTHER_SLOTS] : [...OTHER_SLOTS];
-  for (const s of ordered) {
-    if (s.seatIndex === mySeatIndex) slotOf.set(s.seatIndex, MY_SLOT);
-    else slotOf.set(s.seatIndex, free.shift() ?? MY_SLOT);
-  }
+  const ordered = orderSeated(seated, mySeatIndex, n);
+  const slotOf = assignSlots(ordered, mySeatIndex, OTHER_SLOTS);
 
   const cards: CardSlot[] = [];
   const chips: ChipStackModel[] = [];
@@ -264,6 +289,9 @@ export function buildSceneModel(input: SceneInput): SceneModel {
   }
 
   return {
+    kind: 'blackjack',
+    dealerFigure: true,
+    pot: null,
     cards,
     chips,
     seats: seatModels,

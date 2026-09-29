@@ -13,8 +13,9 @@ import { resolveServerUrl } from './serverUrl';
 
 // three.js is only fetched when the 3D Blackjack view is actually shown.
 const Blackjack3D = lazy(() => import('./three/Blackjack3D'));
+const Poker3D = lazy(() => import('./three/Poker3D'));
 
-const VIEW_KEY = 'bj.view';
+const VIEW_KEY = 'table.view';
 
 function readView(): '2d' | '3d' {
   try {
@@ -77,10 +78,6 @@ function TableView({
     onLeave,
   };
 
-  if (table.gameMode === 'holdem') {
-    return <PokerTable {...sharedProps} holdem={table.holdem} onAction={onAction} />;
-  }
-
   if (view === '3d') {
     return (
       <Suspense
@@ -90,15 +87,25 @@ function TableView({
           </main>
         }
       >
-        <Blackjack3D
-          {...sharedProps}
-          activeSeatIndex={table.activeSeatIndex}
-          blackjackRounds={table.blackjackRounds}
-          onAction={onAction}
-          onSwitchTo2D={() => chooseView('2d')}
-          // No WebGL: fall back without overwriting the user's stored preference.
-          onUnsupported={() => setView('2d')}
-        />
+        {table.gameMode === 'holdem' ? (
+          <Poker3D
+            {...sharedProps}
+            holdem={table.holdem}
+            onAction={onAction}
+            onSwitchTo2D={() => chooseView('2d')}
+            // No WebGL: fall back without overwriting the user's stored preference.
+            onUnsupported={() => setView('2d')}
+          />
+        ) : (
+          <Blackjack3D
+            {...sharedProps}
+            activeSeatIndex={table.activeSeatIndex}
+            blackjackRounds={table.blackjackRounds}
+            onAction={onAction}
+            onSwitchTo2D={() => chooseView('2d')}
+            onUnsupported={() => setView('2d')}
+          />
+        )}
       </Suspense>
     );
   }
@@ -112,12 +119,16 @@ function TableView({
       >
         3D view
       </button>
-      <BlackjackTable
-        {...sharedProps}
-        activeSeatIndex={table.activeSeatIndex}
-        blackjackRounds={table.blackjackRounds}
-        onAction={onAction}
-      />
+      {table.gameMode === 'holdem' ? (
+        <PokerTable {...sharedProps} holdem={table.holdem} onAction={onAction} />
+      ) : (
+        <BlackjackTable
+          {...sharedProps}
+          activeSeatIndex={table.activeSeatIndex}
+          blackjackRounds={table.blackjackRounds}
+          onAction={onAction}
+        />
+      )}
     </>
   );
 }
