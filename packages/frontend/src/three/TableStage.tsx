@@ -320,7 +320,10 @@ export function TableStage({
       </div>
 
       {myModel && (
-        <div className="absolute bottom-4 left-4 flex flex-col rounded border border-wood-grain px-3 py-1.5" style={{ background: PLATE_BG }}>
+        <div
+          className="absolute bottom-32 left-4 flex flex-col rounded border border-wood-grain px-3 py-1.5 sm:bottom-4"
+          style={{ background: PLATE_BG }}
+        >
           <span className="font-utility text-sm text-parchment" style={{ textShadow: GLOW }}>
             {myModel.name} &middot; {myModel.balance}
           </span>

@@ -3,7 +3,7 @@ import type { SeatView, HoldemView } from '@poker-blackjack/server/src/table';
 import type { HoldemAction, Card } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
 import { Button } from '../components/Button';
-import { buildPokerModel } from './pokerModel';
+import { buildPokerModel, amountToCall } from './pokerModel';
 import { TableStage } from './TableStage';
 
 export interface Poker3DProps {
@@ -44,6 +44,7 @@ export function Poker3D({
   const myName = seats.find((s) => s.seatIndex === mySeatIndex)?.displayName;
   const me = holdem?.players.find((p) => p.playerId === myName) ?? null;
   const showActions = model.myTurn && !!me?.holeCards;
+  const toCall = holdem && me ? amountToCall(holdem, me) : 0;
 
   // A value typed into the raise field on one street/turn must not leak into
   // the next: reset whenever the street or the acting player changes.
@@ -84,20 +85,33 @@ export function Poker3D({
       summary={summary}
     >
       {showActions && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-2 px-2">
           <Button variant="danger" size="md" onClick={() => onAction('fold')}>
             Fold
           </Button>
-          <Button variant="neutral" size="md" onClick={() => onAction('check')}>
+          <Button
+            variant="neutral"
+            size="md"
+            disabled={toCall > 0}
+            title={toCall > 0 ? 'You are facing a bet' : undefined}
+            onClick={() => onAction('check')}
+          >
             Check
           </Button>
-          <Button variant="neutral" size="md" onClick={() => onAction('call')}>
-            Call
+          <Button
+            variant="neutral"
+            size="md"
+            disabled={toCall === 0}
+            title={toCall === 0 ? 'Nothing to call' : undefined}
+            onClick={() => onAction('call')}
+          >
+            {toCall > 0 ? `Call ${toCall}` : 'Call'}
           </Button>
           <input
             type="number"
             value={raiseAmount}
-            onChange={(event) => setRaiseAmount(Number(event.target.value))}
+            // Whole, non-negative chips only.
+            onChange={(event) => setRaiseAmount(Math.max(0, Math.floor(Number(event.target.value) || 0)))}
             aria-label="Raise amount"
             min={1}
             step={1}

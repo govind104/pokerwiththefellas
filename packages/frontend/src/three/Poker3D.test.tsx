@@ -35,7 +35,7 @@ const holdem: HoldemView = {
   players: [
     {
       playerId: 'alice',
-      stack: 900,
+      stack: 980,
       streetContributed: 0,
       folded: false,
       isAllIn: false,
@@ -44,7 +44,7 @@ const holdem: HoldemView = {
         { rank: 'K', suit: 'hearts' },
       ],
     },
-    { playerId: 'bob', stack: 900, streetContributed: 10, folded: false, isAllIn: false, holeCards: null },
+    { playerId: 'bob', stack: 980, streetContributed: 10, folded: false, isAllIn: false, holeCards: null },
   ],
 };
 
@@ -100,15 +100,35 @@ describe('Poker3D', () => {
     const { rerender } = render(<Poker3D {...p} />);
     await userEvent.click(screen.getByRole('button', { name: 'Fold' }));
     expect(p.onAction).toHaveBeenLastCalledWith('fold');
-    await userEvent.click(screen.getByRole('button', { name: 'Check' }));
-    expect(p.onAction).toHaveBeenLastCalledWith('check');
-    await userEvent.click(screen.getByRole('button', { name: 'Call' }));
+    // Bob has 10 in and alice 0, so Check is blocked and Call shows the price.
+    expect(screen.getByRole('button', { name: 'Check' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Call 10' }));
     expect(p.onAction).toHaveBeenLastCalledWith('call');
     await userEvent.click(screen.getByRole('button', { name: 'All In' }));
     expect(p.onAction).toHaveBeenLastCalledWith('all-in');
 
     rerender(<Poker3D {...p} holdem={{ ...holdem, actingPlayerId: 'bob' }} />);
     expect(screen.queryByRole('button', { name: 'Fold' })).not.toBeInTheDocument();
+  });
+
+  it('allows Check (and blocks Call) when nothing is owed', async () => {
+    const even: HoldemView = { ...holdem, players: holdem.players.map((pl) => ({ ...pl, streetContributed: 0 })) };
+    const p = props({ holdem: even });
+    render(<Poker3D {...p} />);
+    expect(screen.getByRole('button', { name: 'Call' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Check' }));
+    expect(p.onAction).toHaveBeenLastCalledWith('check');
+  });
+
+  it('never lets a negative or fractional raise into the field', async () => {
+    render(<Poker3D {...props()} />);
+    const input = screen.getByLabelText('Raise amount');
+    await userEvent.clear(input);
+    await userEvent.type(input, '7.5');
+    expect(input).toHaveValue(7);
+    await userEvent.clear(input);
+    await userEvent.type(input, '-5');
+    expect(Number((input as HTMLInputElement).value)).toBeGreaterThanOrEqual(0);
   });
 
   it('sends the typed raise amount, and clears it when the street changes', async () => {

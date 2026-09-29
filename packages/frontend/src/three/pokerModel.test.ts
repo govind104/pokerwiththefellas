@@ -1,7 +1,7 @@
 import type { HoldemView, SeatView } from '@poker-blackjack/server/src/table';
 import type { Card } from '@poker-blackjack/game-engine';
 import { MY_SLOT } from './sceneModel';
-import { POKER_OTHER_SLOTS, actingSeatIndex, buildPokerModel } from './pokerModel';
+import { POKER_OTHER_SLOTS, actingSeatIndex, amountToCall, buildPokerModel, livePot } from './pokerModel';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 type P = HoldemView['players'][number];
@@ -81,22 +81,24 @@ describe('buildPokerModel', () => {
     expect(m.cards.some((k) => k.key.startsWith('h:2:'))).toBe(false);
   });
 
-  it('lays out community cards left to right and totals every pot into one stack', () => {
+  it('lays out community cards left to right and derives the running pot from what players have put in', () => {
+    // The server leaves `pots` empty until settlement and only debits seat balances then,
+    // so the live pot is (balance before the hand - in-hand stack), summed.
     const h = hand({
       street: 'flop',
       communityCards: [c('2', 'clubs'), c('7', 'diamonds'), c('Q', 'hearts')],
-      pots: [
-        { amount: 60, eligiblePlayerIds: ['a', 'b'] },
-        { amount: 20, eligiblePlayerIds: ['a'] },
-      ],
+      pots: [],
+      players: [player('a', { stack: 920 }), player('b', { stack: 920 }), player('c', { stack: 960 })],
     });
     const m = buildPokerModel({ seats: seats(['a', 'b', 'c']), mySeatIndex: 0, holdem: h });
     const cc = m.cards.filter((k) => k.key.startsWith('cc:'));
     expect(cc.map((k) => k.key)).toEqual(['cc:0', 'cc:1', 'cc:2']);
     expect(cc[0].x).toBeLessThan(cc[1].x);
     expect(cc[1].x).toBeLessThan(cc[2].x);
-    expect(m.pot?.amount).toBe(80);
-    expect(m.chips.find((k) => k.key === 'pot')?.amount).toBe(80);
+    expect(m.pot?.amount).toBe(200);
+    expect(m.chips.find((k) => k.key === 'pot')?.amount).toBe(200);
+    // Plates show the live in-hand stack, not the not-yet-debited seat balance.
+    expect(m.seats.map((s) => s.balance)).toEqual([920, 920, 960]);
   });
 
   it('emits a bet stack only for players who have money in this street', () => {
@@ -133,6 +135,35 @@ describe('buildPokerModel', () => {
     const m = buildPokerModel({ seats: seats(['a', 'b', 'c']), mySeatIndex: 0, holdem: h });
     expect(m.seats.map((s) => s.status)).toEqual(['Won 30', 'Lost 30', 'Push']);
     expect(m.outcomes.map((o) => [o.text, o.polarity])).toEqual([['Won 30', 'win']]);
+  });
+});
+
+describe('livePot / amountToCall', () => {
+  it('uses the settled pots once the hand is over', () => {
+    const h = hand({ street: 'settled', pots: [{ amount: 80, eligiblePlayerIds: ['a'] }, { amount: 20, eligiblePlayerIds: ['a'] }] });
+    expect(livePot(seats(['a', 'b', 'c']), h)).toBe(100);
+  });
+
+  it('keeps this street’s bets out of the centre stack (they sit in front of each player)', () => {
+    const h = hand({
+      players: [player('a', { stack: 900, streetContributed: 40 }), player('b', { stack: 900, streetContributed: 40 }), player('c', { stack: 1000 })],
+    });
+    const m = buildPokerModel({ seats: seats(['a', 'b', 'c']), mySeatIndex: 0, holdem: h });
+    expect(m.pot?.amount).toBe(200);
+    expect(m.chips.find((k) => k.key === 'pot')?.amount).toBe(120);
+    expect(m.chips.filter((k) => k.key.startsWith('bet:')).map((k) => k.amount)).toEqual([40, 40]);
+  });
+
+  it('computes the call amount from the biggest live bet, capped by the stack', () => {
+    const h = hand({
+      players: [
+        player('a', { stack: 50, streetContributed: 10 }),
+        player('b', { stack: 500, streetContributed: 200 }),
+        player('c', { stack: 500, streetContributed: 500, folded: true }),
+      ],
+    });
+    expect(amountToCall(h, h.players[0])).toBe(50); // owes 190 but only has 50
+    expect(amountToCall(h, h.players[1])).toBe(0);
   });
 });
 

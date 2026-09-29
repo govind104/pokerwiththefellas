@@ -21,7 +21,7 @@ import {
 // Hold'em has no dealer figure, so the far-centre chair is a real seat (0deg).
 export const POKER_OTHER_SLOTS = [295, 65, 330, 30, 0];
 
-const COMMUNITY_STEP = 0.14;
+const COMMUNITY_STEP = 0.18;
 const COMMUNITY_Z = -0.14;
 const POT_Z = 0.14;
 
@@ -31,8 +31,28 @@ export interface PokerInput {
   holdem: HoldemView | null;
 }
 
+// What the acting player must add to stay in: the biggest bet this street minus their own, capped at their stack.
+export function amountToCall(holdem: HoldemView, me: HoldemView['players'][number]): number {
+  const highest = Math.max(0, ...holdem.players.filter((p) => !p.folded).map((p) => p.streetContributed));
+  return Math.max(0, Math.min(highest - me.streetContributed, me.stack));
+}
+
 export function actingSeatIndex(seats: SeatView[], holdem: HoldemView | null): number | null {
   return holdem ? (seats.find((s) => s.displayName === holdem.actingPlayerId)?.seatIndex ?? null) : null;
+}
+
+// The server only fills `holdem.pots` at settlement, and seat balances are not
+// debited until then either. Mid-hand, what a player has put in is their seat
+// balance (pre-hand) minus their live in-hand stack, so the running pot is the
+// sum of that across everyone dealt in.
+export function livePot(seats: SeatView[], holdem: HoldemView): number {
+  if (holdem.street === 'settled') return holdem.pots.reduce((sum, p) => sum + p.amount, 0);
+  let total = 0;
+  for (const p of holdem.players) {
+    const seat = seats.find((s) => s.displayName === p.playerId);
+    if (seat) total += Math.max(0, seat.balance - p.stack);
+  }
+  return total;
 }
 
 function resultLabel(payout: number): { text: string; polarity: 'win' | 'lose' | 'push' } {
@@ -97,7 +117,8 @@ export function buildPokerModel({ seats, mySeatIndex, holdem }: PokerInput): Sce
     seatModels.push({
       seatIndex: seat.seatIndex,
       name: seat.displayName as string,
-      balance: seat.balance,
+      // Mid-hand the in-hand stack is the live number; the seat balance only updates at settlement.
+      balance: holdem && !settled && player ? player.stack : seat.balance,
       isMe,
       isActive,
       connected: seat.connected,
@@ -151,14 +172,18 @@ export function buildPokerModel({ seats, mySeatIndex, holdem }: PokerInput): Sce
         seatIndex: seat.seatIndex,
         text: result.text,
         polarity: result.polarity,
-        x: centre.x,
-        z: centre.z,
+        // Toward the player, clear of the community cards and pot.
+        x: centre.x + Math.sin(rad) * 0.3,
+        z: centre.z - Math.cos(rad) * 0.3,
       });
     }
   }
 
-  const potTotal = holdem ? holdem.pots.reduce((sum, p) => sum + p.amount, 0) : 0;
-  if (potTotal > 0) chips.push({ key: 'pot', amount: potTotal, x: 0, z: POT_Z });
+  const potTotal = holdem ? livePot(seats, holdem) : 0;
+  // The centre stack holds money from earlier streets; this street's bets are still out in front of players.
+  const inFront = holdem && !settled ? holdem.players.reduce((sum, p) => sum + p.streetContributed, 0) : 0;
+  const collected = potTotal - inFront;
+  if (collected > 0) chips.push({ key: 'pot', amount: collected, x: 0, z: POT_Z });
 
   return {
     kind: 'holdem',

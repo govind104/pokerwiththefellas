@@ -12,10 +12,10 @@ import type { Card, Outcome } from '@poker-blackjack/game-engine';
 export const TABLE_A = 1.2;
 export const TABLE_B = 0.85;
 export const TABLE_Y = 0.76;
-export const CARD_W = 0.12;
-export const CARD_H = 0.168;
-export const CARD_STEP = 0.092;
-export const HAND_GAP = 0.42;
+export const CARD_W = 0.15;
+export const CARD_H = 0.21;
+export const CARD_STEP = 0.115;
+export const HAND_GAP = 0.5;
 
 // Angles in degrees, 0 = far (dealer), 90 = right, 180 = near (camera), 270 = left.
 export const DEALER_SLOT = 0;
@@ -153,10 +153,22 @@ export interface SceneInput {
   blackjackRounds: Record<number, BlackjackRoundView> | null;
 }
 
+// Each seat plays its own round (the server deals every seat its own shoe and
+// dealer hand), so "the dealer" on screen is the local player's dealer -- the
+// one their result is computed against. Spectators fall back to the first seat's.
+export function pickDealerRound(
+  rounds: Record<number, BlackjackRoundView> | null,
+  mySeatIndex: number | null,
+): BlackjackRoundView | undefined {
+  if (!rounds) return undefined;
+  return (mySeatIndex !== null ? rounds[mySeatIndex] : undefined) ?? Object.values(rounds)[0];
+}
+
 function seatStatus(seat: SeatView, round: BlackjackRoundView | undefined, isActive: boolean, isMe: boolean): string {
   // Same wording as the 2D BlackjackTable so both views tell the same story.
   if (!round) return seat.connected ? (seat.ready ? 'Ready' : 'Not ready') : 'Disconnected';
   if (!seat.connected) return 'Disconnected';
+  if (round.phase === 'settled' && round.results) return round.results.map((r) => OUTCOME_LABELS[r.outcome]).join(' / ');
   const totalBet = round.playerHands.reduce((sum, hand) => sum + hand.bet, 0);
   return isActive ? (isMe ? 'Your turn' : 'Thinking…') : `Bet ${totalBet}`;
 }
@@ -198,7 +210,7 @@ export function buildSceneModel(input: SceneInput): SceneModel {
   const outcomes: OutcomeLabel[] = [];
   const seatModels: SeatModel[] = [];
 
-  const firstRound = blackjackRounds ? Object.values(blackjackRounds)[0] : undefined;
+  const firstRound = pickDealerRound(blackjackRounds, mySeatIndex);
 
   if (firstRound) {
     // Dealer: upcard + face-down hole card until the dealer's full hand is revealed.
@@ -221,8 +233,9 @@ export function buildSceneModel(input: SceneInput): SceneModel {
   for (const seat of seated) {
     const angle = slotOf.get(seat.seatIndex) ?? MY_SLOT;
     const isMe = seat.seatIndex === mySeatIndex;
-    const isActive = seat.seatIndex === activeSeatIndex;
     const round = blackjackRounds?.[seat.seatIndex];
+    // A seat whose round has settled is done, even if the server still names it as active.
+    const isActive = seat.seatIndex === activeSeatIndex && round?.phase !== 'settled';
 
     const body = slotPoint(angle, BODY_FACTOR);
     const plate = slotPoint(angle, RAIL_FACTOR + 0.03);
@@ -281,8 +294,8 @@ export function buildSceneModel(input: SceneInput): SceneModel {
           seatIndex: seat.seatIndex,
           text: OUTCOME_LABELS[outcome],
           polarity: OUTCOME_POLARITY[outcome],
-          x: hx,
-          z: hz,
+          x: hx + toOwner.x * 0.3,
+          z: hz + toOwner.z * 0.3,
         });
       }
     });
@@ -297,7 +310,7 @@ export function buildSceneModel(input: SceneInput): SceneModel {
     seats: seatModels,
     outcomes,
     hasRound: !!firstRound,
-    myTurn: mySeatIndex !== null && mySeatIndex === activeSeatIndex,
+    myTurn: mySeatIndex !== null && mySeatIndex === activeSeatIndex && blackjackRounds?.[mySeatIndex]?.phase !== 'settled',
     dealerActive: firstRound?.phase === 'dealer',
   };
 }

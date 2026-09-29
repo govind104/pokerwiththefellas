@@ -6,6 +6,7 @@ import { Chip } from './Chip';
 import { GameTable } from './GameTable';
 import { Button } from './Button';
 import { PANEL_CLASS, PANEL_CLASS_SM } from './panelStyles';
+import { pickDealerRound } from '../three/sceneModel';
 
 const OUTCOME_LABELS: Record<Outcome, string> = {
   blackjack: 'Blackjack!',
@@ -55,7 +56,8 @@ export function BlackjackTable({
   onAction,
 }: BlackjackTableProps) {
   const isMyTurn = mySeatIndex !== null && mySeatIndex === activeSeatIndex;
-  const dealerRound = blackjackRounds ? Object.values(blackjackRounds)[0] : undefined;
+  // Each seat has its own dealer hand server-side; show the local player's own.
+  const dealerRound = pickDealerRound(blackjackRounds, mySeatIndex);
 
   const players = seats.filter((s) => s.displayName).sort((a, b) => a.seatIndex - b.seatIndex);
 

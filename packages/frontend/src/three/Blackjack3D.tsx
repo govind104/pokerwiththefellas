@@ -3,7 +3,7 @@ import type { SeatView, BlackjackRoundView } from '@poker-blackjack/server/src/t
 import type { PlayerAction, Card } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
 import { Button } from '../components/Button';
-import { buildSceneModel } from './sceneModel';
+import { buildSceneModel, pickDealerRound } from './sceneModel';
 import { TableStage } from './TableStage';
 
 export interface Blackjack3DProps {
@@ -44,7 +44,7 @@ export function Blackjack3D({
     () => buildSceneModel({ seats, activeSeatIndex, mySeatIndex, blackjackRounds }),
     [seats, activeSeatIndex, mySeatIndex, blackjackRounds],
   );
-  const dealerRound = blackjackRounds ? Object.values(blackjackRounds)[0] : undefined;
+  const dealerRound = pickDealerRound(blackjackRounds, mySeatIndex);
   const dealerText = dealerRound
     ? (dealerRound.dealerCards ?? [dealerRound.dealerUpcard, null]).map(describeCard).join(', ')
     : 'no hand in progress';
@@ -89,7 +89,7 @@ export function Blackjack3D({
       summary={summary}
     >
       {model.myTurn && (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-center gap-2 px-2">
           <Button variant="neutral" size="md" onClick={() => onAction('hit')}>
             Hit
           </Button>
