@@ -1,3 +1,4 @@
+import { lazy, Suspense, useState } from 'react';
 import { MotionConfig } from 'framer-motion';
 import { SocketProvider, useSocket, type ConnectionStatus } from './socket/SocketContext';
 import type { TableStateView } from '@poker-blackjack/server/src/table';
@@ -9,6 +10,30 @@ import { JoinScreen } from './components/JoinScreen';
 import { PokerTable } from './components/PokerTable';
 import { BlackjackTable } from './components/BlackjackTable';
 import { resolveServerUrl } from './serverUrl';
+
+// three.js is only fetched when the 3D Blackjack view is actually shown.
+const Blackjack3D = lazy(() => import('./three/Blackjack3D'));
+
+const VIEW_KEY = 'bj.view';
+
+function readView(): '2d' | '3d' {
+  try {
+    const stored = window.localStorage.getItem(VIEW_KEY);
+    if (stored === '2d' || stored === '3d') return stored;
+  } catch {
+    /* storage unavailable */
+  }
+  // No stored choice: 3D on desktop-sized screens, 2D on phones.
+  return window.innerWidth >= 900 ? '3d' : '2d';
+}
+
+function writeView(v: '2d' | '3d'): void {
+  try {
+    window.localStorage.setItem(VIEW_KEY, v);
+  } catch {
+    /* preference just won't persist */
+  }
+}
 
 // The same-origin fallback (page origin) is correct for `npm run play`
 // (single process) and for `npm run dev` (vite.config.ts proxies
@@ -37,6 +62,11 @@ function TableView({
 }) {
   const mySeatIndex =
     table.seats.find((s) => s.displayName !== null && s.displayName === displayName)?.seatIndex ?? null;
+  const [view, setView] = useState<'2d' | '3d'>(readView);
+  const chooseView = (v: '2d' | '3d') => {
+    writeView(v);
+    setView(v);
+  };
   const sharedProps = {
     seats: table.seats,
     mySeatIndex,
@@ -47,15 +77,48 @@ function TableView({
     onLeave,
   };
 
-  return table.gameMode === 'holdem' ? (
-    <PokerTable {...sharedProps} holdem={table.holdem} onAction={onAction} />
-  ) : (
-    <BlackjackTable
-      {...sharedProps}
-      activeSeatIndex={table.activeSeatIndex}
-      blackjackRounds={table.blackjackRounds}
-      onAction={onAction}
-    />
+  if (table.gameMode === 'holdem') {
+    return <PokerTable {...sharedProps} holdem={table.holdem} onAction={onAction} />;
+  }
+
+  if (view === '3d') {
+    return (
+      <Suspense
+        fallback={
+          <main className="flex min-h-screen items-center justify-center bg-black text-fg-dim">
+            <p>Pulling up a chair&hellip;</p>
+          </main>
+        }
+      >
+        <Blackjack3D
+          {...sharedProps}
+          activeSeatIndex={table.activeSeatIndex}
+          blackjackRounds={table.blackjackRounds}
+          onAction={onAction}
+          onSwitchTo2D={() => chooseView('2d')}
+          // No WebGL: fall back without overwriting the user's stored preference.
+          onUnsupported={() => setView('2d')}
+        />
+      </Suspense>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => chooseView('3d')}
+        className="fixed left-3 top-3 z-40 rounded-md border border-wood-grain bg-surface px-2 py-1 font-utility text-xs text-parchment"
+      >
+        3D view
+      </button>
+      <BlackjackTable
+        {...sharedProps}
+        activeSeatIndex={table.activeSeatIndex}
+        blackjackRounds={table.blackjackRounds}
+        onAction={onAction}
+      />
+    </>
   );
 }
 
