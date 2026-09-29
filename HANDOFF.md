@@ -254,14 +254,14 @@ across all 3 workspaces.
 ```bash
 npm install
 npm test              # full monorepo test suite
-npm run typecheck      # both workspaces
+npm run typecheck      # all three workspaces
 ```
 
 Per-workspace: `npm run test --workspace=@poker-blackjack/game-engine` /
-`--workspace=@poker-blackjack/server`.
+`--workspace=@poker-blackjack/server` / `--workspace=@poker-blackjack/frontend`.
 
 **To run the app locally:** set `ADMIN_PASSPHRASE` (required — without it the server
-warns and refuses every admin action, so no game can ever start) and start the backend
+refuses to start, since no game could ever be started) and start the backend
 (`npm run dev --workspace=@poker-blackjack/server`, listens on port 3000 by default — see
 `packages/server/src/index.ts` for the full list of env vars it reads: `PORT`,
 `ADMIN_PASSPHRASE`, `SMALL_BLIND`/`BIG_BLIND`/`BLACKJACK_DEFAULT_BET`/
@@ -297,7 +297,7 @@ task-scoped code review after each, and a broad whole-branch review (this is wha
 Plan 3's 3 Critical bugs, later the saloon redesign's and table layout redesign's own
 review-round findings, and Plan 5's 2 Critical cross-task integration bugs) before
 merging. If continuing this project with Claude Code, that same process is the
-established pattern for Plan 6 — see Plan 3's or Plan 4's progress ledger
+established pattern for any new work (it was used for everything through Plan 6) — see Plan 3's or Plan 4's progress ledger
 (`docs/superpowers/plans/*-progress-ledger.md`) for exactly how it played out in
 practice, including the judgment calls (which review findings got fixed immediately vs.
 deferred, and why). The saloon redesign, table layout redesign, and Plan 5 all followed

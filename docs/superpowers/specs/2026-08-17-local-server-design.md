@@ -72,7 +72,11 @@ running in parallel, each with its own shoe and dealer outcome, coordinated by `
 only for turn order and broadcasting. This requires no changes to the engine and is
 consistent with the 6-deck-shoe-reshuffled-every-hand rule already established for
 Blackjack (Section 3 of the original spec) — nothing about that rule assumed a shared
-shoe across players. There is no multi-tenancy and no `TableManager` — the original
+shoe across players. **(Superseded 2026-09-29: a playtest showed private per-seat
+dealers were wrong — results never matched the dealer on screen. Blackjack now uses ONE
+shoe and ONE dealer hand per table hand via `SharedDealer` in the engine, with the dealer
+playing once after the last seat; see HANDOFF.md "After Plan 6". The text in this
+paragraph is the original design, kept for history.)** There is no multi-tenancy and no `TableManager` — the original
 spec's Section 1 explicitly excludes multiple simultaneous tables for this project, so
 building one now would be speculative. `Table` is kept as a single, well-bounded class
 specifically so that promoting to multiple tables later, if it's ever genuinely needed,
