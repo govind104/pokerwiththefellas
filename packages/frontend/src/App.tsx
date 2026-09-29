@@ -12,7 +12,7 @@ import { BlackjackTable } from './components/BlackjackTable';
 import { resolveServerUrl } from './serverUrl';
 import { View3DBoundary } from './three/View3DBoundary';
 
-// three.js is only fetched when the 3D Blackjack view is actually shown.
+// three.js is only fetched when a 3D table view (Blackjack or Hold'em) is actually shown.
 const Blackjack3D = lazy(() => import('./three/Blackjack3D'));
 const Poker3D = lazy(() => import('./three/Poker3D'));
 

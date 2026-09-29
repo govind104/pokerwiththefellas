@@ -1,3 +1,5 @@
+*Historical record. Blackjack no longer gives each seat its own shoe and dealer (it uses one shared shoe and dealer, settled together after the last seat), the table seats 6 not 8, and actions are now logged before they are applied; see HANDOFF.md "After Plan 6".*
+
 # Plan 3 (local-server) — Final review fix specification
 
 **Status as of hand-off (2026-08-18): NOT YET APPLIED.** The final whole-branch review

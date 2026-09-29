@@ -2,7 +2,8 @@
 
 A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built via a
 6-plan roadmap and since extended with first-person 3D tables and a shared Blackjack dealer
-(see "After Plan 6" below). Start here if you're new to this repo.
+(see "After Plan 6" below). Start here if you're new to this repo; `docs/README.md` says
+which docs are kept current and which are historical records.
 
 ## Where things stand
 
@@ -14,10 +15,11 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 | 4 | Frontend (`packages/frontend`) | Done, merged to `master` |
 | 5 | Lobby & Admin Controls (`packages/server`, `packages/frontend`) | Done, merged to `master` |
 | 6 | Local hosting over Tailscale (re-scoped from AWS deployment) | Done, merged to `master` |
+| after 6 | First-person 3D tables, shared Blackjack dealer, write-ahead hand log | Done, merged to `master` (see "After Plan 6") |
 
 **Two follow-up UI plans landed after Plan 4**, not part of the original 6-plan
-numbering but worth knowing about since they touched the same frontend code Plan 5
-built on (and Plan 6 will too):
+numbering but worth knowing about since they touched the same frontend code Plans 5
+and 6 later built on:
 - **Saloon redesign** (PR #6, merge commit `9d575da`): RDR2-inspired visual restyle —
   wood/felt table, card frames, chip styling, Framer Motion animations. 7 tasks + one
   final-review fix round.
@@ -31,75 +33,15 @@ built on (and Plan 6 will too):
   `packages/server/src/index.ts`), and the table shell width changed from a fixed
   864px cap to 96% of the viewport so 6 players never need to scroll.
 
-### After Plan 6: 3D tables, a shared Blackjack dealer, hardening
+### Plan-by-plan detail
 
-All of this is merged to `master` (PR #12 `b35f738`, PR #13 `347fcc9`, then direct-to-master
-commit `b0acd11`). Plan/decisions: `docs/superpowers/plans/2026-09-29-3d-blackjack.md`.
-Playtest write-up: `docs/superpowers/playtests/2026-09-29-3d-tables-playtest.md`.
+**Plans 1 and 2** (the engines) are merged: Plan 1 was committed directly to `master`,
+Plan 2 via PR #1 (merge commit `c2e1348`). The standalone `BlackjackRound` from Plan 1
+still works on its own (own shoe and dealer); the table now always plays it against a
+`SharedDealer` (see "After Plan 6").
 
-**1. First-person 3D tables (Blackjack + Hold'em)** — Three.js, RDR2-*inspired* but original art
-(minimal hat/hands silhouettes lit from below, lamp-lit saloon, film grade). Everything is
-procedural or synthesised: no downloaded assets, card faces are the vendored MIT SVGs, audio is
-WebAudio (off until the player clicks "Sound"). All in `packages/frontend/src/three/`:
-- `sceneModel.ts` (Blackjack) and `pokerModel.ts` (Hold'em) are PURE, unit-tested translations of a
-  server snapshot into a declarative scene (cards with stable keys, chip stacks, seats, labels).
-  Hold'em has no dealer figure (the far-centre chair is a real seat), a pot stack + label, per-street
-  bet stacks, and hole cards that stay face-down until the server reveals them.
-- `engine/SceneRoot.ts` reconciles a model into deal / flip / sweep animations by key. The server
-  only sends full snapshots, never events, so this diffing is the only way to know what happened.
-  A slot that now holds a different (or face-down) card retires the old card and deals a new one,
-  because keys repeat from hand to hand. `advance(seconds)` steps the simulation deterministically.
-- `TableStage.tsx` is the shared React shell (canvas lifecycle, projected name plates, quality/sound
-  controls, banners, Ready/Leave). `Blackjack3D.tsx` / `Poker3D.tsx` only supply model, sr-only
-  summary and their action buttons. `View3DBoundary.tsx` drops to 2D if the lazy chunk or scene throws.
-- `App.tsx` lazy-loads the 3D views behind a toggle persisted in `localStorage` (`table.view`, default 3D
-  at >= 900px wide), and falls back to 2D if WebGL cannot start. Quality is `bj3d.quality`, sound `bj3d.sound`.
-- Dev harness (not in the production build): `npm run dev --workspace=@poker-blackjack/frontend`, then
-  `/dev3d.html?step=0..8&quality=low|medium|high` (add `game=poker`, steps 0..5). It drives a scripted hand with
-  no server/admin. In dev, `window.__bj3d` exposes the scene (`advance(s)`, `debugCards()`, `getStats()`);
-  the in-app browser pane throttles requestAnimationFrame, so animations only progress when you call `advance`.
-- Tuning knobs: camera/FOV in `SceneRoot.ts` (landscape 84 deg horizontal, portrait tighter), light values in
-  `room.ts`, card and slot geometry constants at the top of `sceneModel.ts`.
-
-**2. Blackjack is now ONE shoe and ONE dealer hand per table hand.** Before, `table.ts` dealt every seat its
-own shuffled shoe and dealer hand and settled each seat as it finished, so results never matched the dealer on
-screen and arrived before the last player acted (found by the AI playtest). Now `SharedDealer`
-(`game-engine/src/blackjackRound.ts`) owns the shoe and dealer cards; each seat's `BlackjackRound({ dealer })`
-stops at `playingComplete`; `Table.advanceBlackjackTurn` moves the turn, plays the dealer once after the last seat
-and settles everyone together (write-ahead marker per seat, unchanged). The hand-log entry is now
-`blackjack_hand_started { players, shoe }`; an old-format log on disk is discarded with a warning at boot.
-The per-seat `blackjackRounds` view shape is unchanged (every seat just carries the same dealer).
-
-**3. Hand-log write-ahead and failure handling.** Game actions (both games) are appended to the hand log BEFORE
-the engine applies them, so a failed write rejects the action and changes nothing (previously the hand moved on
-with no record; with a shared shoe that would make recovery deal every seat different cards). The log can
-therefore contain an action the engine then rejected; `recoverFromLog` skips exactly those (they throw
-identically on replay). An exhausted shoe rejects hit/double/split without changing the hand (`assertCanDraw`;
-double/split used to mutate before drawing), and if the dealer cannot play, `Table.voidBlackjackHand` cancels the
-hand with no balance changes instead of leaving the table stuck. 6 decks at 6 seats cannot exhaust in normal
-play; this is defence in depth.
-
-**4. UX fixes from the playtest.** Live Hold'em pot and stacks (the server only fills `pots` and debits balances at
-settlement, so `pokerModel.livePot` derives them from seat balance minus in-hand stack; the settled label counts only
-contested pots, since an uncalled bet appears as its own one-player pot), "Call N" with Check/Call disabled when
-illegal, Double/Split disabled unless legal in both 2D and 3D (`components/blackjackActions.ts`), the 3D plates show
-balance net of the live Blackjack bet, sanitised raise input, table-error banner auto-dismiss after 6 s while seated
-(`SocketContext`).
-
-**5. How it was verified.** Six Sonnet subagents (alice/bob/cara x Blackjack/Hold'em, one of them a visual reviewer) played
-3-4 hands each in separate browser tabs against an isolated server; scripted socket.io bot players then ran 15 Blackjack
-hands while a spectator script re-derived every outcome from the cards and asserted one dealer for all seats, reveal only
-after the last player, and nobody paid early. A whole-branch Opus review found 0 Critical / 1 Important (stale face-up
-cards across hands, fixed) / 5 Minor. The throwaway scripts lived in a scratch directory and were not committed; the method
-is described in the playtest doc. Performance on a GTX 1650 Ti at 1280x720: about 1.6 / 2.2 / 2.6 ms per frame at Low / Medium /
-High.
-
-**Still not done:** a real session with friends over Tailscale; whether the sound actually sounds good (only the audio
-graph was checked); behaviour on weak integrated GPUs and real phones. Pre-existing noise, harmless: server tests print
-`ENOENT ... hand.jsonl` from a reconnect-grace timer firing after a test's temp dir is removed.
-
-**Plan 3** is fully merged to `master` (PR #3, merge commit `b1dfae1`), including a
-2-round critical-bug-fix pass. 0 Critical, 0 Important findings remain. Full detail in
+**Plan 3** is fully merged to `master` (PR #2, merge commit `3f8e7f2`, then the fix PR #3,
+merge commit `b1dfae1`), including a 2-round critical-bug-fix pass. 0 Critical, 0 Important findings remain. Full detail in
 `docs/superpowers/plans/2026-08-17-local-server-progress-ledger.md` and the other
 `2026-08-17-local-server-*.md` files in the same directory (fix spec, final review,
 carried-forward findings) — kept for historical reference.
@@ -173,8 +115,10 @@ implementation plan in
 `docs/superpowers/plans/2026-08-24-local-tailscale-hosting.md`. See
 `docs/HOSTING.md` for how to actually run a session.
 
-**Post-Plan-6 hardening (PR #10 → PR #11 → direct-to-master fix rounds,
-merge/commits `f75808f`..`076fbaa`)**: after Plan 6 landed, a full
+### Post-Plan-6 hardening
+
+**PR #10 → PR #11 → direct-to-master fix rounds (merge/commits
+`f75808f`..`076fbaa`)**: after Plan 6 landed, a full
 8-angle code review (`superpowers:code-review`, high effort) ran against
 the branch and found 6 non-blocking findings — fixed on
 `fix/plan6-review-findings` (PR #11), notably replacing a fragile
@@ -220,7 +164,8 @@ pass**: Blackjack's payout math (natural blackjack, a split hand landing
 on 21, bust, push) hadn't been forced through the live server the way
 Hold'em's had. Fixed with a genuinely deterministic re-verification —
 an offline seed search using the actual engine code with a seeded PRNG
-reproduced table.ts's exact shoe-construction sequence, so two real
+reproduced table.ts's exact shoe-construction sequence (then one shoe per
+seat; the shared dealer since changed it), so two real
 hands' entire deals were known in advance and driven through a real
 running server via real `socket.io-client`, comparing the exact
 predicted payout against both the live broadcast and the on-disk
@@ -246,6 +191,73 @@ fixed with the same `queue`/`enqueue<T>` serialization pattern
 copied), both now covered by permanent regression tests. Commits
 `8990ce3` (playerStore) and `24e1fd5` (gameConfigStore).
 
+### After Plan 6: 3D tables, a shared Blackjack dealer, hardening
+
+All of this is merged to `master` (PR #12 `b35f738`, PR #13 `347fcc9`, then direct-to-master
+commit `b0acd11`). Plan/decisions: `docs/superpowers/plans/2026-09-29-3d-blackjack.md`.
+Playtest write-up: `docs/superpowers/playtests/2026-09-29-3d-tables-playtest.md`.
+
+**1. First-person 3D tables (Blackjack + Hold'em)** — Three.js, RDR2-*inspired* but original art
+(minimal hat/hands silhouettes lit from below, lamp-lit saloon, film grade). Everything is
+procedural or synthesised: no downloaded assets, card faces are the vendored MIT SVGs, audio is
+WebAudio (off until the player clicks "Sound"). All in `packages/frontend/src/three/`:
+- `sceneModel.ts` (Blackjack) and `pokerModel.ts` (Hold'em) are PURE, unit-tested translations of a
+  server snapshot into a declarative scene (cards with stable keys, chip stacks, seats, labels).
+  Hold'em has no dealer figure (the far-centre chair is a real seat), a pot stack + label, per-street
+  bet stacks, and hole cards that stay face-down until the server reveals them.
+- `engine/SceneRoot.ts` reconciles a model into deal / flip / sweep animations by key. The server
+  only sends full snapshots, never events, so this diffing is the only way to know what happened.
+  A slot that now holds a different (or face-down) card retires the old card and deals a new one,
+  because keys repeat from hand to hand. `advance(seconds)` steps the simulation deterministically.
+- `TableStage.tsx` is the shared React shell (canvas lifecycle, projected name plates, quality/sound
+  controls, banners, Ready/Leave). `Blackjack3D.tsx` / `Poker3D.tsx` only supply model, sr-only
+  summary and their action buttons. `View3DBoundary.tsx` drops to 2D if the lazy chunk or scene throws.
+- `App.tsx` lazy-loads the 3D views behind a toggle persisted in `localStorage` (`table.view`, default 3D
+  at >= 900px wide), and falls back to 2D if WebGL cannot start. Quality is `bj3d.quality`, sound `bj3d.sound`.
+- Dev harness (not in the production build): `npm run dev --workspace=@poker-blackjack/frontend`, then
+  `/dev3d.html?step=0..8&quality=low|medium|high` (add `game=poker`, steps 0..5). It drives a scripted hand with
+  no server/admin. In dev, `window.__bj3d` exposes the scene (`advance(s)`, `debugCards()`, `getStats()`);
+  the in-app browser pane throttles requestAnimationFrame, so animations only progress when you call `advance`.
+- Tuning knobs: camera/FOV in `SceneRoot.ts` (landscape 84 deg horizontal, portrait tighter), light values in
+  `room.ts`, card and slot geometry constants at the top of `sceneModel.ts`.
+
+**2. Blackjack is now ONE shoe and ONE dealer hand per table hand.** Before, `table.ts` dealt every seat its
+own shuffled shoe and dealer hand and settled each seat as it finished, so results never matched the dealer on
+screen and arrived before the last player acted (found by the AI playtest). Now `SharedDealer`
+(`game-engine/src/blackjackRound.ts`) owns the shoe and dealer cards; each seat's `BlackjackRound({ dealer })`
+stops at `playingComplete`; `Table.advanceBlackjackTurn` moves the turn, plays the dealer once after the last seat
+and settles everyone together (write-ahead marker per seat, unchanged). The hand-log entry is now
+`blackjack_hand_started { players, shoe }`; an old-format log on disk is discarded with a warning at boot.
+The per-seat `blackjackRounds` view shape is unchanged (every seat just carries the same dealer).
+
+**3. Hand-log write-ahead and failure handling.** Game actions (both games) are appended to the hand log BEFORE
+the engine applies them, so a failed write rejects the action and changes nothing (previously the hand moved on
+with no record; with a shared shoe that would make recovery deal every seat different cards). The log can
+therefore contain an action the engine then rejected; `recoverFromLog` skips exactly those (they throw
+identically on replay). An exhausted shoe rejects hit/double/split without changing the hand (`assertCanDraw`;
+double/split used to mutate before drawing), and if the dealer cannot play, `Table.voidBlackjackHand` cancels the
+hand with no balance changes instead of leaving the table stuck. 6 decks at 6 seats cannot exhaust in normal
+play; this is defence in depth.
+
+**4. UX fixes from the playtest.** Live Hold'em pot and stacks (the server only fills `pots` and debits balances at
+settlement, so `pokerModel.livePot` derives them from seat balance minus in-hand stack; the settled label counts only
+contested pots, since an uncalled bet appears as its own one-player pot), "Call N" with Check/Call disabled when
+illegal, Double/Split disabled unless legal in both 2D and 3D (`components/blackjackActions.ts`), the 3D plates show
+balance net of the live Blackjack bet, sanitised raise input, table-error banner auto-dismiss after 6 s while seated
+(`SocketContext`).
+
+**5. How it was verified.** Six Sonnet subagents (alice/bob/cara x Blackjack/Hold'em, cara being the visual reviewer in each game) played
+3-4 hands each in separate browser tabs against an isolated server; scripted socket.io bot players then ran 15 Blackjack
+hands while a spectator script re-derived every outcome from the cards and asserted one dealer for all seats, reveal only
+after the last player, and nobody paid early. A whole-branch Opus review found 0 Critical / 1 Important (stale face-up
+cards across hands, fixed) / 5 Minor. The throwaway scripts lived in a scratch directory and were not committed; the method
+is described in the playtest doc. Performance on a GTX 1650 Ti at 1280x720: about 1.6 / 2.2 / 2.6 ms per frame at Low / Medium /
+High.
+
+**Still not done:** a real session with friends over Tailscale; whether the sound actually sounds good (only the audio
+graph was checked); behaviour on weak integrated GPUs and real phones. Pre-existing noise, harmless: server tests print
+`ENOENT ... hand.jsonl` from a reconnect-grace timer firing after a test's temp dir is removed.
+
 479/479 tests passing (174 frontend, 131 game-engine, 174 server), typecheck clean
 across all 3 workspaces.
 
@@ -260,27 +272,33 @@ npm run typecheck      # all three workspaces
 Per-workspace: `npm run test --workspace=@poker-blackjack/game-engine` /
 `--workspace=@poker-blackjack/server` / `--workspace=@poker-blackjack/frontend`.
 
-**To run the app locally:** set `ADMIN_PASSPHRASE` (required — without it the server
-refuses to start, since no game could ever be started) and start the backend
-(`npm run dev --workspace=@poker-blackjack/server`, listens on port 3000 by default — see
-`packages/server/src/index.ts` for the full list of env vars it reads: `PORT`,
-`ADMIN_PASSPHRASE`, `SMALL_BLIND`/`BIG_BLIND`/`BLACKJACK_DEFAULT_BET`/
-`DEFAULT_STARTING_BALANCE` as one-time defaults for a fresh `game-config.json`,
-`RECONNECT_GRACE_MS`, and the `*_PATH` overrides for where its JSON/JSONL state files
-live). The old `GAME_MODE` env var is gone — the server now starts in an empty lobby and
-an admin picks Poker or Blackjack at runtime (see below). Then in a second terminal start
-the frontend (`npm run dev --workspace=@poker-blackjack/frontend`, Vite on port 5173).
-The frontend talks to the backend over the page's own origin in both dev and production
-(`packages/frontend/src/serverUrl.ts`) -- in dev, `vite.config.ts`'s `server.proxy` forwards
-`/socket.io` requests to `http://localhost:<PORT>` (same `PORT` env var and default of 3000
-`index.ts` reads; set `PORT` before starting both dev processes if you need to change it), so
-no separate env var or override file is needed. Open the
-"Admin" button in the top corner and enter the passphrase to unlock the lobby's mode
-picker and the in-game admin panel (balance correction, blinds/bet, starting balance,
-mode switching). Open multiple browser tabs/windows against `http://localhost:5173` to
-play as different seats — the table seats **6 players max** (both game modes). Tables open in the
-3D view at >= 900px wide (`table.view` in `localStorage`; the "2D view"/"3D view" button switches);
-see "After Plan 6" for the 3D dev harness.
+**To run the app locally:**
+1. Set `ADMIN_PASSPHRASE` (required — without it the server refuses to start, since no
+   game could ever be started), either in the shell or in `packages/server/.env` (copy
+   `packages/server/.env.example`, which lists every variable).
+2. Start the backend: `npm run dev --workspace=@poker-blackjack/server` (port 3000 by
+   default). `packages/server/src/index.ts` is the authority on the env vars it reads:
+   `PORT`, `ADMIN_PASSPHRASE`, `SMALL_BLIND`/`BIG_BLIND`/`BLACKJACK_DEFAULT_BET`/
+   `DEFAULT_STARTING_BALANCE` (one-time defaults until an admin change writes
+   `game-config.json`), `RECONNECT_GRACE_MS`, `STATIC_DIR`, and the
+   `PLAYER_STORE_PATH`/`GAME_CONFIG_PATH`/`HAND_LOG_PATH` overrides for where its
+   JSON/JSONL state files live. The old `GAME_MODE` env var is gone — the server starts in
+   an empty lobby and an admin picks Poker or Blackjack at runtime.
+3. In a second terminal start the frontend: `npm run dev --workspace=@poker-blackjack/frontend`
+   (Vite on port 5173). The frontend talks to the backend over the page's own origin in
+   both dev and production (`packages/frontend/src/serverUrl.ts`); in dev,
+   `vite.config.ts`'s `server.proxy` forwards `/socket.io` to `http://localhost:<PORT>`
+   (same `PORT` env var and default of 3000 that `index.ts` reads; set `PORT` in the shell
+   before starting both dev processes if you need to change it), so no separate env var or
+   override file is needed.
+4. Open `http://localhost:5173` in several tabs/windows to play as different seats — the
+   table seats **6 players max** (both game modes). Click "Admin" in the top corner and
+   enter the passphrase to unlock the lobby's mode picker and the in-game admin panel
+   (balance correction, blinds/bet, starting balance, mode switching).
+
+Tables open in the 3D view at >= 900px wide (`table.view` in `localStorage`; the
+"2D view"/"3D view" button switches); see "After Plan 6" for the 3D dev harness
+(`/dev3d.html`, needs only the frontend dev server).
 
 **To host an actual session with friends** (rather than local development),
 see `docs/HOSTING.md` — it covers Tailscale setup and `npm run play`, which
@@ -303,7 +321,7 @@ practice, including the judgment calls (which review findings got fixed immediat
 deferred, and why). The saloon redesign, table layout redesign, and Plan 5 all followed
 the same process but their per-task ledgers were git-ignored scratch, not committed —
 their equivalent detail lives in their commit messages instead (`git log
-9d575da..6891af5` for the saloon redesign, `git log f4db446..6891af5` for the table
+9d575da^..9d575da` for the saloon redesign, `git log f4db446..6891af5` for the table
 layout redesign, `git log 849b408..4acb538` for Plan 5). The table layout redesign is a
 good example of the value of the process's closing **live manual verification** step: it
 caught a real overlap bug that survived the implementer, task review, AND two rounds of

@@ -54,7 +54,8 @@ the full design rationale.
 Friends open the link in a browser — no install beyond the one-time
 Tailscale setup above. From there it's the normal app flow: enter a
 display name, an admin opens the "Admin" button and enters the passphrase
-to pick Poker or Blackjack and start the game, everyone else takes a seat.
+to pick Poker or Blackjack and start the game, everyone else takes a seat
+(the table has 6 seats).
 
 **3D or classic table.** Both games open in a first-person 3D saloon view on
 screens at least 900px wide (phones get the classic 2D table). Each player
@@ -87,11 +88,11 @@ the host's machine (`packages/server/balances.json`, `game-config.json`,
   design, a seat stays reserved under that display name indefinitely —
   reconnecting (same name, any device) just picks the seat back up,
   hand-in-progress or not. There's no timeout that kicks a slow-to-return
-  player out of their seat; if they were mid-hand when they act on their
-  own turn, the server auto-folds/auto-stands for them after a short grace
-  window (`RECONNECT_GRACE_MS`, 2 minutes by default) so the table isn't
-  stuck waiting, but the seat itself is theirs until they explicitly leave.
-
+  player out of their seat; if they drop out mid-hand, the server
+  auto-checks/auto-folds (Poker) or auto-stands (Blackjack) for them when
+  it is their turn and a short grace window (`RECONNECT_GRACE_MS`, 2
+  minutes by default) has passed, so the table isn't stuck waiting, but
+  the seat itself is theirs until they explicitly leave.
 - **Upgrading the server while a Blackjack hand is on disk:** the hand log
   format changed when Blackjack moved to one shared shoe. If the server is
   stopped mid-hand on the old version and restarted on the new one, the old

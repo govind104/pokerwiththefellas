@@ -17,14 +17,16 @@ export class JsonlHandLog implements HandLog {
   constructor(private readonly filePath: string) {}
 
   // Concurrent submitAction calls can each reach this method while a
-  // previous call's write is still in flight -- hand.act() runs fully
-  // synchronously before either call awaits anything, so the in-memory
-  // order is already correct, but two independent appendFile calls have no
-  // guaranteed on-disk ordering relative to each other. Chaining onto
-  // writeQueue -- and reassigning it synchronously here, NOT via `await`,
-  // which would let a second call race the reassignment and defeat the
-  // whole point -- guarantees writes land on disk in the same order they
-  // were invoked, matching the order hand.act() calls happened in memory.
+  // previous call's write is still in flight. Actions are write-ahead logged
+  // (Table.submitAction appends BEFORE the engine applies the action, and
+  // reaches this call with no earlier await), so invocation order here is
+  // the order the actions are then applied in -- but two independent
+  // appendFile calls have no guaranteed on-disk ordering relative to each
+  // other. Chaining onto writeQueue -- and reassigning it synchronously
+  // here, NOT via `await`, which would let a second call race the
+  // reassignment and defeat the whole point -- guarantees writes land on
+  // disk in the same order they were invoked, and each append settles in
+  // that order too, so the actions are applied in memory in that order.
   append(entry: HandLogEntry): Promise<void> {
     const write = this.writeQueue.then(() =>
       appendFile(this.filePath, `${JSON.stringify(entry)}\n`, 'utf-8')

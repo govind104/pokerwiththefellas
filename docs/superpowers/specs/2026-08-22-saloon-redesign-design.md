@@ -114,7 +114,8 @@ Fallback stacks: `Rye, Georgia, serif` / `Vollkorn, Georgia, 'Times New Roman', 
 Seat-ring layout follows Felt & Chips' existing research: seats arranged around an oval
 felt, scaling from 2 up through 8 seats (`seatCount: 8` is the server's current default,
 `packages/server/src/index.ts:8`, and is configurable per table — the layout must not
-assume a fixed count). Rail, brass accents, and lantern-glow lighting (a radial gradient
+assume a fixed count). *(Updated 2026-09-29: the server now uses `seatCount: 6` for both
+games, set by the later table-layout redesign.)* Rail, brass accents, and lantern-glow lighting (a radial gradient
 positioned above the felt) wrap the same seat-ring structure Plan 4 already established;
 this plan restyles that structure, it doesn't redesign its arrangement logic.
 

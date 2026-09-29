@@ -11,7 +11,7 @@ import { waitForEvent, waitForState, waitForSeated, waitForReady, startGameAsAdm
 
 // Deterministic in place of Math.random: the Blackjack test below waits for
 // activeSeatIndex to reach seat 1 after alice's action, which never happens
-// (the test hangs) if alice's shoe happens to deal her a natural blackjack
+// (the test hangs) if the shared shoe happens to deal her a natural blackjack
 // and skip her turn entirely. Seed 2 is the same one verified safe in
 // table.test.ts for a 2-seat Blackjack deal.
 function makeDeterministicRandom(seed: number): () => number {
@@ -162,9 +162,9 @@ describe('integration: happy path', () => {
     const freshStore = new JsonPlayerStore(balancesPath, 1000);
     const aliceBalance = await freshStore.getBalance('alice');
     const bobBalance = await freshStore.getBalance('bob');
-    // Each player's round is independent (own shoe, own dealer outcome), so their
-    // payouts aren't linked the way Hold'em's are -- just check both landed in the
-    // set of legal outcomes for a 25-chip bet.
+    // Both seats settle against one shared dealer hand, but each is paid on its own
+    // hand against it (no pot between players, unlike Hold'em) -- just check both
+    // landed in the set of legal outcomes for a 25-chip bet.
     expect([975, 1000, 1025, 1037.5]).toContain(aliceBalance);
     expect([975, 1000, 1025, 1037.5]).toContain(bobBalance);
   });

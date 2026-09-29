@@ -1,3 +1,5 @@
+*Historical record. Blackjack no longer gives each seat its own shoe and dealer (it uses one shared shoe and dealer, settled together after the last seat), the table seats 6 not 8, and actions are now logged before they are applied; see HANDOFF.md "After Plan 6".*
+
 # Local Real-Time Server Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

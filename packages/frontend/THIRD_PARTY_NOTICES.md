@@ -19,6 +19,12 @@ License: MIT
 Used by: the lazy-loaded 3D table views (`src/three/`). Installed as a normal
 dependency, not vendored; see the package's LICENSE file for the full text.
 
+## Web fonts
+
+Vollkorn and Special Elite are loaded at runtime from Google Fonts by `index.html` (and the
+dev-only `dev3d.html`). They are not vendored or bundled; each font's licence is listed on
+its Google Fonts page.
+
 ## Everything else in the 3D tables
 
 Wood, felt, plank, card-back and chip textures are generated procedurally on a canvas at

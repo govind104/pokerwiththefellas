@@ -72,7 +72,11 @@ Let's Encrypt requirement.
   hardcoded `'http://localhost:3000'` to a same-origin fallback, so a
   single deployed instance needs no build-time server URL configuration.
   `VITE_SERVER_URL` remains a supported override for the existing
-  two-port local dev workflow.
+  two-port local dev workflow. *(Updated 2026-09-29: the two-port dev
+  workflow no longer needs it; a Vite dev-server proxy in
+  `packages/frontend/vite.config.ts` forwards `/socket.io` to the backend,
+  and the URL logic now lives in `packages/frontend/src/serverUrl.ts`.
+  `VITE_SERVER_URL` is still honoured as an explicit override.)*
 - No changes to game logic, admin controls, or the lobby — this plan is
   purely about how the already-working app gets reached.
 - Support loading env vars (`ADMIN_PASSPHRASE`, blind/bet/balance

@@ -411,7 +411,7 @@ export class Table {
       this.holdemHand = null;
       this.blackjackRounds = new Map();
       this.blackjackDealer = null;
-      // Must be reset alongside the rounds themselves: advancePastSettledBlackjackRounds
+      // Must be reset alongside the rounds themselves: advanceBlackjackTurn
       // runs inside the try above, and settleBlackjackSeatIfNeeded adds a seat to this
       // set *before* its durable writes. A stale entry surviving into a later, unrelated
       // hand makes that seat's settlement early-return -- silently skipping its entire
@@ -498,9 +498,10 @@ export class Table {
   // negative and persist a negative balance, contradicting the design spec's
   // "a player whose balance reaches 0 can't place a bet".
   //
-  // Rejected before round.act(), so an unaffordable action leaves the round
-  // completely unchanged and nothing is written to the hand log -- the same
-  // shape as the engine's own illegal-action rejections.
+  // Rejected before round.act() AND before the write-ahead log append, so an
+  // unaffordable action leaves the round completely unchanged and nothing is
+  // written to the hand log. (The engine's own illegal-action rejections, by
+  // contrast, happen after the append; recoverFromLog skips those on replay.)
   private assertCanAffordBlackjackAction(
     seat: Seat,
     round: BlackjackRound,
@@ -584,9 +585,10 @@ export class Table {
     // re-payable "double payout". Do not reorder these.
     await this.deps.handLog.append({ type: 'blackjack_seat_settled', data: { seatIndex } });
     // Best-effort durable write, same rationale as settleHoldem: a rejection
-    // here used to propagate out through advancePastSettledBlackjackRounds,
-    // leaving activeSeatIndex pinned to an already-'settled' round and
-    // handInProgress stuck true forever.
+    // here used to propagate out through the turn-advance loop (then
+    // advancePastSettledBlackjackRounds, now advanceBlackjackTurn), leaving
+    // activeSeatIndex pinned to an already-'settled' round and handInProgress
+    // stuck true forever.
     try {
       await this.deps.playerStore.setBalance(seat.displayName, seat.balance);
     } catch (err) {

@@ -142,13 +142,14 @@ class FlakyPlayerStore implements PlayerStore {
 
 // Deterministic, reproducible default in place of Math.random: a real
 // shuffle has a ~4.75% chance of dealing a natural blackjack to seat 0, which
-// settles it instantly and advances play past it, flaking any test that
+// finishes its hand instantly and advances play past it, flaking any test that
 // expects seat 0 to still be active or playable. Seed 2 is verified (by
-// direct simulation of Table's exact shuffle call sequence -- one
-// buildShuffledDeck(6, random) call per seated player, in seat order) to
-// deal neither of 2 seated players a natural. Tests that specifically need
-// genuine per-run randomness (e.g. proving two shoes are independent) pass
-// `random: Math.random` as an explicit override.
+// direct simulation of Table's exact shuffle call sequence -- since the
+// shared dealer, ONE buildShuffledDeck(6, random) call per hand, dealer's two
+// cards first, then two per seat in seat order) to deal neither of 2 seated
+// players a natural (alice 9+2, bob 8+2). Tests that specifically need
+// genuine per-run randomness pass `random: Math.random` as an explicit
+// override.
 function makeDeterministicRandom(seed: number): () => number {
   let state = seed;
   return () => {
@@ -465,7 +466,7 @@ describe('Table.setSeatBalance', () => {
 });
 
 describe('Table ready-gating and hand start (Blackjack)', () => {
-  it('constructs one independent BlackjackRound per seated player', async () => {
+  it('constructs one BlackjackRound per seated player', async () => {
     const { table } = makeTable({ gameMode: 'blackjack' });
     await table.join('alice');
     await table.join('bob');
@@ -1264,7 +1265,9 @@ describe('Table Blackjack settlement failure does not brick the hand (I6 follow-
     // Pre-fix, this rejection escaped advancePastSettledBlackjackRounds'
     // while-loop before activeSeatIndex advanced, pinning it to an
     // already-'settled' round -- every later action threw and the hand could
-    // never finish. Total loss of service until a restart.
+    // never finish. Total loss of service until a restart. (Since the shared
+    // dealer, seats settle together inside advanceBlackjackTurn after the LAST
+    // seat acts, so the failing marker append now fires on bob's stand below.)
     await expect(table.submitAction(0, 'stand')).resolves.toBeUndefined();
     expect(table.activeSeatIndex).toBe(1);
 
@@ -1285,13 +1288,14 @@ describe('Table Blackjack settlement failure does not brick the hand (I6 follow-
 describe('Table startHand failure clears blackjackSettledSeats', () => {
   // NOTE ON REACHABILITY: this is a defensive invariant, not a live
   // reproduction. `blackjackSettledSeats` is only ever populated by
-  // settleBlackjackSeatIfNeeded, reached via advancePastSettledBlackjackRounds
-  // -- and every exit from that method either resets the set
+  // settleBlackjackSeatIfNeeded, reached via advanceBlackjackTurn (formerly
+  // advancePastSettledBlackjackRounds) -- and every exit from that method either resets the set
   // (finishBlackjackHandIfComplete, which runs *before* its own failing
-  // clear()) or returns early with the hand still live and startHand's catch
-  // not involved. The one path that used to escape into startHand's catch
-  // with the set populated -- a settlement throwing mid-loop -- is now caught
-  // one level down, by the advancePastSettledBlackjackRounds fix above.
+  // clear(); or voidBlackjackHand) or returns early with the hand still live
+  // and startHand's catch not involved. The one path that used to escape into
+  // startHand's catch with the set populated -- a settlement throwing mid-loop
+  // -- is now caught one level down, by the per-seat catch in
+  // advanceBlackjackTurn (the fix above).
   //
   // The set is therefore seeded directly here. That is deliberate: the reset
   // pairs `blackjackSettledSeats` with the `blackjackRounds` reset already in
@@ -1467,7 +1471,8 @@ describe('Table settlement survives a rejected balance write (I6)', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(table.submitAction(0, 'stand')).resolves.toBeUndefined();
-    // Pre-fix, the rejection propagated out of
+    // Pre-fix (and pre-shared-dealer, when a seat settled as soon as it
+    // finished), the rejection propagated out of
     // advancePastSettledBlackjackRounds' while-loop, leaving activeSeatIndex
     // stuck on seat 0 whose round is already 'settled' -- so every further
     // action on it threw and the hand could never finish.

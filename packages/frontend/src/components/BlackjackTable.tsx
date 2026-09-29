@@ -57,7 +57,8 @@ export function BlackjackTable({
   onAction,
 }: BlackjackTableProps) {
   const isMyTurn = mySeatIndex !== null && mySeatIndex === activeSeatIndex;
-  // Each seat has its own dealer hand server-side; show the local player's own.
+  // Every seat's round carries the same shared dealer hand; prefer the local player's round
+  // (spectators fall back to the first seat's), as the 3D view does.
   const dealerRound = pickDealerRound(blackjackRounds, mySeatIndex);
 
   const myBalance = seats.find((s) => s.seatIndex === mySeatIndex)?.balance ?? 0;

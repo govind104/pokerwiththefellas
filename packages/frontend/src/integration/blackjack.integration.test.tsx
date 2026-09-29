@@ -45,6 +45,13 @@ function buildConfig(): TableConfig {
     // packages/server/src/integration.test.ts's own reason for using a
     // seeded RNG instead of Math.random in its Blackjack test.
     //
+    // Updated 2026-09-29 (shared Blackjack dealer): the table now builds ONE
+    // shuffled 6-deck shoe per hand; the dealer's two cards come off it first,
+    // then each seat's two in seat order. Seed 2 now deals alice 9+2 (11) and
+    // bob 8+2 (10), still no natural. A natural also no longer settles a round
+    // on its own -- every seat settles together after the last one acts -- so
+    // the seed is now belt-and-braces rather than load-bearing.
+    //
     // random is re-created (not reused) on every call: setupIntegrationServer
     // invokes this factory fresh in each test's beforeEach, so a file with
     // more than one test still gets this exact seed-2 determinism per test

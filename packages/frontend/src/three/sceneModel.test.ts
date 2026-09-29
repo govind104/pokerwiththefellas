@@ -150,8 +150,10 @@ describe('buildSceneModel', () => {
   });
 });
 
-describe('per-seat dealers', () => {
-  it('shows the local player own dealer hand, not the first seat one', () => {
+describe('dealer round selection', () => {
+  // The server sends the same shared dealer on every seat's round; distinct upcards here
+  // only prove which round the dealer is read from.
+  it('reads the dealer from the local player round, falling back to the first seat one', () => {
     const mine = round({ dealerUpcard: c('9', 'hearts') });
     const other = round({ dealerUpcard: c('K', 'spades') });
     const rounds = { 0: other, 1: mine };

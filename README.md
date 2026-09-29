@@ -60,6 +60,10 @@ Set the one required environment variable and start the backend:
 ADMIN_PASSPHRASE=whatever-you-want npm run dev --workspace=@poker-blackjack/server
 ```
 
+(That inline `VAR=value` form is for bash-style shells. On Windows PowerShell,
+or to avoid retyping it, copy `packages/server/.env.example` to
+`packages/server/.env` and set it there instead.)
+
 This listens on port 3000 by default. In a second terminal, start the
 frontend:
 
@@ -74,13 +78,17 @@ and pick Poker or Blackjack to start a game.
 Tables open in the 3D view on screens at least 900px wide (toggle with the
 "2D view" / "3D view" button; the choice is remembered). To look at the 3D
 scene without a server or admin login, open
-`http://localhost:5173/dev3d.html` — a scripted Blackjack hand you can step
-through (`?step=0..8`, `?game=poker` for Hold'em, `?quality=low|medium|high`).
+`http://localhost:5173/dev3d.html` (only the frontend dev server is needed) —
+a scripted Blackjack hand you can step through (`?step=0..8`; add
+`&game=poker` for a Hold'em hand, steps 0..5; `&quality=low|medium|high`).
 
 See [`packages/server/src/index.ts`](packages/server/src/index.ts) for
 every environment variable the server reads (blinds, default bet,
 starting balance, reconnect grace window, where its data files live,
-etc.) — `packages/server/.env.example` documents the same list.
+etc.) — `packages/server/.env.example` documents the same list. Blinds,
+default bet and starting balance from the environment are only first-run
+defaults: once an admin changes one in the app, the values saved in
+`game-config.json` take over.
 
 ## Hosting an actual session with friends
 
@@ -113,13 +121,18 @@ packages/
   server/        Socket.IO server, lobby/admin logic, JSON/JSONL persistence
   frontend/      React UI (lobby, 2D table views for both games, admin panel)
     src/three/   first-person 3D tables: pure scene models, Three.js engine, shared shell
+    dev3d.html   dev-only 3D harness page (not part of the production build)
 docs/
+  README.md                  index: which docs are kept current, which are historical
   HOSTING.md                 how to run a real session with friends
   superpowers/specs/         design docs for each feature area
-  superpowers/plans/         the implementation plans those specs became
+  superpowers/plans/         the implementation plans those specs became (historical)
   superpowers/playtests/     findings from the AI playtest of the 3D tables
 HANDOFF.md       full development history and where things stand
 ```
+
+Not sure which doc to read? **[docs/README.md](docs/README.md)** lists every
+document and whether it describes the current code or is a historical record.
 
 ## How this was built
 

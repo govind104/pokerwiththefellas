@@ -87,6 +87,11 @@ balance for new players are all startup configuration (environment variables or 
 config file), not runtime-switchable — matching the Non-goals above. Seat capacity is 8
 for both games, matching the original spec's Hold'em cap (Section 3) and applied
 uniformly rather than defining a separate, unspecified Blackjack limit.
+*(Updated 2026-09-29: both statements are now out of date. Plan 5 made the game mode an
+admin choice at runtime (the server starts in an empty lobby; blinds, default bet and
+starting balance are admin-adjustable and persisted in `game-config.json`), and the
+table-layout redesign capped the table at 6 seats for both games
+(`packages/server/src/index.ts`). See HANDOFF.md.)*
 
 | File | Responsibility |
 |---|---|
@@ -153,6 +158,16 @@ starting the same grace-window timers an ordinary disconnect would (Section 5), 
 reconnecting players resume through the normal reconnect path rather than a separate
 recovery-specific one.
 
+*(Updated 2026-09-29: the log is now write-ahead. `Table.submitAction` appends each
+action entry BEFORE the engine applies it (both games), so a failed write rejects the
+action with nothing changed; the log can therefore hold an action the engine then
+rejected, and `recoverFromLog` skips exactly those on replay. Blackjack writes one
+`blackjack_hand_started { players, shoe }` entry for the whole table (one shared shoe
+and dealer; an older-format log is discarded at boot), and settles through per-seat
+`blackjack_seat_settled` markers written before each balance write, so recovery pays
+only the seats without a marker instead of discarding a settled hand. See HANDOFF.md
+"After Plan 6".)*
+
 `HandLog` is local-only scaffolding for crash recovery. Unlike `PlayerStore`, it has no
 designed DynamoDB counterpart — Plan 6 will decide, based on real operational
 experience, whether to keep it (e.g., against local EC2 disk, since recovery is
@@ -201,6 +216,10 @@ Server → client events:
    `PlayerStore.setBalance` for every affected seat, logs `hand_settled`, and returns to
    a between-hands state awaiting the next round of `ready`s.
 
+*(Updated 2026-09-29: step 3 now logs BEFORE `.act()` (write-ahead), and step 4 clears
+the log rather than logging `hand_settled`, as Section 3 describes. In Blackjack the
+dealer plays once after the last seat and every seat settles together.)*
+
 **Disconnect / reconnect:**
 5. A socket disconnecting mid-hand marks its seat disconnected and starts a ~2-minute
    grace-window timer. If the same display name reconnects (a fresh `join`) within the
@@ -236,7 +255,10 @@ Server → client events:
   recovery — the hand resumes one action short of where it actually was. This narrows
   the original spec's accepted "crash mid-hand loses that hand's state" limitation
   (Section 8) to "loses at most the last action," rather than eliminating the
-  limitation entirely.
+  limitation entirely. *(Updated 2026-09-29: with write-ahead logging, an action whose
+  entry reached disk is replayed on recovery even if the crash came before it was
+  applied or broadcast; only an action whose own log write was torn is lost, and that
+  action was never applied.)*
 - **No rebuys.** A player whose balance reaches 0 can't post a blind or place a bet and
   is effectively out for the session — no in-plan flow to add chips. Consistent with
   the original spec's silence on rebuys and this plan's non-goal on chip-management

@@ -4,6 +4,13 @@
 **Status:** Approved for implementation planning
 **Audience:** Whoever builds this (spec + the follow-up implementation plan are the handoff)
 
+*Updated 2026-09-29: this is the original vision, kept for history. Two parts were
+re-scoped before being built: Google OAuth, accounts and blacklisting became a single
+shared admin passphrase (Plan 5, `2026-08-23-lobby-admin-controls-design.md`), and the
+AWS/DynamoDB/EC2 deployment became local hosting over Tailscale with JSON/JSONL files on
+the host's disk (Plan 6, `2026-08-24-local-tailscale-hosting-design.md`). HANDOFF.md
+describes what actually exists.*
+
 ## 1. Overview & Goals
 
 A browser-based multiplayer app so a friend group can play Texas Hold'em and
