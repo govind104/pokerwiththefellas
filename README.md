@@ -14,6 +14,9 @@ no accounts, no cloud hosting, no ongoing cost.
   (Three.js) with animated dealing, silhouetted opponents and optional
   synthesised sound. Switch to the classic 2D table at any time; it also
   kicks in automatically if the browser can't run WebGL.
+- **A proper shared Blackjack dealer** — one shoe and one dealer hand per
+  round. Players act in seat order, the dealer plays once after the last
+  player, and everyone is settled against that same hand.
 - **No accounts.** Players just type a display name; a single shared
   admin passphrase gates host controls (nothing per-player to manage).
 - **Admin toolkit**: correct a player's balance, adjust blinds / the
@@ -43,7 +46,7 @@ An npm-workspaces monorepo, split by responsibility:
 
 Testing is [Vitest](https://vitest.dev) across all three packages (plus
 [Testing Library](https://testing-library.com) for the frontend's
-component/integration tests) — 471 tests, run with one command.
+component/integration tests) — 479 tests, run with one command.
 
 ## Getting started (local development)
 
@@ -67,6 +70,12 @@ npm run dev --workspace=@poker-blackjack/frontend
 Open `http://localhost:5173` in a few browser tabs to play as different
 seats. Click "Admin" in the corner, enter the passphrase you set above,
 and pick Poker or Blackjack to start a game.
+
+Tables open in the 3D view on screens at least 900px wide (toggle with the
+"2D view" / "3D view" button; the choice is remembered). To look at the 3D
+scene without a server or admin login, open
+`http://localhost:5173/dev3d.html` — a scripted Blackjack hand you can step
+through (`?step=0..8`, `?game=poker` for Hold'em, `?quality=low|medium|high`).
 
 See [`packages/server/src/index.ts`](packages/server/src/index.ts) for
 every environment variable the server reads (blinds, default bet,
@@ -102,11 +111,13 @@ Per-package: `npm run test --workspace=@poker-blackjack/<game-engine|server|fron
 packages/
   game-engine/   deck, shoe, Hold'em + Blackjack rules — no I/O, pure logic
   server/        Socket.IO server, lobby/admin logic, JSON/JSONL persistence
-  frontend/      React UI (lobby, table views for both games, admin panel)
+  frontend/      React UI (lobby, 2D table views for both games, admin panel)
+    src/three/   first-person 3D tables: pure scene models, Three.js engine, shared shell
 docs/
   HOSTING.md                 how to run a real session with friends
   superpowers/specs/         design docs for each feature area
   superpowers/plans/         the implementation plans those specs became
+  superpowers/playtests/     findings from the AI playtest of the 3D tables
 HANDOFF.md       full development history and where things stand
 ```
 
@@ -126,6 +137,15 @@ Blackjack payout math through the live server, incidentally caught two
 real data-corruption bugs in how balances and game settings were
 persisted under concurrent writes — the kind of thing that's easy to
 miss until something is actually pushed hard enough to expose it.
+
+The 3D tables were then playtested by AI players: separate subagents each
+played hands in their own browser tab against a real running server, one of
+them dedicated to reviewing how it looked, and a scripted spectator
+re-derived every Blackjack outcome from the cards. That round found the
+things unit tests could not — most importantly that Blackjack had been
+dealing every seat its own private dealer hand, which is why the game now
+uses one shared shoe and dealer. Details:
+[docs/superpowers/playtests/](docs/superpowers/playtests/2026-09-29-3d-tables-playtest.md).
 
 The full story — every plan, every review round, every fix, and why
 several features were deliberately re-scoped along the way (accounts and

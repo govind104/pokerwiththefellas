@@ -77,6 +77,11 @@ gap:
 **Blackjack:**
 - 6-deck shoe, reshuffled fresh every hand (simpler than tracking
   penetration across hands — no physical deck constraint online).
+  *(Updated 2026-09-29: one shoe and ONE dealer hand per table hand, shared
+  by every seat. Players act in seat order, the dealer plays once after the
+  last player, and all seats settle against that same hand. The first
+  implementation dealt each seat a private shoe and dealer, which a playtest
+  showed was wrong.)*
 - Dealer stands on all 17s (hard and soft).
 - Blackjack pays 3:2.
 - Double-down on any first two cards; split once per hand, double after
@@ -85,7 +90,8 @@ gap:
 **Texas Hold'em:**
 - No-Limit, standard blind structure (small/big blind amounts configurable
   by the host at table creation).
-- Up to 8 players, one table.
+- Up to 8 players, one table. *(Updated: the running app caps both games at
+  6 seats — see HANDOFF.md.)*
 - Dealer button rotates each hand; standard hand ranking.
 - **All-in / side pots are supported and are the single trickiest part of
   this engine to get right** — multiple players all-in for different

@@ -1,8 +1,18 @@
 # 3D tables -- AI playtest findings (2026-09-29)
 
-Method: isolated server on :3100 (scratch data, throwaway admin passphrase, real `dist` build),
-three Sonnet subagents per game in separate browser tabs (alice, bob, and cara as the visual
-reviewer), 3-4 hands each. Blackjack and Hold'em. Console was clean in every run.
+Method (reproducible; the throwaway scripts were not committed):
+- An isolated server on :3100 running the real `dist` build, with scratch data files
+  (`PLAYER_STORE_PATH` / `GAME_CONFIG_PATH` / `HAND_LOG_PATH`) and a throwaway `ADMIN_PASSPHRASE`, so real balances and
+  `.env` are never touched. A small socket.io-client "conductor" script did the admin login and mode switch.
+- Three Sonnet subagents per game, each in its own browser tab (alice, bob, and cara as the visual reviewer), 3-4 hands
+  each, with per-agent disruption tests (reload mid-hand, illegal actions, leave/rejoin, all-in, 2D/3D switch). Only the
+  visual reviewer used the foreground tab and screenshots; the others read the sr-only status text and clicked via JS.
+- Afterwards: bot players (socket.io-client) played 15 Blackjack hands while a spectator script re-derived every outcome
+  from the cards and asserted one dealer for all seats, reveal only after the last player, and nobody paid early.
+- Gotchas: stale tabs from a previous run silently rejoin a restarted server (close them first); tabs share
+  `localStorage`; background tabs throttle requestAnimationFrame; the in-app browser cannot click refs in background tabs.
+
+Console was clean in every run.
 
 ## Blackjack dealers were per seat -- FIXED (shared shoe + dealer)
 
@@ -49,6 +59,20 @@ hole cards stay hidden (never shown for folded players); balances always summed 
 ## Known / left alone
 - Test artefacts, not bugs: quality preference flips between tabs (shared localStorage), background tabs
   throttle rAF so animations only advance when drawn, ref clicks fail in background tabs.
+
+## Final whole-branch review and hardening
+An Opus reviewer read the combined diff: 0 Critical, 1 Important, 5 Minor, and no findings in the shared-dealer change
+(deal order/replay, marker-before-balance, crash mid-settlement, double settlement, all naturals/all bust, disconnect
+auto-stand, hole-card leak). Resolved:
+- Important: card keys repeat between hands, so a previous hand's revealed hole/showdown card stayed face-up. The
+  reconciler now retires and re-deals a slot whose card changed or went face-down.
+- 3D failures (lazy chunk or scene throwing) fall back to 2D via an error boundary; audio `enable()` no longer races
+  `dispose()`; cards mid-sweep are disposed on teardown.
+- Actions are logged before they are applied (both games), so a failed log write rejects the action; recovery skips
+  actions the engine rejected live. An exhausted shoe rejects hit/double/split with no partial change, and a dealer that
+  cannot play voids the hand with no balance changes (`Table.voidBlackjackHand`).
+- New tests: recovery reproduces live play card-for-card after a split and hit; log-write failure in both games; voided
+  hand leaves the table usable; engine shoe-exhaustion cases.
 
 ## Not yet verified
 Whether the sound is pleasant (needs ears), animation feel at 60 fps on a real display, and behaviour on weak

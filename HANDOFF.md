@@ -1,7 +1,8 @@
 # Handoff
 
 A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built via a
-6-plan roadmap. Start here if you're new to this repo.
+6-plan roadmap and since extended with first-person 3D tables and a shared Blackjack dealer
+(see "After Plan 6" below). Start here if you're new to this repo.
 
 ## Where things stand
 
@@ -30,25 +31,72 @@ built on (and Plan 6 will too):
   `packages/server/src/index.ts`), and the table shell width changed from a fixed
   864px cap to 96% of the viewport so 6 players never need to scroll.
 
-**3D table views** (PR #12 `feat/3d-blackjack` for Blackjack, stacked PR `feat/3d-poker` for
-Hold'em; plan: `docs/superpowers/plans/2026-09-29-3d-blackjack.md`): first-person Three.js
-tables, RDR2-inspired but original art. Shared shell in `three/TableStage.tsx`; per-game
-models `sceneModel.ts` (Blackjack) and `pokerModel.ts` (Hold'em, no dealer figure, far-centre
-seat, pot stack + label, hole cards face-down until the server reveals them). `App.tsx` lazy-loads
-`packages/frontend/src/three/Blackjack3D.tsx` (same props as `BlackjackTable`); a
-persisted toggle (`localStorage` `table.view`, default 3D on screens >= 900px) switches
-views and WebGL failure falls back to 2D. Architecture: `sceneModel.ts` is a PURE
-snapshot -> scene-model translation (unit-tested); `engine/SceneRoot.ts` reconciles it
-by stable card/chip keys into deal/flip/sweep animations (the server only sends full
-snapshots, never events). Everything is procedural or synthesised (no downloaded assets,
-audio is WebAudio, off until the user clicks Sound). Verify visually with
-`npm run dev --workspace=@poker-blackjack/frontend` and open `/dev3d.html?step=1..8&quality=low|medium|high` (add `game=poker` for Hold'em, steps 0..5)
-(scripted hand, no server/admin needed; `window.__bj3d.advance(seconds)` steps the
-simulation because rAF is throttled in the preview pane). Blackjack is now ONE shoe and ONE dealer hand per table hand (`SharedDealer` in game-engine,
-`Table.advanceBlackjackTurn` in the server): the dealer plays once after the last seat and everyone settles
-together. Game actions (both games) are written to the hand log BEFORE the engine applies them, so a failed write just rejects the action; recovery skips any logged action the engine rejected live (it throws identically on replay). An exhausted shoe rejects a hit/double/split without changing the hand, and if the dealer cannot play the whole hand is voided with no balance changes (`Table.voidBlackjackHand`). AI playtest findings and fixes: `docs/superpowers/playtests/2026-09-29-3d-tables-playtest.md`
-(harness scripts used for it lived in a scratch dir; rebuild them from that doc if needed). Not yet done: live playtest
-against the real server with several browsers, tuning on weak GPUs.
+### After Plan 6: 3D tables, a shared Blackjack dealer, hardening
+
+All of this is merged to `master` (PR #12 `b35f738`, PR #13 `347fcc9`, then direct-to-master
+commit `b0acd11`). Plan/decisions: `docs/superpowers/plans/2026-09-29-3d-blackjack.md`.
+Playtest write-up: `docs/superpowers/playtests/2026-09-29-3d-tables-playtest.md`.
+
+**1. First-person 3D tables (Blackjack + Hold'em)** — Three.js, RDR2-*inspired* but original art
+(minimal hat/hands silhouettes lit from below, lamp-lit saloon, film grade). Everything is
+procedural or synthesised: no downloaded assets, card faces are the vendored MIT SVGs, audio is
+WebAudio (off until the player clicks "Sound"). All in `packages/frontend/src/three/`:
+- `sceneModel.ts` (Blackjack) and `pokerModel.ts` (Hold'em) are PURE, unit-tested translations of a
+  server snapshot into a declarative scene (cards with stable keys, chip stacks, seats, labels).
+  Hold'em has no dealer figure (the far-centre chair is a real seat), a pot stack + label, per-street
+  bet stacks, and hole cards that stay face-down until the server reveals them.
+- `engine/SceneRoot.ts` reconciles a model into deal / flip / sweep animations by key. The server
+  only sends full snapshots, never events, so this diffing is the only way to know what happened.
+  A slot that now holds a different (or face-down) card retires the old card and deals a new one,
+  because keys repeat from hand to hand. `advance(seconds)` steps the simulation deterministically.
+- `TableStage.tsx` is the shared React shell (canvas lifecycle, projected name plates, quality/sound
+  controls, banners, Ready/Leave). `Blackjack3D.tsx` / `Poker3D.tsx` only supply model, sr-only
+  summary and their action buttons. `View3DBoundary.tsx` drops to 2D if the lazy chunk or scene throws.
+- `App.tsx` lazy-loads the 3D views behind a toggle persisted in `localStorage` (`table.view`, default 3D
+  at >= 900px wide), and falls back to 2D if WebGL cannot start. Quality is `bj3d.quality`, sound `bj3d.sound`.
+- Dev harness (not in the production build): `npm run dev --workspace=@poker-blackjack/frontend`, then
+  `/dev3d.html?step=0..8&quality=low|medium|high` (add `game=poker`, steps 0..5). It drives a scripted hand with
+  no server/admin. In dev, `window.__bj3d` exposes the scene (`advance(s)`, `debugCards()`, `getStats()`);
+  the in-app browser pane throttles requestAnimationFrame, so animations only progress when you call `advance`.
+- Tuning knobs: camera/FOV in `SceneRoot.ts` (landscape 84 deg horizontal, portrait tighter), light values in
+  `room.ts`, card and slot geometry constants at the top of `sceneModel.ts`.
+
+**2. Blackjack is now ONE shoe and ONE dealer hand per table hand.** Before, `table.ts` dealt every seat its
+own shuffled shoe and dealer hand and settled each seat as it finished, so results never matched the dealer on
+screen and arrived before the last player acted (found by the AI playtest). Now `SharedDealer`
+(`game-engine/src/blackjackRound.ts`) owns the shoe and dealer cards; each seat's `BlackjackRound({ dealer })`
+stops at `playingComplete`; `Table.advanceBlackjackTurn` moves the turn, plays the dealer once after the last seat
+and settles everyone together (write-ahead marker per seat, unchanged). The hand-log entry is now
+`blackjack_hand_started { players, shoe }`; an old-format log on disk is discarded with a warning at boot.
+The per-seat `blackjackRounds` view shape is unchanged (every seat just carries the same dealer).
+
+**3. Hand-log write-ahead and failure handling.** Game actions (both games) are appended to the hand log BEFORE
+the engine applies them, so a failed write rejects the action and changes nothing (previously the hand moved on
+with no record; with a shared shoe that would make recovery deal every seat different cards). The log can
+therefore contain an action the engine then rejected; `recoverFromLog` skips exactly those (they throw
+identically on replay). An exhausted shoe rejects hit/double/split without changing the hand (`assertCanDraw`;
+double/split used to mutate before drawing), and if the dealer cannot play, `Table.voidBlackjackHand` cancels the
+hand with no balance changes instead of leaving the table stuck. 6 decks at 6 seats cannot exhaust in normal
+play; this is defence in depth.
+
+**4. UX fixes from the playtest.** Live Hold'em pot and stacks (the server only fills `pots` and debits balances at
+settlement, so `pokerModel.livePot` derives them from seat balance minus in-hand stack; the settled label counts only
+contested pots, since an uncalled bet appears as its own one-player pot), "Call N" with Check/Call disabled when
+illegal, Double/Split disabled unless legal in both 2D and 3D (`components/blackjackActions.ts`), the 3D plates show
+balance net of the live Blackjack bet, sanitised raise input, table-error banner auto-dismiss after 6 s while seated
+(`SocketContext`).
+
+**5. How it was verified.** Six Sonnet subagents (alice/bob/cara x Blackjack/Hold'em, one of them a visual reviewer) played
+3-4 hands each in separate browser tabs against an isolated server; scripted socket.io bot players then ran 15 Blackjack
+hands while a spectator script re-derived every outcome from the cards and asserted one dealer for all seats, reveal only
+after the last player, and nobody paid early. A whole-branch Opus review found 0 Critical / 1 Important (stale face-up
+cards across hands, fixed) / 5 Minor. The throwaway scripts lived in a scratch directory and were not committed; the method
+is described in the playtest doc. Performance on a GTX 1650 Ti at 1280x720: about 1.6 / 2.2 / 2.6 ms per frame at Low / Medium /
+High.
+
+**Still not done:** a real session with friends over Tailscale; whether the sound actually sounds good (only the audio
+graph was checked); behaviour on weak integrated GPUs and real phones. Pre-existing noise, harmless: server tests print
+`ENOENT ... hand.jsonl` from a reconnect-grace timer firing after a test's temp dir is removed.
 
 **Plan 3** is fully merged to `master` (PR #3, merge commit `b1dfae1`), including a
 2-round critical-bug-fix pass. 0 Critical, 0 Important findings remain. Full detail in
@@ -198,7 +246,7 @@ fixed with the same `queue`/`enqueue<T>` serialization pattern
 copied), both now covered by permanent regression tests. Commits
 `8990ce3` (playerStore) and `24e1fd5` (gameConfigStore).
 
-408/408 tests passing (123 frontend, 118 game-engine, 167 server), typecheck clean
+479/479 tests passing (174 frontend, 131 game-engine, 174 server), typecheck clean
 across all 3 workspaces.
 
 ## Running things
@@ -230,7 +278,9 @@ no separate env var or override file is needed. Open the
 "Admin" button in the top corner and enter the passphrase to unlock the lobby's mode
 picker and the in-game admin panel (balance correction, blinds/bet, starting balance,
 mode switching). Open multiple browser tabs/windows against `http://localhost:5173` to
-play as different seats — the table seats **6 players max** (both game modes).
+play as different seats — the table seats **6 players max** (both game modes). Tables open in the
+3D view at >= 900px wide (`table.view` in `localStorage`; the "2D view"/"3D view" button switches);
+see "After Plan 6" for the 3D dev harness.
 
 **To host an actual session with friends** (rather than local development),
 see `docs/HOSTING.md` — it covers Tailscale setup and `npm run play`, which

@@ -56,6 +56,20 @@ Tailscale setup above. From there it's the normal app flow: enter a
 display name, an admin opens the "Admin" button and enters the passphrase
 to pick Poker or Blackjack and start the game, everyone else takes a seat.
 
+**3D or classic table.** Both games open in a first-person 3D saloon view on
+screens at least 900px wide (phones get the classic 2D table). Each player
+can switch at any time with the "2D view" / "3D view" button; the choice is
+remembered per browser. The 3D view needs WebGL (any current desktop
+browser) and loads its code (~150 kB gzipped) only when it is shown; if
+WebGL isn't available the app falls back to the 2D table by itself. The
+"Quality" menu (Low / Medium / High) trades looks for speed on older
+laptops, and "Sound" is off until someone turns it on. All of this runs in
+each player's own browser — the host machine does no extra work for it.
+
+**Blackjack rules at the table.** Everyone at the table is dealt from one
+shared shoe against one dealer hand. Players act in seat order, the dealer
+plays once after the last player, and everyone is paid together.
+
 ## Ending a session
 
 Stop the server with Ctrl+C — it shuts down cleanly (closes all
@@ -77,6 +91,17 @@ the host's machine (`packages/server/balances.json`, `game-config.json`,
   own turn, the server auto-folds/auto-stands for them after a short grace
   window (`RECONNECT_GRACE_MS`, 2 minutes by default) so the table isn't
   stuck waiting, but the seat itself is theirs until they explicitly leave.
+
+- **Upgrading the server while a Blackjack hand is on disk:** the hand log
+  format changed when Blackjack moved to one shared shoe. If the server is
+  stopped mid-hand on the old version and restarted on the new one, the old
+  in-progress hand is discarded with a warning (nobody is paid or charged
+  for it) and the table starts clean. Finished hands are unaffected.
+- **A hand ended with no result:** if the server ever cannot finish a
+  Blackjack hand (it would have to run out of cards in the shoe, which six
+  decks at six seats cannot do in normal play), it cancels that hand with
+  no balance changes, sends everyone back to "not ready", and logs the
+  reason to the server console. Players just ready up again.
 
 ## One thing to decide up front: who hosts
 
