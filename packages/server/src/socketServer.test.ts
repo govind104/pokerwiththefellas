@@ -8,6 +8,7 @@ import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
 import { JsonGameConfigStore } from './gameConfigStore';
 import type { PlayerStore } from './playerStore';
+import type { GameConfigStore, GameConfigValues } from './gameConfigStore';
 import type { AppStateView } from './table';
 import {
   ADMIN_PASSPHRASE,
@@ -736,4 +737,101 @@ describe('static file serving -- misconfigured STATIC_DIR', () => {
     await writeFile(filePath, 'not a directory');
     await expect(createServer(...(await buildServerArgs(filePath)))).rejects.toThrow(/is not a directory/);
   });
+});
+
+// Test-local fake for audit C4: a real config store whose next read or write
+// fails the way a Windows file lock does (antivirus, backup or indexer holding
+// game-config.json), so each admin handler's failure path can be driven.
+class LockableGameConfigStore implements GameConfigStore {
+  failNext = false;
+  constructor(private inner: GameConfigStore) {}
+  private maybeFail(): void {
+    if (this.failNext) {
+      this.failNext = false;
+      throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+    }
+  }
+  async getConfig(): Promise<GameConfigValues> {
+    this.maybeFail();
+    return this.inner.getConfig();
+  }
+  async setConfig(update: Partial<GameConfigValues>): Promise<GameConfigValues> {
+    this.maybeFail();
+    return this.inner.setConfig(update);
+  }
+}
+
+describe('socketServer admin handlers on a storage failure (audit C4)', () => {
+  let dir: string;
+  let server: CreateServerResult;
+  let port: number;
+  let clients: ClientSocket[];
+  let gameConfigStore: LockableGameConfigStore;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'socket-server-c4-test-'));
+    const playerStore = new JsonPlayerStore(join(dir, 'balances.json'), DEFAULT_GAME_CONFIG.defaultStartingBalance);
+    const handLog = new JsonlHandLog(join(dir, 'hand.jsonl'));
+    gameConfigStore = new LockableGameConfigStore(
+      new JsonGameConfigStore(join(dir, 'game-config.json'), DEFAULT_GAME_CONFIG)
+    );
+    server = await createServer(DEFAULT_STATIC_CONFIG, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE);
+    await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
+    port = (server.httpServer.address() as { port: number }).port;
+    clients = [];
+  });
+
+  afterEach(async () => {
+    for (const c of clients) c.disconnect();
+    server.io.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function connect(): ClientSocket {
+    const socket = ioClient(`http://localhost:${port}`, { transports: ['websocket'] });
+    clients.push(socket);
+    return socket;
+  }
+
+  async function loginAsAdmin(socket: ClientSocket): Promise<void> {
+    socket.emit('adminLogin', { passphrase: ADMIN_PASSPHRASE });
+    await waitForEvent(socket, 'adminLoginResult');
+  }
+
+  const cases: Array<{ event: string; payload: unknown; withTable: boolean }> = [
+    { event: 'adminStartGame', payload: { mode: 'holdem' }, withTable: false },
+    { event: 'adminSwitchMode', payload: { mode: 'blackjack' }, withTable: true },
+    { event: 'adminSetBlinds', payload: { smallBlind: 50, bigBlind: 100 }, withTable: true },
+    { event: 'adminSetDefaultBet', payload: { blackjackDefaultBet: 40 }, withTable: true },
+    { event: 'adminSetStartingBalance', payload: { defaultStartingBalance: 2000 }, withTable: true },
+  ];
+
+  for (const { event, payload, withTable } of cases) {
+    it(`${event} reports a locked config file to the admin instead of leaving an unhandled rejection`, async () => {
+      const admin = connect();
+      if (withTable) {
+        await startGameAsAdmin(admin, 'holdem');
+      } else {
+        await loginAsAdmin(admin);
+      }
+
+      const adminErrors: Array<{ message: string; scope?: string }> = [];
+      admin.on('error', (err: { message: string; scope?: string }) => adminErrors.push(err));
+      const rejections: unknown[] = [];
+      const onUnhandledRejection = (reason: unknown): void => {
+        rejections.push(reason);
+      };
+      process.on('unhandledRejection', onUnhandledRejection);
+      try {
+        gameConfigStore.failNext = true;
+        admin.emit(event as never, payload as never);
+        await vi.waitFor(() => expect(adminErrors.length + rejections.length).toBeGreaterThan(0));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(rejections).toEqual([]);
+        expect(adminErrors).toEqual([{ message: expect.stringContaining('EBUSY'), scope: 'admin' }]);
+      } finally {
+        process.off('unhandledRejection', onUnhandledRejection);
+      }
+    });
+  }
 });

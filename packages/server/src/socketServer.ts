@@ -310,6 +310,18 @@ export async function createServer(
       socket.emit('error', { message, scope: 'admin' });
     }
 
+    // socket.io ignores a handler's returned promise, so a rejection inside an async admin
+    // handler (e.g. a Windows file lock on balances.json or game-config.json) would be
+    // unhandled -- and Node exits on that, disconnecting every player (audit C4).
+    function adminHandler<T extends unknown[]>(handler: (...args: T) => Promise<void>): (...args: T) => void {
+      return (...args) => {
+        handler(...args).catch((err: unknown) => {
+          console.error('Admin handler failed:', err);
+          rejectAdmin(err instanceof Error ? err.message : String(err));
+        });
+      };
+    }
+
     function isAdmin(): boolean {
       if (adminSocketIds.has(socket.id)) {
         return true;
@@ -318,7 +330,7 @@ export async function createServer(
       return false;
     }
 
-    socket.on('adminStartGame', async (payload: StartGamePayload) => {
+    socket.on('adminStartGame', adminHandler(async (payload: StartGamePayload) => {
       if (!isAdmin()) return;
       if (!isGameMode(payload?.mode)) {
         rejectAdmin('Invalid game mode');
@@ -341,9 +353,9 @@ export async function createServer(
         modeChangeInFlight = false;
       }
       broadcast();
-    });
+    }));
 
-    socket.on('adminSwitchMode', async (payload: StartGamePayload) => {
+    socket.on('adminSwitchMode', adminHandler(async (payload: StartGamePayload) => {
       if (!isAdmin()) return;
       if (!isGameMode(payload?.mode)) {
         rejectAdmin('Invalid game mode');
@@ -387,9 +399,9 @@ export async function createServer(
         modeChangeInFlight = false;
       }
       broadcast();
-    });
+    }));
 
-    socket.on('adminAdjustBalance', async (payload) => {
+    socket.on('adminAdjustBalance', adminHandler(async (payload) => {
       if (!isAdmin()) return;
       if (!isValidDisplayName(payload?.displayName)) {
         rejectAdmin('Invalid display name');
@@ -414,9 +426,9 @@ export async function createServer(
         return;
       }
       broadcast();
-    });
+    }));
 
-    socket.on('adminSetBlinds', async (payload) => {
+    socket.on('adminSetBlinds', adminHandler(async (payload) => {
       if (!isAdmin()) return;
       if (!isPositiveNumber(payload?.smallBlind) || !isPositiveNumber(payload?.bigBlind)) {
         rejectAdmin('Blinds must be positive numbers');
@@ -428,9 +440,9 @@ export async function createServer(
       });
       table?.updateConfig({ smallBlind: payload.smallBlind, bigBlind: payload.bigBlind });
       broadcast();
-    });
+    }));
 
-    socket.on('adminSetDefaultBet', async (payload) => {
+    socket.on('adminSetDefaultBet', adminHandler(async (payload) => {
       if (!isAdmin()) return;
       if (!isPositiveNumber(payload?.blackjackDefaultBet)) {
         rejectAdmin('Default bet must be a positive number');
@@ -441,9 +453,9 @@ export async function createServer(
       });
       table?.updateConfig({ blackjackDefaultBet: payload.blackjackDefaultBet });
       broadcast();
-    });
+    }));
 
-    socket.on('adminSetStartingBalance', async (payload) => {
+    socket.on('adminSetStartingBalance', adminHandler(async (payload) => {
       if (!isAdmin()) return;
       if (!isPositiveNumber(payload?.defaultStartingBalance)) {
         rejectAdmin('Starting balance must be a positive number');
@@ -454,7 +466,7 @@ export async function createServer(
       });
       playerStore.setDefaultStartingBalance(payload.defaultStartingBalance);
       broadcast();
-    });
+    }));
 
     socket.on('disconnect', () => {
       adminSocketIds.delete(socket.id);

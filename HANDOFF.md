@@ -13,13 +13,14 @@ which docs are kept current and which are historical records.
 `.playtest-data/audit/` (git-ignored, not recoverable: never run `rm -rf .playtest-data`, which
 `scripts/playtest/README.md:15` still says to do).
 
-Done (each test-first; 503 tests green, `npm run typecheck` clean at `8d7eacd`):
+Done (each test-first; 509 tests green, `npm run typecheck` clean after the C4 commit):
 
 | Commit | Findings | What changed |
 |---|---|---|
 | `33087ef` | docs | Report added; the six §7 doc fixes |
 | `84837e2` | C1, C2 | `startHand` settles a Hold'em hand already settled when dealt (both all-in from blinds). `HoldemHand.wentToShowdown`; hole cards are revealed only after a real showdown, not on a fold-out |
-| `8d7eacd` | C3, I1, I2 | `Table.runExclusive` per-table lock (actions, auto-acts, hand starts, admin balance). `actionSeq` in every view, client sends it back as `seq`, stale ones rejected; frontend `actionPending` disables action buttons. `Table.adminSetBalance` replaces `setSeatBalance`. `Table.retire()` on mode switch. A join that resolves after a switch is dropped |
+| `8d7eacd` | C3, I1, I2 | `Table.runExclusive` per-table lock (actions, auto-acts, hand starts, admin balance). `actionSeq` in every view, client sends it back as `seq`, stale ones rejected; frontend `actionPending` disables action buttons. `Table.adminSetBalance` replaces `setSeatBalance`. `Table.retire()` on mode switch. A join that resolves after a switch is dropped. **I1 reopened, see below** |
+| (C4 commit) | C4 | `adminHandler()` wraps every async admin handler in `socketServer.ts`: a rejection (e.g. EBUSY on a locked config file) becomes `rejectAdmin(message)` plus a server log. `processSafetyNet.ts` logs any other unhandled rejection and keeps the server running (called first in `index.ts`). EPERM/EBUSY `rename` retry not done |
 
 Decisions worth knowing:
 - `recoverFromLog` still **voids** (does not pay) a hand that replays to `settled`. After the C1
@@ -29,16 +30,28 @@ Decisions worth knowing:
   the lock (the auto-act at the end of `applyAction`) must call `applyAction`, never
   `submitAction`, or it deadlocks.
 - `seq` is optional on `action`: the playtest bots don't send it and are still accepted.
-- None of the fixes so far have been tried in the browser. The concurrency commit (`8d7eacd`)
-  has had no independent review yet. One Opus review of that commit was proposed, not yet approved
-  by the user.
+- An unhandled rejection is now logged and the server keeps running, rather than exiting. The
+  table could be left half-updated, but that beats dropping every player.
+- None of the fixes so far have been tried in the browser.
+- One Opus review of `8d7eacd` ran (findings: `.playtest-data/audit/review-8d7eacd.md`). It found
+  no deadlock path and no wrongly-stale action, but:
+  - **IMP-1 (Important): I1 is not fixed in the live case.** On a LAN the server's reply usually
+    lands between the two clicks of a double-click; it clears `actionPending` and updates the seq,
+    so the second click is sent with a valid seq and accepted (`SocketContext.tsx:131-135, 327-331`;
+    `table.ts:513`). In 3D the buttons re-enable while the card is still being dealt.
+  - MIN-1: leave + rejoin during an admin balance write leaves the seat with the old balance
+    (`leave`/`join` don't take the lock). MIN-2: a balance write queued on a retired table can land
+    after a rejoin. Both belong with I3 / C5.
+  - MIN-3: a reconnecting client whose join was dropped by a switch can sit on "Reconnecting…".
+  - MIN-4: the table lock has no timeout; one stuck file write freezes the table. Low priority.
+  - MIN-5: missing tests: a hand start already queued on the lock when `retire()` runs; the
+    hand-in-progress re-check in `adminSwitchMode`.
 
-**Next step:** ask the user whether to run that review first; otherwise start §8 item 3, **C4**.
-Every async admin handler in `socketServer.ts` needs a catch → `rejectAdmin(message)` (wrap in a
-`safeHandler`). `adminStartGame` and `adminSwitchMode` have `try/finally` with no catch. Add a
-`process.on('unhandledRejection')` logger in `index.ts`. Then items 4-9 (I4/I5/M5 config and
-ready-check, C5/I7 identity and exposure, ...). Ask before committing; don't push or merge without
-asking.
+**Next step:** fix **IMP-1** test-first (frontend: keep action buttons disabled until a new seq
+arrives *and* a minimum delay / the deal animation has finished; first test delivers the server
+reply between the two clicks), plus the two MIN-5 tests. Then §8 item 4 (I4/I5/M5 config and
+ready-check), 5 (C5/I7 identity and exposure), ... Ask before committing; don't push or merge
+without asking.
 
 ## Where things stand
 

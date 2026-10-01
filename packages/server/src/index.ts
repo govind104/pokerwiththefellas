@@ -4,8 +4,11 @@ import { createServer } from './socketServer';
 import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
 import { JsonGameConfigStore } from './gameConfigStore';
+import { logUnhandledRejections } from './processSafetyNet';
 import type { StaticTableConfig } from './socketServer';
 import type { GameConfigValues } from './gameConfigStore';
+
+logUnhandledRejections();
 
 const staticConfig: StaticTableConfig = {
   // Friend-group-sized table: 6 seats for both game modes.
