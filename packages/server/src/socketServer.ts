@@ -2,6 +2,7 @@ import { createServer as createHttpServer, type Server as HttpServer } from 'nod
 import { statSync } from 'node:fs';
 import sirv from 'sirv';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
+import { normaliseDisplayName } from './names';
 import { Table, type TableConfig, type GameMode, type AppStateView } from './table';
 import type { PlayerStore } from './playerStore';
 import type { HandLog } from './handLog';
@@ -44,17 +45,8 @@ export interface CreateServerOptions {
   staticDir?: string;
 }
 
-// Defense in depth alongside JsonPlayerStore's null-prototype balance map:
-// the design spec requires malformed or unexpected socket payloads to be
-// rejected before reaching the engine at all, and a display name arriving off
-// the wire is entirely attacker-controlled. The 32-character bound is a
-// judgment call, not a spec requirement.
-function isValidDisplayName(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0 && value.length <= 32;
-}
-
 // Same "reject malformed payloads before they reach anything durable"
-// rationale as isValidDisplayName. These matter more than ordinary input
+// rationale as normaliseDisplayName. These matter more than ordinary input
 // hygiene because every value guarded here is written straight through to a
 // file that survives a restart: a NaN/undefined/negative big blind persists
 // into game-config.json and poisons every future hand, and a bad balance
@@ -213,7 +205,8 @@ export async function createServer(
         socket.emit('error', { message: 'No game is active yet' });
         return;
       }
-      if (!isValidDisplayName(payload?.displayName)) {
+      const displayName = normaliseDisplayName(payload?.displayName);
+      if (!displayName) {
         socket.emit('error', { message: 'Invalid display name' });
         return;
       }
@@ -222,8 +215,8 @@ export async function createServer(
       // whoever sits at that index there (their cards, their turn).
       const joinedTable = table;
       try {
-        const existingSeatIndex = joinedTable.reconnect(payload.displayName);
-        const seatIndex = existingSeatIndex ?? (await joinedTable.join(payload.displayName));
+        const existingSeatIndex = joinedTable.reconnect(displayName);
+        const seatIndex = existingSeatIndex ?? (await joinedTable.join(displayName));
         if (table !== joinedTable) {
           socket.emit('error', { message: 'The game changed while you were joining -- please join again' });
           return;
@@ -403,7 +396,8 @@ export async function createServer(
 
     socket.on('adminAdjustBalance', adminHandler(async (payload) => {
       if (!isAdmin()) return;
-      if (!isValidDisplayName(payload?.displayName)) {
+      const displayName = normaliseDisplayName(payload?.displayName);
+      if (!displayName) {
         rejectAdmin('Invalid display name');
         return;
       }
@@ -414,13 +408,13 @@ export async function createServer(
       if (!table) {
         // Balance corrections only make sense for someone actually at the table right now
         // (an unconditional write used to create orphaned balances.json entries).
-        rejectAdmin(`No player named "${payload.displayName}" is currently seated`);
+        rejectAdmin(`No player named "${displayName}" is currently seated`);
         return;
       }
       // Table does the seated / no-hand checks and the write under its lock, so a hand
       // cannot start between the check and the write.
       try {
-        await table.adminSetBalance(payload.displayName, payload.balance);
+        await table.adminSetBalance(displayName, payload.balance);
       } catch (err) {
         rejectAdmin((err as Error).message);
         return;

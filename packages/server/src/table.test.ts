@@ -222,6 +222,14 @@ describe('Table seats', () => {
     await expect(table.join('alice')).rejects.toThrow('already seated');
   });
 
+  it('treats names that differ only in case as the same player (audit M8)', async () => {
+    const { table } = makeTable();
+    await table.join('Bob');
+    await expect(table.join('bob')).rejects.toThrow('already seated');
+    table.disconnect(0);
+    expect(table.reconnect('BOB')).toBe(0);
+  });
+
   it('rejects joining once all 8 seats are full', async () => {
     const { table } = makeTable();
     for (let i = 0; i < 8; i++) {

@@ -51,6 +51,11 @@ describe('JoinScreen', () => {
     expect(joinWithName).not.toHaveBeenCalled();
   });
 
+  it('limits the name input to the server maximum (audit M8)', () => {
+    renderWithContext();
+    expect(screen.getByLabelText(/display name/i)).toHaveAttribute('maxLength', '32');
+  });
+
   it('disables the form while connecting', () => {
     renderWithContext({ status: 'connecting' });
     expect(screen.getByLabelText(/display name/i)).toBeDisabled();

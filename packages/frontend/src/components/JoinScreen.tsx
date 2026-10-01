@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { MAX_DISPLAY_NAME_LENGTH } from '@poker-blackjack/server/src/names';
 import { useSocket } from '../socket/SocketContext';
 
 export function JoinScreen() {
@@ -27,6 +28,7 @@ export function JoinScreen() {
           id="displayName"
           value={name}
           onChange={(event) => setName(event.target.value)}
+          maxLength={MAX_DISPLAY_NAME_LENGTH}
           disabled={connecting}
           aria-describedby={errorMessage ? 'displayName-error' : undefined}
           className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 disabled:opacity-50"

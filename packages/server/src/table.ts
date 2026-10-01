@@ -14,6 +14,7 @@ import {
 import type { RoundPhase, RoundResult, HoldemStreet, HoldemResult, Pot } from '@poker-blackjack/game-engine';
 import type { PlayerStore } from './playerStore';
 import type { HandLog, HandLogEntry } from './handLog';
+import { sameName } from './names';
 
 export type GameMode = 'blackjack' | 'holdem';
 
@@ -194,7 +195,7 @@ export class Table {
   // overwrote or went negative against).
   async adminSetBalance(displayName: string, balance: number): Promise<void> {
     await this.runExclusive(async () => {
-      const seat = this.seats.find((s) => s?.displayName === displayName);
+      const seat = this.seats.find((s) => sameName(s?.displayName, displayName));
       if (!seat) {
         throw new Error(`No player named "${displayName}" is currently seated`);
       }
@@ -215,7 +216,7 @@ export class Table {
   async join(displayName: string): Promise<number> {
     // Fast-path rejection before paying for the getBalance I/O below -- not
     // load-bearing for correctness on its own (see the post-await check).
-    if (this.seats.some((s) => s?.displayName === displayName)) {
+    if (this.seats.some((s) => sameName(s?.displayName, displayName))) {
       throw new Error(`"${displayName}" is already seated`);
     }
     const balance = await this.deps.playerStore.getBalance(displayName);
@@ -230,7 +231,7 @@ export class Table {
     // single-threaded microtask semantics: whichever call's continuation
     // resumes first completes its full check-and-write before the next
     // call's continuation runs, so the next one always sees up-to-date seats.
-    if (this.seats.some((s) => s?.displayName === displayName)) {
+    if (this.seats.some((s) => sameName(s?.displayName, displayName))) {
       throw new Error(`"${displayName}" is already seated`);
     }
     const seatIndex = this.seats.findIndex((s) => s === null);
@@ -337,7 +338,7 @@ export class Table {
   // below; it is not a seat-eviction timer. See docs/HOSTING.md's
   // troubleshooting section for the player-facing version of this.
   reconnect(displayName: string): number | null {
-    const seat = this.seats.find((s) => s?.displayName === displayName && !s.connected);
+    const seat = this.seats.find((s) => s !== null && sameName(s.displayName, displayName) && !s.connected);
     if (!seat) {
       return null;
     }

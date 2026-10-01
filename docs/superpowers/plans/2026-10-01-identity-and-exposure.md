@@ -92,7 +92,7 @@ Other constraints:
   `sameName(a: string | null | undefined, b: string): boolean`, `MAX_DISPLAY_NAME_LENGTH = 32`.
   Importable from the frontend as `@poker-blackjack/server/src/names` (pure TS, no Node imports).
 
-- [ ] **Step 1: Write the failing unit tests** — `packages/server/src/names.test.ts`
+- [x] **Step 1: Write the failing unit tests** — `packages/server/src/names.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -136,12 +136,12 @@ describe('nameKey / sameName', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `npx vitest run src/names.test.ts --root packages/server`
 Expected: FAIL, cannot resolve `./names`.
 
-- [ ] **Step 3: Implement** — `packages/server/src/names.ts`
+- [x] **Step 3: Implement** — `packages/server/src/names.ts`
 
 ```ts
 // A display name is the only identity players see, so two names that look the same must be the
@@ -180,12 +180,12 @@ export function sameName(a: string | null | undefined, b: string): boolean {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `npx vitest run src/names.test.ts --root packages/server`
 Expected: PASS.
 
-- [ ] **Step 5: Failing table and socket tests**
+- [x] **Step 5: Failing table and socket tests**
 
 Add to `packages/server/src/table.test.ts`, inside `describe('Table seats')` (`makeTable` is the file's factory, ~line 187):
 
@@ -225,7 +225,7 @@ Run: `npm test --workspace=@poker-blackjack/server` and
 `npx vitest run src/components/JoinScreen.test.tsx --root packages/frontend`
 Expected: the three new tests FAIL (second `join` succeeds; seat name is `'  ali​ce '`; no maxLength).
 
-- [ ] **Step 6: Wire it in**
+- [x] **Step 6: Wire it in**
 
 `table.ts`: `import { sameName } from './names';` and replace each exact name comparison:
 - `adminSetBalance`: `this.seats.find((s) => sameName(s?.displayName, displayName))`
@@ -253,14 +253,14 @@ and pass `displayName` to the error message and `table.adminSetBalance`.
 `JoinScreen.tsx`: `import { MAX_DISPLAY_NAME_LENGTH } from '@poker-blackjack/server/src/names';` and add
 `maxLength={MAX_DISPLAY_NAME_LENGTH}` to the `<input id="displayName">`.
 
-- [ ] **Step 7: Run all tests, typecheck and the frontend build**
+- [x] **Step 7: Run all tests, typecheck and the frontend build**
 
 Run: `npm test` then `npm run typecheck` then `npm run build --workspace=@poker-blackjack/frontend`
 Expected: all PASS; the build proves the frontend can bundle the server's `names.ts`.
 If the build cannot resolve the import, move `names.ts` to `packages/game-engine/src/names.ts`,
 export it from the engine's index, and import it from `@poker-blackjack/game-engine` on both sides.
 
-- [ ] **Step 8: Commit (after the user says yes)**
+- [x] **Step 8: Commit (after the user says yes)**
 
 ```bash
 git add packages/server/src/names.ts packages/server/src/names.test.ts packages/server/src/table.ts packages/server/src/table.test.ts packages/server/src/socketServer.ts packages/server/src/socketServer.test.ts packages/frontend/src/components/JoinScreen.tsx packages/frontend/src/components/JoinScreen.test.tsx

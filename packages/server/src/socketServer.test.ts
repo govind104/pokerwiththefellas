@@ -63,6 +63,15 @@ describe('socketServer', () => {
     expect(state.table!.seats[0]?.displayName).toBe('alice');
   });
 
+  it('stores the normalised name, not the raw one (audit M8)', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+    const socket = connect();
+    socket.emit('join', { displayName: '  ali\u200Bce ' });
+    const state = await waitForSeated(socket, 'alice');
+    expect(state.table!.seats[0]?.displayName).toBe('alice');
+  });
+
   it('broadcasts an updated seat list to an already-connected client when a second player joins', async () => {
     const admin = connect();
     await startGameAsAdmin(admin, 'holdem');
