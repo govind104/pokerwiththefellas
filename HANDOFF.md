@@ -7,7 +7,7 @@ which docs are kept current and which are historical records.
 
 ## Current work: fixing the 2026-10-01 audit findings (in progress)
 
-**Branch** `audit/2026-10-01-full-audit` (off `master`; not pushed, no PR yet). **Findings:**
+**Branch** `audit/2026-10-01-full-audit` (off `master`; items 1-5 pushed and opened as a PR to `master` on 2026-10-01). **Findings:**
 `docs/superpowers/playtests/2026-10-01-full-audit-and-playtest.md` (5 Critical, 15 Important,
 30 Minor). Its section 8 is the agreed fix order. Raw audit inputs and repros are in
 `.playtest-data/audit/` (git-ignored, not recoverable: never run `rm -rf .playtest-data`, which
@@ -80,14 +80,31 @@ Decisions worth knowing:
 **Next step:** item 5 (§8, identity and exposure) is done: Tasks 1-9 step 5 committed
 (`be44565` holds the final-review fixes; Opus final review `.superpowers/sdd/item5-final-review.md`,
 fix re-review approved). Remaining:
-1. **The user's live Tailscale Serve check** (Task 9 step 6) on the real host:
-   `tailscale serve --bg http://127.0.0.1:3000`, open the `https://...ts.net` link from another
-   tailnet device, confirm the socket connects. If refused, set `ALLOWED_ORIGINS`; record here which
-   header Serve sends. The `tailscale serve` commands and the "share the machine rather than invite"
-   advice in `docs/HOSTING.md` are untested until then.
-2. **§8 item 6**: I10 (`joinInFlightRef` survives a disconnect) and I11 (leave racing a hand start).
-   Write its plan first (`superpowers:writing-plans`). Look at the "Leave table with the admin panel
-   open" observation above while in that area.
+1. **Finish the live Tailscale test** (Task 9 step 6, guide `docs/TAILSCALE-LIVE-TEST.md`).
+   Done 2026-10-01 on the real host (`pokerblackjack.<tailnet>.ts.net`, Windows): `tailscale serve
+   --bg http://127.0.0.1:3000` works, and `tailscale serve --https=443 off` is the off command it
+   prints. **Serve sends both `Host` and `X-Forwarded-Host` = the ts.net name** (plus
+   `X-Forwarded-Proto: https`, `X-Forwarded-For` and `Tailscale-User-Login/Name/Profile-Pic`, which
+   the server ignores), so the Origin check passes with no `ALLOWED_ORIGINS`. A phone on the tailnet
+   joined over the `https://` link and played a full Hold'em hand against the host. Still to do:
+   steps 16-17 (share the machine with a friend; tests the "share, don't invite" advice), then
+   remove the "Not yet tested" note in `docs/HOSTING.md`, check its free-plan user-limit claim,
+   and tick step 6 in the plan.
+2. **Next session (user's choice, 2026-10-01): the 3D camera is too low.** The eye sits 0.29 m above the felt
+   (`BASE_CAM` y 1.05 vs `TABLE_Y` 0.76 in `packages/frontend/src/three/engine/SceneRoot.ts:67`
+   and `sceneModel.ts:14`; `LEAN_CAM` is lower still, 0.16 m). Your own cards are hard to read in
+   both games, the river is hard to see in Hold'em, and opponents' revealed cards can't be read at
+   showdown (fine for Blackjack, not for Poker). The user's first idea: a normal seated head
+   height, roughly double the current height above the table; other solutions are open. Needs a
+   design pass (`superpowers:brainstorming`) comparing heights and options with screenshots
+   before any code. Gameplay over Tailscale was smooth.
+3. **Then §8 item 6, "unsticking tables" (I6, I11, I10):** I6 admin kick and force-act plus an
+   optional turn clock (an idle connected player stalls the table forever); I11 leave racing a hand
+   start (the client drops its identity before the server confirms, so the server keeps the seat);
+   I10 `joinInFlightRef` surviving a disconnect (two quick drops leave the player on
+   "Reconnecting…"). Write its plan first (`superpowers:writing-plans`); line numbers in the audit
+   predate item 5's `SocketContext` changes. Look at the "Leave table with the admin panel open"
+   observation above while in that area (likely I11).
 
 - How this session ran the loop (keep it for item 6): implementers are told **not** to
   `git add`/commit; the controller builds the review package from the working tree with
