@@ -141,7 +141,7 @@ describe('JsonPlayerStore', () => {
     // not just a lost key).
     const raw = await readFile(filePath, 'utf-8');
     expect(() => JSON.parse(raw)).not.toThrow();
-    expect(JSON.parse(raw)).toEqual({ alice: 975, bob: 1000 });
+    expect(JSON.parse(raw)).toEqual({ alice: { name: 'alice', balance: 975 }, bob: { name: 'bob', balance: 1000 } });
   });
 
   it('setDefaultStartingBalance changes the value returned for names with no prior entry', async () => {
@@ -152,5 +152,104 @@ describe('JsonPlayerStore', () => {
     // A name that already has a stored balance is unaffected.
     await store.setBalance('bob', 500);
     await expect(store.getBalance('bob')).resolves.toBe(500);
+  });
+
+  describe('v2 format and name tokens (audit C5)', () => {
+    it('looks names up case-insensitively', async () => {
+      const store = new JsonPlayerStore(filePath, 1000);
+      await store.setBalance('Bob', 640);
+      await expect(store.getBalance('bob')).resolves.toBe(640);
+    });
+
+    it('reads a v1 file, keeps a backup of it, and writes v2', async () => {
+      await writeFile(filePath, JSON.stringify({ Bob: 700, alice: 900 }), 'utf-8');
+      const store = new JsonPlayerStore(filePath, 1000);
+      await expect(store.getBalance('bob')).resolves.toBe(700);
+      await store.setBalance('alice', 950);
+      expect(JSON.parse(await readFile(filePath, 'utf-8'))).toEqual({
+        bob: { name: 'Bob', balance: 700 },
+        alice: { name: 'alice', balance: 950 },
+      });
+      expect(JSON.parse(await readFile(`${filePath}.v1-backup`, 'utf-8'))).toEqual({ Bob: 700, alice: 900 });
+    });
+
+    it('keeps the larger balance when two v1 names differ only in case', async () => {
+      await writeFile(filePath, JSON.stringify({ Bob: 700, bob: 900 }), 'utf-8');
+      // Expected: the store logs which entry it kept.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const store = new JsonPlayerStore(filePath, 1000);
+      await expect(store.getBalance('BOB')).resolves.toBe(900);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('reports a name with no token as unclaimed, whether or not it has a balance', async () => {
+      const store = new JsonPlayerStore(filePath, 1000);
+      await expect(store.checkToken('nobody', undefined)).resolves.toBe('unclaimed');
+      await store.setBalance('alice', 500);
+      await expect(store.checkToken('alice', 'anything')).resolves.toBe('unclaimed');
+    });
+
+    it('issues a token that then matches, case-insensitively, and nothing else does', async () => {
+      const store = new JsonPlayerStore(filePath, 1000);
+      const token = await store.issueToken('Alice');
+      expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      await expect(store.checkToken('alice', token)).resolves.toBe('match');
+      await expect(store.checkToken('alice', 'wrong')).resolves.toBe('mismatch');
+      await expect(store.checkToken('alice', undefined)).resolves.toBe('mismatch');
+    });
+
+    it('refuses to issue a second token for a claimed name', async () => {
+      const store = new JsonPlayerStore(filePath, 1000);
+      await store.issueToken('alice');
+      await expect(store.issueToken('ALICE')).rejects.toThrow('already claimed');
+    });
+
+    it('writes only a hash of the token, and keeps it across instances', async () => {
+      const token = await new JsonPlayerStore(filePath, 1000).issueToken('alice');
+      expect(await readFile(filePath, 'utf-8')).not.toContain(token);
+      await expect(new JsonPlayerStore(filePath, 1000).checkToken('alice', token)).resolves.toBe('match');
+    });
+
+    it('does not change the balance when a token is issued', async () => {
+      const store = new JsonPlayerStore(filePath, 1000);
+      await store.setBalance('alice', 333);
+      await store.issueToken('alice');
+      await expect(store.getBalance('alice')).resolves.toBe(333);
+    });
+
+    it('releasing a name forgets its token and keeps its balance', async () => {
+      const store = new JsonPlayerStore(filePath, 1000);
+      await store.setBalance('alice', 420);
+      const token = await store.issueToken('alice');
+      await expect(store.releaseName('Alice')).resolves.toBe(true);
+      await expect(store.checkToken('alice', token)).resolves.toBe('unclaimed');
+      await expect(store.getBalance('alice')).resolves.toBe(420);
+    });
+
+    it('releasing a name that was never stored returns false', async () => {
+      const store = new JsonPlayerStore(filePath, 1000);
+      await expect(store.releaseName('ghost')).resolves.toBe(false);
+    });
+
+    it('treats a hand-edited, malformed tokenHash as unclaimed instead of throwing', async () => {
+      // timingSafeEqual throws on a length mismatch, so without the shape guard a broken hash
+      // would turn every join under that name into a server error.
+      await writeFile(filePath, JSON.stringify({ alice: { name: 'alice', balance: 10, tokenHash: 'not-hex' } }), 'utf-8');
+      const store = new JsonPlayerStore(filePath, 1000);
+      await expect(store.checkToken('alice', 'anything')).resolves.toBe('unclaimed');
+      await expect(store.checkToken('alice', undefined)).resolves.toBe('unclaimed');
+    });
+
+    it('lets a name with a malformed tokenHash be claimed again, keeping its balance', async () => {
+      // Unclaimed must mean claimable: otherwise checkToken says "unclaimed", issueToken says
+      // "already claimed", and the join fails with no way out.
+      await writeFile(filePath, JSON.stringify({ alice: { name: 'alice', balance: 10, tokenHash: 'not-hex' } }), 'utf-8');
+      const store = new JsonPlayerStore(filePath, 1000);
+      const token = await store.issueToken('alice');
+      expect(token).toHaveLength(43);
+      await expect(store.checkToken('alice', token)).resolves.toBe('match');
+      await expect(store.getBalance('alice')).resolves.toBe(10);
+    });
   });
 });

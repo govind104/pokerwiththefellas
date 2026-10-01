@@ -295,7 +295,7 @@ On-disk v2 format (`balances.json`): `{ "<nameKey>": { "name": "Bob", "balance":
 `balance` and `tokenHash` are optional. A v1 file (`{ "Bob": 975 }`) is read as v2; the first time
 one is read it is copied to `balances.json.v1-backup` (never overwritten).
 
-- [ ] **Step 1: Write the failing tests** — append to `playerStore.test.ts` (inside the existing `describe`)
+- [x] **Step 1: Write the failing tests** — append to `playerStore.test.ts` (inside the existing `describe`)
 
 ```ts
 describe('v2 format and name tokens (audit C5)', () => {
@@ -377,12 +377,12 @@ describe('v2 format and name tokens (audit C5)', () => {
 Update the existing assertion at ~line 144 from `{ alice: 975, bob: 1000 }` to
 `{ alice: { name: 'alice', balance: 975 }, bob: { name: 'bob', balance: 1000 } }`.
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `npx vitest run src/playerStore.test.ts --root packages/server`
 Expected: FAIL (`checkToken is not a function`, v1 shape on disk).
 
-- [ ] **Step 3: Implement** — in `playerStore.ts`
+- [x] **Step 3: Implement** — in `playerStore.ts`
 
 Imports: `import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';`,
 add `copyFile` and `constants` (`import { constants } from 'node:fs';`) to the fs imports,
@@ -546,12 +546,12 @@ mismatch; guard it: `if (!stored || !/^[0-9a-f]{64}$/.test(stored)) return 'uncl
 hand-edited, broken hash then behaves like a released name (logged by nobody, by design: the host
 edited the file).
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
 Run: `npx vitest run src/playerStore.test.ts --root packages/server` then `npm test --workspace=@poker-blackjack/server`
 Expected: PASS (including the existing null-prototype and corrupt-file tests).
 
-- [ ] **Step 5: Commit (after the user says yes)**
+- [x] **Step 5: Commit (after the user says yes)**
 
 ```bash
 git add packages/server/src/playerStore.ts packages/server/src/playerStore.test.ts
