@@ -118,6 +118,23 @@ describe('BlackjackTable', () => {
     expect(onAction).toHaveBeenCalledWith('stand');
   });
 
+  it('disables every action button while an action is pending', () => {
+    const state = makeBlackjackPlayingState();
+    render(
+      <BlackjackTable
+        {...baseProps}
+        actionPending
+        seats={state.seats}
+        activeSeatIndex={0}
+        mySeatIndex={0}
+        blackjackRounds={state.blackjackRounds}
+      />
+    );
+    for (const name of ['Hit', 'Stand', 'Double', 'Split']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled();
+    }
+  });
+
   it('renders a waiting-room view with no crash when blackjackRounds is null', () => {
     render(
       <BlackjackTable {...baseProps} seats={[makeSeat({ seatIndex: 0 })]} activeSeatIndex={null} mySeatIndex={0} blackjackRounds={null} />

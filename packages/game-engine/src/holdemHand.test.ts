@@ -663,3 +663,40 @@ describe('HoldemHand — full showdown (heads-up)', () => {
     expect(hand.pots).toEqual([{ amount: 40, eligiblePlayerIds: ['button', 'other'] }]);
   });
 });
+
+describe('HoldemHand.wentToShowdown', () => {
+  it('is false when everyone else folds, so the winner never has to show', () => {
+    const hand = new HoldemHand(
+      [
+        { playerId: 'a', stack: 1000 },
+        { playerId: 'b', stack: 1000 },
+        { playerId: 'c', stack: 1000 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck: threeHandedDeck() }
+    );
+    hand.act('a', 'raise', 60);
+    hand.act('b', 'fold');
+    hand.act('c', 'fold');
+    expect(hand.street).toBe('settled');
+    expect(hand.wentToShowdown).toBe(false);
+  });
+
+  it('is true once the board is run out and hands are compared', () => {
+    const deck: Card[] = [
+      card('A', 'spades'), card('K', 'spades'),
+      card('2', 'hearts'), card('3', 'hearts'),
+      card('4', 'clubs'), card('5', 'clubs'), card('6', 'diamonds'),
+      card('7', 'diamonds'),
+      card('8', 'diamonds'),
+    ];
+    const hand = new HoldemHand(
+      [
+        { playerId: 'button', stack: 5 },
+        { playerId: 'other', stack: 8 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck }
+    );
+    expect(hand.street).toBe('settled');
+    expect(hand.wentToShowdown).toBe(true);
+  });
+});

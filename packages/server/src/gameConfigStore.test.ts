@@ -50,6 +50,23 @@ describe('JsonGameConfigStore', () => {
     await expect(store.getConfig()).resolves.toEqual({ ...defaults, smallBlind: 50, bigBlind: 100 });
   });
 
+  it('falls back to the default blinds when the stored small blind is larger than the big blind (audit I4)', async () => {
+    await writeFile(filePath, JSON.stringify({ smallBlind: 50, bigBlind: 10, blackjackDefaultBet: 40 }), 'utf-8');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = new JsonGameConfigStore(filePath, defaults);
+    await expect(store.getConfig()).resolves.toEqual({ ...defaults, blackjackDefaultBet: 40 });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('ignores a stored blind that is not a whole number (audit I4)', async () => {
+    await writeFile(filePath, JSON.stringify({ smallBlind: 0.5 }), 'utf-8');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = new JsonGameConfigStore(filePath, defaults);
+    await expect(store.getConfig()).resolves.toEqual(defaults);
+    errorSpy.mockRestore();
+  });
+
   it('falls back to defaults on a corrupted file instead of rejecting forever', async () => {
     await writeFile(filePath, '{"smallBlind": 5', 'utf-8');
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -58,11 +75,11 @@ describe('JsonGameConfigStore', () => {
     await expect(store.getConfig()).resolves.toEqual(defaults);
     expect(errorSpy).toHaveBeenCalled();
 
-    await store.setConfig({ smallBlind: 20 });
+    await store.setConfig({ smallBlind: 8 });
     errorSpy.mockRestore();
     await expect(new JsonGameConfigStore(filePath, defaults).getConfig()).resolves.toEqual({
       ...defaults,
-      smallBlind: 20,
+      smallBlind: 8,
     });
   });
 

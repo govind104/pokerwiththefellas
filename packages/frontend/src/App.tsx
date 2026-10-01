@@ -47,23 +47,23 @@ const SERVER_URL = resolveServerUrl(import.meta.env.VITE_SERVER_URL, window.loca
 
 function TableView({
   table,
-  displayName,
+  mySeatIndex,
   connectionStatus,
   errorMessage,
+  actionPending,
   onReady,
   onAction,
   onLeave,
 }: {
   table: TableStateView;
-  displayName: string | null;
+  mySeatIndex: number | null;
   connectionStatus: ConnectionStatus;
   errorMessage: string | null;
+  actionPending: boolean;
   onReady: () => void;
   onAction: (action: PlayerAction | HoldemAction, amount?: number) => void;
   onLeave: () => void;
 }) {
-  const mySeatIndex =
-    table.seats.find((s) => s.displayName !== null && s.displayName === displayName)?.seatIndex ?? null;
   const [view, setView] = useState<'2d' | '3d'>(readView);
   const chooseView = (v: '2d' | '3d') => {
     writeView(v);
@@ -75,6 +75,7 @@ function TableView({
     connectionStatus,
     handInProgress: table.handInProgress,
     errorMessage,
+    actionPending,
     onReady,
     onLeave,
   };
@@ -137,7 +138,7 @@ function TableView({
 }
 
 function AppContent() {
-  const { status, state, errorMessage, displayName, sendReady, sendAction, leave } = useSocket();
+  const { status, state, errorMessage, actionPending, sendReady, sendAction, leave, takeOver } = useSocket();
 
   if (status === 'error') {
     // Reached only when an 'error' arrives before the connection has ever
@@ -162,6 +163,19 @@ function AppContent() {
     );
   }
 
+  if (status === 'replaced') {
+    // Another tab or device joined with our token and took the seat (audit C5). Nothing here
+    // rejoins on its own, or the two tabs would keep taking the seat back from each other.
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-900 text-white">
+        <p>{errorMessage ?? 'You opened the game in another tab or device.'}</p>
+        <button type="button" onClick={takeOver} className="rounded-md bg-emerald-600 px-3 py-2 font-medium">
+          Play here instead
+        </button>
+      </main>
+    );
+  }
+
   if (status === 'connecting' || !state) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-900 text-white">
@@ -178,9 +192,10 @@ function AppContent() {
       {(status === 'at-table' || status === 'reconnecting') && state.table && (
         <TableView
           table={state.table}
-          displayName={displayName}
+          mySeatIndex={state.mySeatIndex}
           connectionStatus={status}
-          errorMessage={errorMessage}
+          errorMessage={errorMessage ?? state.table.handStartError}
+          actionPending={actionPending}
           onReady={sendReady}
           onAction={sendAction}
           onLeave={leave}

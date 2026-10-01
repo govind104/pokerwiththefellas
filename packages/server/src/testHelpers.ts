@@ -2,6 +2,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import type { AppStateView, GameMode } from './table';
 import type { StaticTableConfig } from './socketServer';
 import type { GameConfigValues } from './gameConfigStore';
+import type { IdentityPayload } from './protocol';
 
 // Shared across socketServer.test.ts, integration.test.ts, and
 // integration-resilience.test.ts -- all three spin up a real createServer()
@@ -94,4 +95,12 @@ export function waitForConnected(socket: ClientSocket, displayName: string): Pro
     socket,
     (s) => s.table?.seats.find((seat) => seat?.displayName === displayName)?.connected === true
   );
+}
+
+// Joins and resolves with the reconnect token the server sends back (audit C5). Any test that
+// sits a second socket down under a name already claimed must pass this token in its `join`.
+export async function joinAndGetToken(socket: ClientSocket, displayName: string): Promise<string> {
+  const identity = waitForEvent<IdentityPayload>(socket, 'identity');
+  socket.emit('join', { displayName });
+  return (await identity).token;
 }

@@ -28,7 +28,13 @@ function total(cards) {
 for (const name of names) {
   const s = io(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
   let lastKey = '';
-  s.on('connect', () => s.emit('join', { displayName: name }));
+  // The server now ties a name to a token (audit C5): keep the one it sends, so a bot that
+  // reconnects after a server restart gets its own seat back.
+  let token;
+  s.on('identity', (id) => {
+    token = id.token;
+  });
+  s.on('connect', () => s.emit('join', { displayName: name, token }));
   s.on('error', (e) => console.log(name, 'error', e.message));
   s.on('state', (st) => {
     const t = st.table;

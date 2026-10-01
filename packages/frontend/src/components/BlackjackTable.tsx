@@ -42,6 +42,8 @@ export interface BlackjackTableProps {
   onLeave: () => void;
   blackjackRounds: Record<number, BlackjackRoundView> | null;
   onAction: (action: PlayerAction) => void;
+  // True while a sent action awaits the server's response: the action buttons stay disabled.
+  actionPending?: boolean;
 }
 
 export function BlackjackTable({
@@ -55,6 +57,7 @@ export function BlackjackTable({
   onLeave,
   blackjackRounds,
   onAction,
+  actionPending = false,
 }: BlackjackTableProps) {
   const isMyTurn = mySeatIndex !== null && mySeatIndex === activeSeatIndex;
   // Every seat's round carries the same shared dealer hand; prefer the local player's round
@@ -183,16 +186,16 @@ export function BlackjackTable({
 
         {isMyTurn && (
           <div className="flex gap-2">
-            <Button variant="neutral" onClick={() => onAction('hit')}>
+            <Button variant="neutral" disabled={actionPending} onClick={() => onAction('hit')}>
               Hit
             </Button>
-            <Button variant="neutral" onClick={() => onAction('stand')}>
+            <Button variant="neutral" disabled={actionPending} onClick={() => onAction('stand')}>
               Stand
             </Button>
-            <Button variant="primary" disabled={!can.double} onClick={() => onAction('double')}>
+            <Button variant="primary" disabled={actionPending || !can.double} onClick={() => onAction('double')}>
               Double
             </Button>
-            <Button variant="danger" disabled={!can.split} onClick={() => onAction('split')}>
+            <Button variant="danger" disabled={actionPending || !can.split} onClick={() => onAction('split')}>
               Split
             </Button>
           </div>

@@ -5,6 +5,123 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 (see "After Plan 6" below). Start here if you're new to this repo; `docs/README.md` says
 which docs are kept current and which are historical records.
 
+## Current work: fixing the 2026-10-01 audit findings (in progress)
+
+**Branch** `audit/2026-10-01-full-audit` (off `master`; items 1-5 pushed and opened as a PR to `master` on 2026-10-01). **Findings:**
+`docs/superpowers/playtests/2026-10-01-full-audit-and-playtest.md` (5 Critical, 15 Important,
+30 Minor). Its section 8 is the agreed fix order. Raw audit inputs and repros are in
+`.playtest-data/audit/` (git-ignored, not recoverable: never run `rm -rf .playtest-data`, which
+`scripts/playtest/README.md:15` still says to do).
+
+Done (each test-first; 530 tests green after the I4/I5/M5 commit, 625 after item 5's final-review fixes: frontend 214, game-engine 133, server 278; `npm run typecheck` clean):
+
+| Commit | Findings | What changed |
+|---|---|---|
+| `33087ef` | docs | Report added; the six §7 doc fixes |
+| `84837e2` | C1, C2 | `startHand` settles a Hold'em hand already settled when dealt (both all-in from blinds). `HoldemHand.wentToShowdown`; hole cards are revealed only after a real showdown, not on a fold-out |
+| `8d7eacd` | C3, I1, I2 | `Table.runExclusive` per-table lock (actions, auto-acts, hand starts, admin balance). `actionSeq` in every view, client sends it back as `seq`, stale ones rejected; frontend `actionPending` disables action buttons. `Table.adminSetBalance` replaces `setSeatBalance`. `Table.retire()` on mode switch. A join that resolves after a switch is dropped. I1 was incomplete; finished by the IMP-1 commit |
+| (C4 commit) | C4 | `adminHandler()` wraps every async admin handler in `socketServer.ts`: a rejection (e.g. EBUSY on a locked config file) becomes `rejectAdmin(message)` plus a server log. `processSafetyNet.ts` logs any other unhandled rejection and keeps the server running (called first in `index.ts`). EPERM/EBUSY `rename` retry not done |
+| (IMP-1 commit) | I1 (review IMP-1, MIN-5) | `SocketContext` keeps `actionPending` true for at least `MIN_ACTION_LOCKOUT_MS` (600 ms) after a click, as well as until a new `actionSeq` arrives, so a double-click whose second click lands after the server reply is still one action. Tests added for a hand start queued on the lock before `retire()` and for the `adminSwitchMode` hand-in-progress re-check |
+| (I4/I5/M5 commit) | I4, I5, M5 | `adminSetBlinds` rejects non-whole blinds and small > big. `JsonGameConfigStore` drops a non-whole stored blind and returns the default blinds if the stored pair is small > big (checked only on returned values, so blinds can still be set one at a time). New `envConfig.ts` reads PORT, RECONNECT_GRACE_MS and the four config defaults strictly; `index.ts` refuses to start on a bad one. `updateConfig` and `adminSetBalance` re-run the ready check. A failed `startHand` restores the dealer button, sets `handStartError` in the table view (cleared when a hand starts) and broadcasts; the frontend shows it in the existing table error slot. AdminPanel has no client-side check for small > big; the server's admin error is shown instead |
+| `d441e73`, `4d7e0a0`, `9b5ed95`, `26722a7`, `2ce54f2`, `3743b85`, `ab7c244`, `ad2d938`, `be44565` | C5, I7, I9, M8, M11 (item 5) | **A name now belongs to one browser.** Names are normalised (`names.ts`: case-insensitive, at most 32 characters, invisible characters removed). `balances.json` is a v2 file (old one copied to `balances.json.v1-backup`): per name a balance plus `sha256(token)`. The first join under a tokenless name is issued a 32-byte token (`identity` event); the client keeps it in localStorage (`poker-blackjack:identity`) and sends it with every `join`. `playerStore.checkToken` runs before any seating, so a wrong token gets `code: 'name-claimed'`. The server sends `mySeatIndex` in each socket's state and the client trusts it instead of matching names (I9). A join with the right token takes over a seat still held by another socket (old one gets `code: 'replaced'` and shows "Play here instead"). The admin's **Release a name** forgets the token and keeps the balance. Admin login: 5 wrong passphrases → 60 s lockout per address; the admin session token is memory-only on the server and in sessionStorage (`poker-blackjack:adminToken`), so admin rights survive a reconnect (M11). The server binds `HOST` (default `127.0.0.1`), checks `Origin` against Host / X-Forwarded-Host / `ALLOWED_ORIGINS` (a missing Origin is allowed), and refuses a passphrase that is unset, `change-me` or under 8 characters (I7). `docs/HOSTING.md` now documents Tailscale Serve; the playtest bots keep their token. Final-review fixes (`be44565`): a browser that blocks storage keeps its token in memory for the tab's life; a socket that drops mid-join no longer kicks the tab holding the seat; the v1 migration and the client's token lookup both use the normalised name |
+
+Decisions worth knowing:
+- `recoverFromLog` still **voids** (does not pay) a hand that replays to `settled`. After the C1
+  fix that only happens on a crash inside settlement, where balances may already be written, so
+  paying again could double-pay. Making settlement idempotent is I3.
+- `submitAction` is the locked public entry; `applyAction` is the body. Anything already holding
+  the lock (the auto-act at the end of `applyAction`) must call `applyAction`, never
+  `submitAction`, or it deadlocks.
+- `seq` is optional on `action`: the playtest bots don't send it and are still accepted.
+- An unhandled rejection is now logged and the server keeps running, rather than exiting. The
+  table could be left half-updated, but that beats dropping every player.
+- Item 5, decided with the user (2026-10-01; full list in the plan's "Global Constraints"): tokens
+  in localStorage as a name→token map; a name with a balance but no token (every existing player
+  on first run, any name after an admin release) is claimed by the first join; tokens never
+  expire; a valid token takes over a seat still held by another socket; `HOST` defaults to
+  `127.0.0.1` behind Tailscale Serve.
+- Item 5, chosen without the user (they may override): admin token in sessionStorage and memory-only
+  server side (a restart logs every admin out); 5 wrong passphrases → 60 s lockout; passphrase at
+  least 8 characters; names at most 32 characters and case-insensitive, a v1 case collision keeps
+  the larger balance; a missing Origin is allowed; markup-like names still accepted (escaping was
+  verified safe).
+- Item 5 known limitations, deferred by the final review with the user's agreement (2026-10-01):
+  - **DNS rebinding** passes the Host-matching Origin check. Low risk: the server binds 127.0.0.1,
+    so only a browser on the host machine can reach it, and a rebound page gets no token or admin
+    session. Fix later with a Host allowlist (localhost, `*.ts.net`, `ALLOWED_ORIGINS`).
+  - **Any error while a join is in flight counts as a rejected join** (`SocketContext.tsx`): at
+    worst the join screen flashes and recovers. Real fix: the server tags join errors
+    `scope: 'join'`.
+  - Admin **Release a name** does not unseat a holder who is still connected; a new join under
+    that name gets "already seated" until the old tab closes. Intended, and stated in
+    `docs/HOSTING.md` ("Names and balances").
+  - The other deferred item-5 Minors (each with a reason) are in the triage table of
+    `.superpowers/sdd/item5-final-review.md` (git-ignored). The ones worth a later look:
+    `loginLimiter` and `adminTokens` are never pruned (a restart clears both); malformed v2
+    `balances.json` entries are dropped without a log line; `issueToken` can bind a token to a
+    socket that disconnected during the write (admin release recovers it).
+- Browser pass (Task 9 step 5, 2026-10-01, `.playtest-data/audit/browser-pass-item5.md`): item 5's
+  checklist 11/11 PASS on an isolated server (port 3100), console clean, listens on 127.0.0.1 only.
+  Items 1-4 were covered only by one blackjack hand played to settlement. Not yet investigated:
+  after "Leave table" with the admin panel open, the table stayed on screen until a reload.
+- One Opus review of `8d7eacd` ran (findings: `.playtest-data/audit/review-8d7eacd.md`). It found
+  no deadlock path and no wrongly-stale action, but:
+  - IMP-1 (Important, **fixed**): on a LAN the server's reply landed between the two clicks of a
+    double-click, so the second click went out with a valid seq. Now a 600 ms minimum lockout. The
+    lockout is a fixed time, not tied to the 3D deal animation (0.35-0.7 s per card move).
+  - MIN-1: leave + rejoin during an admin balance write leaves the seat with the old balance
+    (`leave`/`join` don't take the lock). MIN-2: a balance write queued on a retired table can land
+    after a rejoin. Both belong with I3 / C5.
+  - MIN-3: a reconnecting client whose join was dropped by a switch can sit on "Reconnecting…".
+  - MIN-4: the table lock has no timeout; one stuck file write freezes the table. Low priority.
+  - MIN-5 (**fixed**): the two missing tests are added; each was checked to fail with the code it
+    guards removed.
+
+**Next step:** item 5 (§8, identity and exposure) is done: Tasks 1-9 step 5 committed
+(`be44565` holds the final-review fixes; Opus final review `.superpowers/sdd/item5-final-review.md`,
+fix re-review approved). Remaining:
+1. **Finish the live Tailscale test** (Task 9 step 6, guide `docs/TAILSCALE-LIVE-TEST.md`).
+   Done 2026-10-01 on the real host (`pokerblackjack.<tailnet>.ts.net`, Windows): `tailscale serve
+   --bg http://127.0.0.1:3000` works, and `tailscale serve --https=443 off` is the off command it
+   prints. **Serve sends both `Host` and `X-Forwarded-Host` = the ts.net name** (plus
+   `X-Forwarded-Proto: https`, `X-Forwarded-For` and `Tailscale-User-Login/Name/Profile-Pic`, which
+   the server ignores), so the Origin check passes with no `ALLOWED_ORIGINS`. A phone on the tailnet
+   joined over the `https://` link and played a full Hold'em hand against the host. Still to do:
+   steps 16-17 (share the machine with a friend; tests the "share, don't invite" advice), then
+   remove the "Not yet tested" note in `docs/HOSTING.md`, check its free-plan user-limit claim,
+   and tick step 6 in the plan.
+2. **Next session (user's choice, 2026-10-01): the 3D camera is too low.** The eye sits 0.29 m above the felt
+   (`BASE_CAM` y 1.05 vs `TABLE_Y` 0.76 in `packages/frontend/src/three/engine/SceneRoot.ts:67`
+   and `sceneModel.ts:14`; `LEAN_CAM` is lower still, 0.16 m). Your own cards are hard to read in
+   both games, the river is hard to see in Hold'em, and opponents' revealed cards can't be read at
+   showdown (fine for Blackjack, not for Poker). The user's first idea: a normal seated head
+   height, roughly double the current height above the table; other solutions are open. Needs a
+   design pass (`superpowers:brainstorming`) comparing heights and options with screenshots
+   before any code. Gameplay over Tailscale was smooth.
+3. **Then §8 item 6, "unsticking tables" (I6, I11, I10):** I6 admin kick and force-act plus an
+   optional turn clock (an idle connected player stalls the table forever); I11 leave racing a hand
+   start (the client drops its identity before the server confirms, so the server keeps the seat);
+   I10 `joinInFlightRef` surviving a disconnect (two quick drops leave the player on
+   "Reconnecting…"). Write its plan first (`superpowers:writing-plans`); line numbers in the audit
+   predate item 5's `SocketContext` changes. Look at the "Leave table with the admin panel open"
+   observation above while in that area (likely I11).
+
+- How this session ran the loop (keep it for item 6): implementers are told **not** to
+  `git add`/commit; the controller builds the review package from the working tree with
+  `bash .superpowers/sdd/wt-package.sh .superpowers/sdd/item5-review-task-N.diff` (marks new
+  files intent-to-add), reviews, then **asks the user before each commit** and commits code plus
+  the ticked plan together. Task briefs are pre-extracted at `.superpowers/sdd/item5-task-N-brief.md`,
+  reports go to `item5-task-N-report.md`, the reviewers' constraints block is
+  `.superpowers/sdd/item5-global-constraints.md`. Per-task results and every Minor finding for the
+  final review are in `.superpowers/sdd/progress.md` under "Item 5" (git-ignored).
+- Models: Opus for the final whole-branch review; Sonnet elsewhere, escalating to Opus at a 2nd review
+  round. Always set the model explicitly. Tell reviewers "no findings" is a valid result.
+- Gotcha: tool inputs decode `\uXXXX` sequences into the real characters, so an agent cannot type
+  a literal escape with Edit/Bash. Build the backslash with `String.fromCharCode(92)` in a script
+  and check bytes with `od -c`, not by reading the file back.
+
+Still open after item 5: MIN-1 to MIN-4 above, and the item-5 known limitations above. Ask before committing; don't push or merge without asking.
+
 ## Where things stand
 
 | Plan | What | Status |
@@ -23,7 +140,7 @@ and 6 later built on:
 - **Saloon redesign** (PR #6, merge commit `9d575da`): RDR2-inspired visual restyle —
   wood/felt table, card frames, chip styling, Framer Motion animations. 7 tasks + one
   final-review fix round.
-- **Table layout redesign** (PR #7, merge commit `6891af5`): replaced the seat-ring
+- **Table layout redesign** (PR #7, fast-forwarded; last commit `6891af5`): replaced the seat-ring
   layout with a decoupled rail/felt-slot architecture (`GameTable` exposes `railSlot`/
   `bottomCenterSlot` content slots instead of owning seat positioning), fixing a real
   hole-card overflow bug as an architectural side effect. 4 tasks, a whole-branch
@@ -41,7 +158,8 @@ still works on its own (own shoe and dealer); the table now always plays it agai
 `SharedDealer` (see "After Plan 6").
 
 **Plan 3** is fully merged to `master` (PR #2, merge commit `3f8e7f2`, then the fix PR #3,
-merge commit `b1dfae1`), including a 2-round critical-bug-fix pass. 0 Critical, 0 Important findings remain. Full detail in
+merge commit `b1dfae1`), including a 2-round critical-bug-fix pass. 0 Critical, 0 Important
+findings remain. Full detail in
 `docs/superpowers/plans/2026-08-17-local-server-progress-ledger.md` and the other
 `2026-08-17-local-server-*.md` files in the same directory (fix spec, final review,
 carried-forward findings) — kept for historical reference.
@@ -278,7 +396,7 @@ Per-workspace: `npm run test --workspace=@poker-blackjack/game-engine` /
    `packages/server/.env.example`, which lists every variable).
 2. Start the backend: `npm run dev --workspace=@poker-blackjack/server` (port 3000 by
    default). `packages/server/src/index.ts` is the authority on the env vars it reads:
-   `PORT`, `ADMIN_PASSPHRASE`, `SMALL_BLIND`/`BIG_BLIND`/`BLACKJACK_DEFAULT_BET`/
+   `PORT`, `HOST` (default `127.0.0.1`), `ALLOWED_ORIGINS`, `ADMIN_PASSPHRASE` (at least 8 characters, not `change-me`), `SMALL_BLIND`/`BIG_BLIND`/`BLACKJACK_DEFAULT_BET`/
    `DEFAULT_STARTING_BALANCE` (one-time defaults until an admin change writes
    `game-config.json`), `RECONNECT_GRACE_MS`, `STATIC_DIR`, and the
    `PLAYER_STORE_PATH`/`GAME_CONFIG_PATH`/`HAND_LOG_PATH` overrides for where its

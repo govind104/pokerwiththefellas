@@ -17,8 +17,11 @@ no accounts, no cloud hosting, no ongoing cost.
 - **A proper shared Blackjack dealer** — one shoe and one dealer hand per
   round. Players act in seat order, the dealer plays once after the last
   player, and everyone is settled against that same hand.
-- **No accounts.** Players just type a display name; a single shared
-  admin passphrase gates host controls (nothing per-player to manage).
+- **No accounts.** Players just type a display name. A name belongs to the
+  browser that first sat down under it (a token kept in that browser), so
+  nobody else can take the seat or the balance. The host's admin passphrase
+  (at least 8 characters, kept to themselves) gates host controls; the admin
+  can release a name for a player who lost their browser data.
 - **Admin toolkit**: correct a player's balance, adjust blinds / the
   Blackjack default bet / the starting balance for new joiners, switch
   game modes — all from a panel in the running app.
@@ -26,7 +29,7 @@ no accounts, no cloud hosting, no ongoing cost.
   survive a server restart (plain JSON/JSONL files on the host's disk, no
   database).
 - **Reconnect-friendly** — closing a tab or losing wifi doesn't lose a
-  seat; rejoining with the same display name picks it back up. A short
+  seat; rejoining from the same browser picks it back up. A short
   grace window auto-folds/auto-stands a slow-to-return player mid-hand so
   the table isn't stuck waiting, but nobody gets permanently kicked over
   a bad connection.
@@ -64,7 +67,8 @@ ADMIN_PASSPHRASE=whatever-you-want npm run dev --workspace=@poker-blackjack/serv
 or to avoid retyping it, copy `packages/server/.env.example` to
 `packages/server/.env` and set it there instead.)
 
-This listens on port 3000 by default. In a second terminal, start the
+This listens on port 3000 by default, on `127.0.0.1` only (set `HOST` to
+change that; see `docs/HOSTING.md`). In a second terminal, start the
 frontend:
 
 ```bash
@@ -102,13 +106,14 @@ npm run play
 
 Full walkthrough, including one-time [Tailscale](https://tailscale.com)
 setup so friends can reach your machine without any port-forwarding or
-cloud hosting: **[docs/HOSTING.md](docs/HOSTING.md)**.
+cloud hosting (the server listens only on `127.0.0.1`; Tailscale Serve
+publishes it to the tailnet over HTTPS): **[docs/HOSTING.md](docs/HOSTING.md)**.
 
 ## Running tests
 
 ```bash
 npm test              # full suite across all three workspaces
-npm run typecheck      # TypeScript across all three workspaces
+npm run typecheck     # TypeScript across all three workspaces
 ```
 
 Per-package: `npm run test --workspace=@poker-blackjack/<game-engine|server|frontend>`.
@@ -122,6 +127,7 @@ packages/
   frontend/      React UI (lobby, 2D table views for both games, admin panel)
     src/three/   first-person 3D tables: pure scene models, Three.js engine, shared shell
     dev3d.html   dev-only 3D harness page (not part of the production build)
+    THIRD_PARTY_NOTICES.md   licences for the card SVGs, three.js and fonts
 scripts/
   playtest/      bot players, an admin conductor and a rule-checking spectator for playtesting a real server
 docs/
@@ -129,7 +135,7 @@ docs/
   HOSTING.md                 how to run a real session with friends
   superpowers/specs/         design docs for each feature area
   superpowers/plans/         the implementation plans those specs became (historical)
-  superpowers/playtests/     findings from the AI playtest of the 3D tables
+  superpowers/playtests/     findings from the AI playtests (3D tables; full audit 2026-10-01)
 HANDOFF.md       full development history and where things stand
 ```
 

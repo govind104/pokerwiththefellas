@@ -33,6 +33,8 @@ export interface PokerTableProps {
   onLeave: () => void;
   holdem: HoldemView | null;
   onAction: (action: HoldemAction, amount?: number) => void;
+  // True while a sent action awaits the server's response: the action buttons stay disabled.
+  actionPending?: boolean;
 }
 
 export function PokerTable({
@@ -45,6 +47,7 @@ export function PokerTable({
   onLeave,
   holdem,
   onAction,
+  actionPending = false,
 }: PokerTableProps) {
   const [raiseAmount, setRaiseAmount] = useState(0);
 
@@ -156,13 +159,13 @@ export function PokerTable({
       <>
         {isMyTurn && (
           <div className="flex items-center gap-2">
-            <Button variant="danger" onClick={() => onAction('fold')}>
+            <Button variant="danger" disabled={actionPending} onClick={() => onAction('fold')}>
               Fold
             </Button>
-            <Button variant="neutral" onClick={() => onAction('check')}>
+            <Button variant="neutral" disabled={actionPending} onClick={() => onAction('check')}>
               Check
             </Button>
-            <Button variant="neutral" onClick={() => onAction('call')}>
+            <Button variant="neutral" disabled={actionPending} onClick={() => onAction('call')}>
               Call
             </Button>
             <input
@@ -175,10 +178,10 @@ export function PokerTable({
               max={myPlayer ? myPlayer.stack : undefined}
               className="w-20 rounded-md border border-wood-grain bg-surface px-2 py-1 text-fg"
             />
-            <Button variant="primary" onClick={() => onAction('raise', raiseAmount)}>
+            <Button variant="primary" disabled={actionPending} onClick={() => onAction('raise', raiseAmount)}>
               Raise
             </Button>
-            <Button variant="danger" onClick={() => onAction('all-in')}>
+            <Button variant="danger" disabled={actionPending} onClick={() => onAction('all-in')}>
               All In
             </Button>
           </div>

@@ -22,6 +22,8 @@ export function makeWaitingState(overrides: Partial<TableStateView> = {}): Table
     gameMode: 'holdem',
     handInProgress: false,
     activeSeatIndex: null,
+    actionSeq: 0,
+    handStartError: null,
     blackjackRounds: null,
     holdem: null,
     seats: [
@@ -65,6 +67,8 @@ export function makeHoldemPreflopState(overrides: Partial<TableStateView> = {}):
     gameMode: 'holdem',
     handInProgress: true,
     activeSeatIndex: null,
+    actionSeq: 0,
+    handStartError: null,
     blackjackRounds: null,
     holdem,
     seats: [
@@ -166,6 +170,8 @@ export function makeHoldemSettledState(overrides: Partial<TableStateView> = {}):
     gameMode: 'holdem',
     handInProgress: true,
     activeSeatIndex: null,
+    actionSeq: 0,
+    handStartError: null,
     blackjackRounds: null,
     holdem,
     seats: [
@@ -201,6 +207,8 @@ export function makeBlackjackPlayingState(overrides: Partial<TableStateView> = {
     gameMode: 'blackjack',
     handInProgress: true,
     activeSeatIndex: 0,
+    actionSeq: 0,
+    handStartError: null,
     blackjackRounds,
     holdem: null,
     seats: [makeSeat({ seatIndex: 0, displayName: 'alice', balance: 975 })],
@@ -286,6 +294,7 @@ export function makeAppState(
   return {
     mode: table.gameMode,
     isAdmin: false,
+    mySeatIndex: null,
     ...DEFAULT_CONFIG_VIEW,
     ...overrides,
     table,
@@ -296,6 +305,7 @@ export function makeLobbyState(overrides: Partial<Omit<AppStateView, 'table'>> =
   return {
     mode: null,
     isAdmin: false,
+    mySeatIndex: null,
     ...DEFAULT_CONFIG_VIEW,
     ...overrides,
     table: null,

@@ -18,6 +18,8 @@ export interface Blackjack3DProps {
   onLeave: () => void;
   blackjackRounds: Record<number, BlackjackRoundView> | null;
   onAction: (action: PlayerAction) => void;
+  // True while a sent action awaits the server's response: the action buttons stay disabled.
+  actionPending?: boolean;
   onSwitchTo2D: () => void;
   // Called if WebGL can't start, so the parent can fall back to the 2D table.
   onUnsupported: () => void;
@@ -38,6 +40,7 @@ export function Blackjack3D({
   onLeave,
   blackjackRounds,
   onAction,
+  actionPending = false,
   onSwitchTo2D,
   onUnsupported,
 }: Blackjack3DProps) {
@@ -93,16 +96,16 @@ export function Blackjack3D({
     >
       {model.myTurn && (
         <div className="flex flex-wrap justify-center gap-2 px-2">
-          <Button variant="neutral" size="md" onClick={() => onAction('hit')}>
+          <Button variant="neutral" size="md" disabled={actionPending} onClick={() => onAction('hit')}>
             Hit
           </Button>
-          <Button variant="neutral" size="md" onClick={() => onAction('stand')}>
+          <Button variant="neutral" size="md" disabled={actionPending} onClick={() => onAction('stand')}>
             Stand
           </Button>
-          <Button variant="primary" size="md" disabled={!can.double} title={can.double ? undefined : 'Only on your first two cards'} onClick={() => onAction('double')}>
+          <Button variant="primary" size="md" disabled={actionPending || !can.double} title={can.double ? undefined : 'Only on your first two cards'} onClick={() => onAction('double')}>
             Double
           </Button>
-          <Button variant="danger" size="md" disabled={!can.split} title={can.split ? undefined : 'Only a pair, once per round'} onClick={() => onAction('split')}>
+          <Button variant="danger" size="md" disabled={actionPending || !can.split} title={can.split ? undefined : 'Only a pair, once per round'} onClick={() => onAction('split')}>
             Split
           </Button>
         </div>
