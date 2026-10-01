@@ -428,6 +428,14 @@ export class Table {
       return;
     }
 
+    // When every player is all-in from posting the blinds, nobody can act and the
+    // HoldemHand runs the board out to 'settled' inside its constructor. No action will
+    // ever arrive to reach settleHoldem from submitAction, so settle it here, or the hand
+    // stays in progress forever and every action, leave and admin change is refused.
+    if (this.holdemHand?.street === 'settled') {
+      await this.settleHoldem(this.holdemHand);
+    }
+
     this.deps.onStateChange();
   }
 
@@ -849,7 +857,7 @@ export class Table {
           folded: p.folded,
           isAllIn: p.isAllIn,
           holeCards:
-            p.playerId === viewerDisplayName || (hand.street === 'settled' && !p.folded)
+            p.playerId === viewerDisplayName || (hand.wentToShowdown && !p.folded)
               ? p.holeCards
               : null,
         })),

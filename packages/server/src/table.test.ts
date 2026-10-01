@@ -406,6 +406,47 @@ describe('Table ready-gating and hand start (Hold\'em)', () => {
   });
 });
 
+describe('Table: a Hold\'em hand that is already over when it is dealt (audit C1)', () => {
+  // Both stacks are at or below the big blind, so both players are all-in from
+  // posting blinds: nobody can act, and HoldemHand runs the board out to
+  // 'settled' inside its constructor. No submitAction ever arrives to settle it.
+  async function dealShortStackedHand() {
+    const made = makeTable({ smallBlind: 5, bigBlind: 10 });
+    await made.playerStore.setBalance('alice', 5);
+    await made.playerStore.setBalance('bob', 8);
+    await made.table.join('alice');
+    await made.table.join('bob');
+    await made.table.setReady(0);
+    await made.table.setReady(1);
+    return made;
+  }
+
+  it('pays the hand out and returns to between-hands', async () => {
+    const { table, playerStore, handLog } = await dealShortStackedHand();
+
+    expect(table.handInProgress).toBe(false);
+    expect(table.holdemHand).toBeNull();
+    expect(handLog.entries).toHaveLength(0);
+    const alice = await playerStore.getBalance('alice');
+    const bob = await playerStore.getBalance('bob');
+    expect(alice + bob).toBe(13); // chips conserved
+    expect([alice, bob]).not.toEqual([5, 8]); // and the pot actually moved
+  });
+
+  it('leaves the table usable: players can leave afterwards', async () => {
+    const { table } = await dealShortStackedHand();
+    expect(() => table.leave(0)).not.toThrow();
+  });
+
+  it('shows the finished hand (full board, both hands) to everyone', async () => {
+    const { table } = await dealShortStackedHand();
+    const view = table.getStateForSeat(null).holdem!;
+    expect(view.street).toBe('settled');
+    expect(view.communityCards).toHaveLength(5);
+    expect(view.players.every((p) => p.holeCards !== null)).toBe(true);
+  });
+});
+
 describe('Table.updateConfig', () => {
   it('changes smallBlind/bigBlind used by the next hand without touching an in-progress one', async () => {
     const { table } = makeTable();
@@ -1835,22 +1876,46 @@ describe('Table.getStateForSeat', () => {
     expect(bobFromAliceView.holeCards).toBeNull();
   });
 
-  it('reveals hole cards for non-folded players to everyone once the street settles', async () => {
+  it('keeps a fold-out winner\'s hole cards hidden from the loser and from spectators', async () => {
     const { table } = makeTable();
     await table.join('alice');
     await table.join('bob');
     await table.setReady(0);
     await table.setReady(1);
-    // alice is dealt into a hand and immediately calls, but the simplest way
-    // to reach settled is bob folding after alice acts.
     await table.submitAction(0, 'call');
     await table.submitAction(1, 'fold');
 
+    // Nobody called alice down, so she never has to show: not to bob, not to a spectator.
+    for (const viewer of [null, 1]) {
+      const alice = table.getStateForSeat(viewer).holdem!.players.find((p) => p.playerId === 'alice')!;
+      expect(alice.holeCards).toBeNull();
+    }
+    const bobFromSpectator = table.getStateForSeat(null).holdem!.players.find((p) => p.playerId === 'bob')!;
+    expect(bobFromSpectator.holeCards).toBeNull();
+    // The winner still sees her own cards.
+    const aliceOwn = table.getStateForSeat(0).holdem!.players.find((p) => p.playerId === 'alice')!;
+    expect(aliceOwn.holeCards).not.toBeNull();
+  });
+
+  it('reveals every non-folded player\'s hole cards to everyone after a real showdown', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    // Heads-up: alice (button) acts first preflop, bob acts first on every later street.
+    await table.submitAction(0, 'call');
+    await table.submitAction(1, 'check');
+    for (let street = 0; street < 3; street++) {
+      await table.submitAction(1, 'check');
+      await table.submitAction(0, 'check');
+    }
+
     const spectatorView = table.getStateForSeat(null);
-    const alice = spectatorView.holdem!.players.find((p) => p.playerId === 'alice')!;
-    const bob = spectatorView.holdem!.players.find((p) => p.playerId === 'bob')!;
-    expect(alice.holeCards).not.toBeNull(); // alice reached showdown uncontested-favorably, did not fold
-    expect(bob.holeCards).toBeNull(); // bob folded, so his cards stay hidden even though the street settled
+    expect(spectatorView.holdem!.street).toBe('settled');
+    for (const p of spectatorView.holdem!.players) {
+      expect(p.holeCards).not.toBeNull();
+    }
   });
 
   it('an empty seat has a null displayName and no other identifying data', async () => {

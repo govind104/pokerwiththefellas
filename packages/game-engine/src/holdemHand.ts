@@ -41,10 +41,11 @@ export interface HoldemResult {
 
 export class HoldemHand {
   /**
-   * Ground truth for every player, including hole cards. A future server
-   * must only reveal player[i].holeCards to that player individually until
-   * `street === 'settled'`, at which point only players who did NOT fold
-   * (i.e. reached showdown) may have their hole cards revealed to everyone.
+   * Ground truth for every player, including hole cards. A server must only
+   * reveal player[i].holeCards to that player individually, unless
+   * `wentToShowdown` is true, at which point players who did NOT fold may
+   * have their hole cards revealed to everyone. A hand won because everyone
+   * else folded settles without a showdown, and the winner never shows.
    */
   players: HoldemPlayerState[];
   street: HoldemStreet = 'preflop';
@@ -54,6 +55,8 @@ export class HoldemHand {
   pots: Pot[] = [];
   /** Populated once `street` is `'settled'`. Net payout per player: `balance += payout`. */
   results: HoldemResult[] = [];
+  /** True once the hand settled by comparing hands; false if it ended with everyone else folding. */
+  wentToShowdown = false;
 
   private deck: Card[];
   private buttonIndex: number;
@@ -318,6 +321,7 @@ export class HoldemHand {
 
   private settleShowdown(): void {
     this.street = 'settled';
+    this.wentToShowdown = true;
     this.actingPlayerId = null;
 
     const contributions: PlayerContribution[] = this.players.map((p) => ({
