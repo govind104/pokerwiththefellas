@@ -230,6 +230,15 @@ describe('Table seats', () => {
     expect(table.reconnect('BOB')).toBe(0);
   });
 
+  it('connectedSeatIndexOf finds a connected seat by name, ignoring case', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    expect(table.connectedSeatIndexOf('ALICE')).toBe(0);
+    table.disconnect(0);
+    expect(table.connectedSeatIndexOf('alice')).toBeNull();
+    expect(table.connectedSeatIndexOf('bob')).toBeNull();
+  });
+
   it('rejects joining once all 8 seats are full', async () => {
     const { table } = makeTable();
     for (let i = 0; i < 8; i++) {

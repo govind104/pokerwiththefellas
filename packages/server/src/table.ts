@@ -94,6 +94,9 @@ export interface AppStateView {
   mode: GameMode | null;
   isAdmin: boolean;
   table: TableStateView | null;
+  /** This socket's seat, from the server's socket→seat map (audit I9: the client used to guess
+   *  by matching names, so a rejected join could adopt someone else's seat). */
+  mySeatIndex: number | null;
   // The admin-tunable config values as they currently stand, carried on every
   // broadcast so the admin panel can show what the values actually are (and
   // so a successful change is visibly confirmed by the next broadcast)
@@ -360,6 +363,13 @@ export class Table {
     });
 
     return seat.seatIndex;
+  }
+
+  // The seat a still-connected player holds, so a token-checked join can move it to a new
+  // socket (a second tab, a phone whose old connection has not timed out) instead of failing
+  // with "already seated" (audit C5).
+  connectedSeatIndexOf(displayName: string): number | null {
+    return this.seats.find((s) => s !== null && s.connected && sameName(s.displayName, displayName))?.seatIndex ?? null;
   }
 
   private async onGraceWindowElapsed(seatIndex: number): Promise<void> {

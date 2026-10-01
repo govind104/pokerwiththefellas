@@ -3,7 +3,17 @@ import type { AppStateView, GameMode } from './table';
 
 export interface JoinPayload {
   displayName: string;
+  /** From an earlier `identity` event; needed to sit down under a name that is already claimed. */
+  token?: string;
 }
+
+export interface IdentityPayload {
+  displayName: string;
+  token: string;
+}
+
+// Lets the client tell a name conflict and a takeover apart from other join errors (audit C5).
+export type ErrorCode = 'name-claimed' | 'replaced';
 
 export interface ActionPayload {
   action: PlayerAction | HoldemAction;
@@ -22,6 +32,7 @@ export interface ErrorPayload {
   // error surface instead of describing it to a screen reader as a problem
   // with the display-name input the admin never touched.
   scope?: 'admin';
+  code?: ErrorCode;
 }
 
 export interface AdminLoginPayload {
@@ -39,6 +50,14 @@ export interface StartGamePayload {
 export interface AdjustBalancePayload {
   displayName: string;
   balance: number;
+}
+
+export interface ReleaseNamePayload {
+  displayName: string;
+}
+
+export interface AdminNoticePayload {
+  message: string;
 }
 
 export interface SetBlindsPayload {
@@ -63,6 +82,7 @@ export interface ClientToServerEvents {
   adminStartGame: (payload: StartGamePayload) => void;
   adminSwitchMode: (payload: StartGamePayload) => void;
   adminAdjustBalance: (payload: AdjustBalancePayload) => void;
+  adminReleaseName: (payload: ReleaseNamePayload) => void;
   adminSetBlinds: (payload: SetBlindsPayload) => void;
   adminSetDefaultBet: (payload: SetDefaultBetPayload) => void;
   adminSetStartingBalance: (payload: SetStartingBalancePayload) => void;
@@ -72,4 +92,6 @@ export interface ServerToClientEvents {
   state: (state: AppStateView) => void;
   error: (payload: ErrorPayload) => void;
   adminLoginResult: (payload: AdminLoginResultPayload) => void;
+  identity: (payload: IdentityPayload) => void;
+  adminNotice: (payload: AdminNoticePayload) => void;
 }

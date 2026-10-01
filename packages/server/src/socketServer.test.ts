@@ -7,9 +7,10 @@ import { createServer, type CreateServerResult } from './socketServer';
 import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
 import { JsonGameConfigStore } from './gameConfigStore';
-import type { PlayerStore } from './playerStore';
+import type { PlayerStore, IdentityStore, TokenCheck } from './playerStore';
 import type { GameConfigStore, GameConfigValues } from './gameConfigStore';
 import type { AppStateView } from './table';
+import type { ErrorPayload } from './protocol';
 import {
   ADMIN_PASSPHRASE,
   DEFAULT_STATIC_CONFIG,
@@ -18,6 +19,7 @@ import {
   waitForState,
   waitForSeated,
   waitForReady,
+  joinAndGetToken,
   startGameAsAdmin,
 } from './testHelpers';
 
@@ -58,8 +60,10 @@ describe('socketServer', () => {
     await startGameAsAdmin(admin, 'holdem');
 
     const socket = connect();
-    socket.emit('join', { displayName: 'alice' });
-    const state = await waitForSeated(socket, 'alice');
+    const seated = waitForSeated(socket, 'alice');
+    // Wait for the token too: issuing it writes balances.json, which must finish before teardown.
+    await joinAndGetToken(socket, 'alice');
+    const state = await seated;
     expect(state.table!.seats[0]?.displayName).toBe('alice');
   });
 
@@ -67,8 +71,10 @@ describe('socketServer', () => {
     const admin = connect();
     await startGameAsAdmin(admin, 'holdem');
     const socket = connect();
-    socket.emit('join', { displayName: '  ali\u200Bce ' });
-    const state = await waitForSeated(socket, 'alice');
+    const seated = waitForSeated(socket, 'alice');
+    // Wait for the token too: issuing it writes balances.json, which must finish before teardown.
+    await joinAndGetToken(socket, '  ali\u200Bce ');
+    const state = await seated;
     expect(state.table!.seats[0]?.displayName).toBe('alice');
   });
 
@@ -77,13 +83,14 @@ describe('socketServer', () => {
     await startGameAsAdmin(admin, 'holdem');
 
     const alice = connect();
-    alice.emit('join', { displayName: 'alice' });
-    await waitForSeated(alice, 'alice');
+    // Wait for the token too: issuing it writes balances.json, which must finish before teardown.
+    await joinAndGetToken(alice, 'alice');
 
     const bob = connect();
     const aliceUpdate = waitForState(alice, (s) => s.table?.seats[1]?.displayName === 'bob');
-    bob.emit('join', { displayName: 'bob' });
-    await waitForSeated(bob, 'bob');
+    const bobSeated = waitForSeated(bob, 'bob');
+    await joinAndGetToken(bob, 'bob');
+    await bobSeated;
     await aliceUpdate;
   });
 
@@ -319,8 +326,10 @@ describe('socketServer', () => {
     await new Promise((r) => setTimeout(r, 20));
 
     const carol = connect();
-    carol.emit('join', { displayName: 'carol' });
-    const state = await waitForSeated(carol, 'carol');
+    const seated = waitForSeated(carol, 'carol');
+    // Wait for the token too: issuing it writes balances.json, which must finish before teardown.
+    await joinAndGetToken(carol, 'carol');
+    const state = await seated;
     expect(state.table!.seats.find((s) => s.displayName === 'carol')?.balance).toBe(7000);
   });
 
@@ -459,6 +468,136 @@ describe('socketServer', () => {
       expect(state.table!.seats[0]?.balance).toBe(0);
     });
   });
+
+  describe('identity (audit C5, I9)', () => {
+    async function seatAliceAndDrop(): Promise<string> {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = connect();
+      const token = await joinAndGetToken(alice, 'alice');
+      const dropped = waitForState(admin, (s) => s.table?.seats[0]?.connected === false);
+      alice.disconnect();
+      await dropped;
+      return token;
+    }
+
+    it('sends the joining socket a token and its normalised name', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = connect();
+      const identity = waitForEvent<{ displayName: string; token: string }>(alice, 'identity');
+      alice.emit('join', { displayName: ' alice ' });
+      expect(await identity).toEqual({ displayName: 'alice', token: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) });
+    });
+
+    it("refuses a disconnected player's seat to anyone without the token", async () => {
+      await seatAliceAndDrop();
+      const mallory = connect();
+      const error = waitForEvent<ErrorPayload>(mallory, 'error');
+      mallory.emit('join', { displayName: 'ALICE' });
+      expect(await error).toMatchObject({ code: 'name-claimed' });
+      expect(server.getTable()!.seats[0]?.connected).toBe(false);
+    });
+
+    it('gives the seat back to the token holder', async () => {
+      const token = await seatAliceAndDrop();
+      const back = connect();
+      // Table.reconnect() broadcasts (seat connected) before the handler maps this socket to the
+      // seat, so the first connected snapshot still has mySeatIndex null; wait for the mapped one.
+      const reconnected = waitForState(back, (s) => s.mySeatIndex === 0 && s.table?.seats[0]?.connected === true);
+      back.emit('join', { displayName: 'alice', token });
+      const state = await reconnected;
+      expect(state.mySeatIndex).toBe(0);
+    });
+
+    it('tells each socket its own seat, and null to one without a seat', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = connect();
+      await joinAndGetToken(alice, 'alice');
+      const bob = connect();
+      const bobSeated = waitForState(bob, (s) => s.mySeatIndex === 1);
+      const aliceSees = waitForState(alice, (s) => s.mySeatIndex === 0 && s.table?.seats[1]?.displayName === 'bob');
+      const adminSees = waitForState(admin, (s) => s.table?.seats[1]?.displayName === 'bob');
+      bob.emit('join', { displayName: 'bob' });
+      await bobSeated;
+      await aliceSees;
+      expect((await adminSees).mySeatIndex).toBeNull();
+    });
+
+    it('a rejected join on a connected name leaves the socket unseated (I9)', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const ann = connect();
+      await joinAndGetToken(ann, 'ann');
+      const eve = connect();
+      const error = waitForEvent<ErrorPayload>(eve, 'error');
+      eve.emit('join', { displayName: 'ann' });
+      await error;
+      const next = waitForState(eve, () => true);
+      admin.emit('adminSetBlinds', { smallBlind: 5, bigBlind: 10 }); // any broadcast
+      expect((await next).mySeatIndex).toBeNull();
+    });
+
+    it('the token holder takes over a seat still held by another socket', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const oldTab = connect();
+      const token = await joinAndGetToken(oldTab, 'alice');
+      const replaced = waitForEvent<ErrorPayload>(oldTab, 'error');
+      const oldTabUnseated = waitForState(oldTab, (s) => s.mySeatIndex === null);
+      const newTab = connect();
+      const newTabSeated = waitForState(newTab, (s) => s.mySeatIndex === 0);
+      newTab.emit('join', { displayName: 'alice', token });
+      await newTabSeated;
+      expect(await replaced).toMatchObject({ code: 'replaced' });
+      await oldTabUnseated;
+      const notSeated = waitForEvent<ErrorPayload>(oldTab, 'error');
+      oldTab.emit('ready');
+      expect((await notSeated).message).toBe('Not seated');
+      expect(server.getTable()!.seats[0]?.connected).toBe(true);
+    });
+
+    it('claims a pre-token (v1) balance on first join', async () => {
+      // Overwrites the balances file this describe's beforeEach store points at; the store reads
+      // the file on every call, so the next getBalance sees it.
+      await writeFile(join(dir, 'balances.json'), JSON.stringify({ alice: 777 }), 'utf-8');
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = connect();
+      await joinAndGetToken(alice, 'alice');
+      expect(server.getTable()!.seats[0]?.balance).toBe(777);
+    });
+
+    it('admin release lets the next join take a claimed name, balance included', async () => {
+      await seatAliceAndDrop();
+      await server.getTable()!.adminSetBalance('alice', 640);
+      const admin = connect(); // a second admin socket; the first is inside seatAliceAndDrop
+      admin.emit('adminLogin', { passphrase: ADMIN_PASSPHRASE });
+      await waitForEvent(admin, 'adminLoginResult');
+      const notice = waitForEvent<{ message: string }>(admin, 'adminNotice');
+      admin.emit('adminReleaseName', { displayName: 'Alice' });
+      expect((await notice).message).toContain('Alice'); // case is kept for display
+      const newDevice = connect();
+      const token = await joinAndGetToken(newDevice, 'alice');
+      expect(token).toHaveLength(43);
+      expect(server.getTable()!.seats[0]).toMatchObject({ connected: true, balance: 640 });
+    });
+
+    it('release is admin-only and rejects a name that never played', async () => {
+      const player = connect();
+      const denied = waitForEvent<ErrorPayload>(player, 'error');
+      player.emit('adminReleaseName', { displayName: 'alice' });
+      expect(await denied).toEqual({ message: 'Admin only', scope: 'admin' });
+
+      const admin = connect();
+      admin.emit('adminLogin', { passphrase: ADMIN_PASSPHRASE });
+      await waitForEvent(admin, 'adminLoginResult');
+      const unknown = waitForEvent<ErrorPayload>(admin, 'error');
+      admin.emit('adminReleaseName', { displayName: 'ghost' });
+      expect((await unknown).message).toContain('ghost');
+    });
+  });
 });
 
 // Test-local fake used only by the seat-orphan regression tests below. Same
@@ -467,8 +606,9 @@ describe('socketServer', () => {
 // paused mid-flight (right at the real fs round-trip a JsonPlayerStore would
 // yield to the event loop on), letting a test drive the socket into a
 // disconnect (or a second join) while the first join is still in progress.
-class ControllablePlayerStore implements PlayerStore {
+class ControllablePlayerStore implements PlayerStore, IdentityStore {
   private balances = new Map<string, number>();
+  private tokens = new Map<string, string>();
   holdGetBalance = false;
   private pendingResolvers: Array<() => void> = [];
   constructor(private defaultBalance: number) {}
@@ -485,6 +625,19 @@ class ControllablePlayerStore implements PlayerStore {
   }
   setDefaultStartingBalance(balance: number): void {
     this.defaultBalance = balance;
+  }
+  async checkToken(displayName: string, token: string | undefined): Promise<TokenCheck> {
+    const stored = this.tokens.get(displayName.toLowerCase());
+    if (stored === undefined) return 'unclaimed';
+    return token === stored ? 'match' : 'mismatch';
+  }
+  async issueToken(displayName: string): Promise<string> {
+    const token = `token-${displayName.toLowerCase()}`;
+    this.tokens.set(displayName.toLowerCase(), token);
+    return token;
+  }
+  async releaseName(displayName: string): Promise<boolean> {
+    return this.tokens.delete(displayName.toLowerCase());
   }
   get pendingCount(): number {
     return this.pendingResolvers.length;

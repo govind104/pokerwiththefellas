@@ -598,7 +598,7 @@ export interface AdminNoticePayload {
 - `createServer(staticConfig, gameConfigStore, playerStore: PlayerStore & IdentityStore, handLog, adminPassphrase, options)`.
 - testHelpers: `joinAndGetToken(socket: ClientSocket, displayName: string): Promise<string>`.
 
-- [ ] **Step 1: Table method, failing test** — `table.test.ts`
+- [x] **Step 1: Table method, failing test** — `table.test.ts`
 
 ```ts
 it('connectedSeatIndexOf finds a connected seat by name, ignoring case', async () => {
@@ -621,7 +621,7 @@ Run: `npx vitest run src/table.test.ts --root packages/server` → FAIL (not a f
 
 Re-run → PASS.
 
-- [ ] **Step 2: Test helper** — `testHelpers.ts`
+- [x] **Step 2: Test helper** — `testHelpers.ts`
 
 ```ts
 import type { IdentityPayload } from './protocol';
@@ -635,7 +635,7 @@ export async function joinAndGetToken(socket: ClientSocket, displayName: string)
 }
 ```
 
-- [ ] **Step 3: Write the failing socket tests** — new `describe` in `socketServer.test.ts`, reusing the
+- [x] **Step 3: Write the failing socket tests** — new `describe` in `socketServer.test.ts`, reusing the
 first describe's `beforeEach`/`afterEach`/`connect` (put it inside `describe('socketServer')` so it
 shares them). Add `waitForConnected` and `joinAndGetToken` to the testHelpers import, and
 `import type { ErrorPayload } from './protocol';`.
@@ -773,7 +773,7 @@ describe('identity (audit C5, I9)', () => {
 Run: `npx vitest run src/socketServer.test.ts --root packages/server`
 Expected: the new tests FAIL (no `identity` event, no `mySeatIndex`, mallory gets the seat).
 
-- [ ] **Step 4: Implement protocol and `AppStateView`**
+- [x] **Step 4: Implement protocol and `AppStateView`**
 
 Apply the protocol.ts additions from **Interfaces** above (with a one-line *why* comment on `code`:
 "lets the client tell a name conflict and a takeover apart from other join errors").
@@ -788,7 +788,7 @@ In `table.ts` add to `AppStateView`, after `table`:
 In `socketServer.ts` `buildAppStateView` add `mySeatIndex: seatIndex,`. Change the parameter type
 to `playerStore: PlayerStore & IdentityStore` (import `IdentityStore` as a type).
 
-- [ ] **Step 5: Implement the join handler** — replace the `try` block of `socket.on('join')`:
+- [x] **Step 5: Implement the join handler** — replace the `try` block of `socket.on('join')`:
 
 ```ts
       const token = typeof payload?.token === 'string' && payload.token.length <= 128 ? payload.token : undefined;
@@ -852,7 +852,7 @@ The `table !== joinedTable` check after `checkToken` replaces nothing; the exist
 `join` stays. Use `joinedTable` (not `table`) in the `previousSeatIndex`/`!socket.connected` blocks
 (they are the same object after the check; this just reads clearly).
 
-- [ ] **Step 6: Implement `adminReleaseName`** — after `adminAdjustBalance`:
+- [x] **Step 6: Implement `adminReleaseName`** — after `adminAdjustBalance`:
 
 ```ts
     socket.on('adminReleaseName', adminHandler(async (payload: ReleaseNamePayload) => {
@@ -874,7 +874,7 @@ The `table !== joinedTable` check after `checkToken` replaces nothing; the exist
     }));
 ```
 
-- [ ] **Step 7: Update existing tests that sit a name down twice**
+- [x] **Step 7: Update existing tests that sit a name down twice**
 
 Run: `npm test --workspace=@poker-blackjack/server`. Every failure with
 `belongs to another player` is a test that rejoins a claimed name without its token. Fix each by
@@ -907,14 +907,14 @@ taking the token from the first join and passing it on the second:
 (`class ControllablePlayerStore implements PlayerStore, IdentityStore`; import the two types.)
 Do not change what any existing test asserts; only how it rejoins.
 
-- [ ] **Step 8: Run everything**
+- [x] **Step 8: Run everything**
 
 Run: `npm test --workspace=@poker-blackjack/server` and `npm run typecheck`
 Expected: PASS. (The frontend typecheck may now fail on `mySeatIndex` missing from fixtures; that is Task 6. If so, run only `npm run typecheck --workspace=@poker-blackjack/server` here.)
 Check the takeover test guards something: comment out the `for` loop that unmaps the old socket and
 confirm "the token holder takes over" fails; restore.
 
-- [ ] **Step 9: Commit (after the user says yes)**
+- [x] **Step 9: Commit (after the user says yes)**
 
 ```bash
 git add packages/server/src

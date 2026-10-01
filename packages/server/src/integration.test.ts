@@ -194,10 +194,13 @@ describe('integration: happy path', () => {
     await waitForSeated(alice1, 'alice');
 
     const alice2 = connect();
-    const errorPromise = waitForEvent<{ message: string }>(alice2, 'error');
+    const errorPromise = waitForEvent<{ message: string; code?: string }>(alice2, 'error');
     alice2.emit('join', { displayName: 'alice' });
     const err = await errorPromise;
-    expect(err.message).toMatch(/already seated/);
+    // Without alice's token the name is refused up front (audit C5); with it, the second join
+    // would take the seat over instead, so "already seated" is no longer reachable from a socket.
+    expect(err.code).toBe('name-claimed');
+    expect(err.message).toMatch(/belongs to another player/);
   });
 
   it('admin starts a game, players join, admin changes blinds mid-session, and only the next hand uses them', async () => {

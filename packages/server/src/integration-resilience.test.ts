@@ -7,7 +7,14 @@ import { createServer, type CreateServerResult, type StaticTableConfig } from '.
 import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
 import { JsonGameConfigStore, type GameConfigValues } from './gameConfigStore';
-import { waitForState, waitForSeated, waitForReady, waitForConnected, startGameAsAdmin } from './testHelpers';
+import {
+  waitForState,
+  waitForSeated,
+  waitForReady,
+  waitForConnected,
+  joinAndGetToken,
+  startGameAsAdmin,
+} from './testHelpers';
 
 describe('integration: resilience', () => {
   let dir: string;
@@ -65,8 +72,7 @@ describe('integration: resilience', () => {
     await startGameAsAdmin(admin, 'holdem');
     const alice = connect();
     const bob = connect();
-    alice.emit('join', { displayName: 'alice' });
-    await waitForSeated(alice, 'alice');
+    const aliceToken = await joinAndGetToken(alice, 'alice');
     bob.emit('join', { displayName: 'bob' });
     await waitForSeated(bob, 'bob');
     alice.emit('ready');
@@ -81,7 +87,7 @@ describe('integration: resilience', () => {
 
     const aliceReconnect = connect();
     const reconnected = waitForConnected(aliceReconnect, 'alice');
-    aliceReconnect.emit('join', { displayName: 'alice' });
+    aliceReconnect.emit('join', { displayName: 'alice', token: aliceToken });
     const state = await reconnected;
     expect(state.table!.seats[0]?.displayName).toBe('alice');
     expect(state.table!.seats[0]?.connected).toBe(true);
@@ -115,8 +121,7 @@ describe('integration: resilience', () => {
     await startGameAsAdmin(admin, 'holdem');
     const alice = connect();
     const bob = connect();
-    alice.emit('join', { displayName: 'alice' });
-    await waitForSeated(alice, 'alice');
+    const aliceToken = await joinAndGetToken(alice, 'alice');
     bob.emit('join', { displayName: 'bob' });
     await waitForSeated(bob, 'bob');
     alice.emit('ready');
@@ -141,7 +146,7 @@ describe('integration: resilience', () => {
 
     const aliceReconnect = connect();
     const seated = waitForSeated(aliceReconnect, 'alice');
-    aliceReconnect.emit('join', { displayName: 'alice' });
+    aliceReconnect.emit('join', { displayName: 'alice', token: aliceToken });
     const state = await seated;
     expect(state.table!.seats.find((s) => s.displayName === 'alice')?.balance).toBe(aliceBalanceBeforeRestart);
   });
@@ -154,8 +159,7 @@ describe('integration: resilience', () => {
     const bob = connect();
     alice.emit('join', { displayName: 'alice' });
     await waitForSeated(alice, 'alice');
-    bob.emit('join', { displayName: 'bob' });
-    await waitForSeated(bob, 'bob');
+    const bobToken = await joinAndGetToken(bob, 'bob');
     alice.emit('ready');
     await waitForReady(alice, 'alice');
     const handStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
@@ -179,7 +183,7 @@ describe('integration: resilience', () => {
 
     const bobReconnect = connect();
     const reconnected = waitForConnected(bobReconnect, 'bob');
-    bobReconnect.emit('join', { displayName: 'bob' });
+    bobReconnect.emit('join', { displayName: 'bob', token: bobToken });
     const state = await reconnected;
     expect(state.table!.holdem!.actingPlayerId).toBe('bob');
 
