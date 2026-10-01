@@ -5,6 +5,41 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 (see "After Plan 6" below). Start here if you're new to this repo; `docs/README.md` says
 which docs are kept current and which are historical records.
 
+## Current work: fixing the 2026-10-01 audit findings (in progress)
+
+**Branch** `audit/2026-10-01-full-audit` (off `master`; not pushed, no PR yet). **Findings:**
+`docs/superpowers/playtests/2026-10-01-full-audit-and-playtest.md` (5 Critical, 15 Important,
+30 Minor). Its section 8 is the agreed fix order. Raw audit inputs and repros are in
+`.playtest-data/audit/` (git-ignored, not recoverable: never run `rm -rf .playtest-data`, which
+`scripts/playtest/README.md:15` still says to do).
+
+Done (each test-first; 503 tests green, `npm run typecheck` clean at `8d7eacd`):
+
+| Commit | Findings | What changed |
+|---|---|---|
+| `33087ef` | docs | Report added; the six §7 doc fixes |
+| `84837e2` | C1, C2 | `startHand` settles a Hold'em hand already settled when dealt (both all-in from blinds). `HoldemHand.wentToShowdown`; hole cards are revealed only after a real showdown, not on a fold-out |
+| `8d7eacd` | C3, I1, I2 | `Table.runExclusive` per-table lock (actions, auto-acts, hand starts, admin balance). `actionSeq` in every view, client sends it back as `seq`, stale ones rejected; frontend `actionPending` disables action buttons. `Table.adminSetBalance` replaces `setSeatBalance`. `Table.retire()` on mode switch. A join that resolves after a switch is dropped |
+
+Decisions worth knowing:
+- `recoverFromLog` still **voids** (does not pay) a hand that replays to `settled`. After the C1
+  fix that only happens on a crash inside settlement, where balances may already be written, so
+  paying again could double-pay. Making settlement idempotent is I3.
+- `submitAction` is the locked public entry; `applyAction` is the body. Anything already holding
+  the lock (the auto-act at the end of `applyAction`) must call `applyAction`, never
+  `submitAction`, or it deadlocks.
+- `seq` is optional on `action`: the playtest bots don't send it and are still accepted.
+- None of the fixes so far have been tried in the browser. The concurrency commit (`8d7eacd`)
+  has had no independent review yet. One Opus review of that commit was proposed, not yet approved
+  by the user.
+
+**Next step:** ask the user whether to run that review first; otherwise start §8 item 3, **C4**.
+Every async admin handler in `socketServer.ts` needs a catch → `rejectAdmin(message)` (wrap in a
+`safeHandler`). `adminStartGame` and `adminSwitchMode` have `try/finally` with no catch. Add a
+`process.on('unhandledRejection')` logger in `index.ts`. Then items 4-9 (I4/I5/M5 config and
+ready-check, C5/I7 identity and exposure, ...). Ask before committing; don't push or merge without
+asking.
+
 ## Where things stand
 
 | Plan | What | Status |
