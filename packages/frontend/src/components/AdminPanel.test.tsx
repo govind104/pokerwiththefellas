@@ -183,6 +183,29 @@ describe('AdminPanel', () => {
     });
   });
 
+  describe('release a name (audit C5)', () => {
+    it('releases a typed name', () => {
+      const { adminReleaseName } = renderWithSocket();
+      fireEvent.click(screen.getByRole('button', { name: /admin panel/i }));
+      fireEvent.change(screen.getByLabelText('Name to release'), { target: { value: 'bob' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Release name' }));
+      expect(adminReleaseName).toHaveBeenCalledWith('bob');
+    });
+
+    it('does not send a blank name', () => {
+      const { adminReleaseName } = renderWithSocket();
+      fireEvent.click(screen.getByRole('button', { name: /admin panel/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Release name' }));
+      expect(adminReleaseName).not.toHaveBeenCalled();
+    });
+
+    it('shows the server notice', () => {
+      renderWithSocket({ adminNoticeMessage: 'Released "bob": the next person...' });
+      fireEvent.click(screen.getByRole('button', { name: /admin panel/i }));
+      expect(screen.getByRole('status')).toHaveTextContent('Released "bob"');
+    });
+  });
+
   it('renders an admin-action rejection in its own error surface', () => {
     renderWithSocket({ adminActionErrorMessage: "Can't adjust -- alice is in an active hand" });
     fireEvent.click(screen.getByRole('button', { name: /admin panel/i }));

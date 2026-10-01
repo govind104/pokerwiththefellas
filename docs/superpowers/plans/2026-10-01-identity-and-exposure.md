@@ -1914,7 +1914,7 @@ git commit -m "fix(frontend): reconnect tokens, server-sent seat, takeover scree
 **Interfaces:**
 - Consumes: `adminReleaseName`, `adminNoticeMessage` from Task 6.
 
-- [ ] **Step 1: Failing tests** — `AdminPanel.test.tsx` (the file's `renderWithSocket` returns the mocked value)
+- [x] **Step 1: Failing tests** — `AdminPanel.test.tsx` (the file's `renderWithSocket` returns the mocked value)
 
 ```ts
 it('releases a typed name (audit C5)', () => {
@@ -1938,7 +1938,7 @@ it('shows the server notice', () => {
 
 Run: `npx vitest run src/components/AdminPanel.test.tsx --root packages/frontend` → FAIL.
 
-- [ ] **Step 2: Implement** — in `AdminPanel.tsx`: take `adminReleaseName` and `adminNoticeMessage`
+- [x] **Step 2: Implement** — in `AdminPanel.tsx`: take `adminReleaseName` and `adminNoticeMessage`
 from `useSocket()`, add `const [releaseName, setReleaseName] = useState('');` with the other state,
 and a handler:
 
@@ -1982,9 +1982,9 @@ and, next to where `adminActionErrorMessage` is rendered, the notice:
           )}
 ```
 
-- [ ] **Step 3: Run** `npx vitest run src/components/AdminPanel.test.tsx --root packages/frontend` → PASS; then `npm test --workspace=@poker-blackjack/frontend`.
+- [x] **Step 3: Run** `npx vitest run src/components/AdminPanel.test.tsx --root packages/frontend` → PASS; then `npm test --workspace=@poker-blackjack/frontend`.
 
-- [ ] **Step 4: Commit (after the user says yes)**
+- [x] **Step 4: Commit (after the user says yes)**
 
 ```bash
 git add packages/frontend/src/components/AdminPanel.tsx packages/frontend/src/components/AdminPanel.test.tsx

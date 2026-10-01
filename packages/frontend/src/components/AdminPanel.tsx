@@ -18,14 +18,17 @@ export function AdminPanel() {
     state,
     isAdmin,
     adminActionErrorMessage,
+    adminNoticeMessage,
     adminSwitchMode,
     adminAdjustBalance,
     adminSetBlinds,
     adminSetDefaultBet,
     adminSetStartingBalance,
+    adminReleaseName,
   } = useSocket();
   const [open, setOpen] = useState(false);
   const [targetName, setTargetName] = useState('');
+  const [releaseName, setReleaseName] = useState('');
   const [targetBalance, setTargetBalance] = useState<FieldValue>(null);
   const [smallBlind, setSmallBlind] = useState<FieldValue>(null);
   const [bigBlind, setBigBlind] = useState<FieldValue>(null);
@@ -101,6 +104,15 @@ export function AdminPanel() {
     }
     adminSetStartingBalance(balance);
     setStartingBalance(null);
+  }
+
+  function handleReleaseName(event: FormEvent) {
+    event.preventDefault();
+    if (releaseName.trim().length === 0) {
+      return;
+    }
+    adminReleaseName(releaseName);
+    setReleaseName('');
   }
 
   const otherMode: GameMode = table.gameMode === 'holdem' ? 'blackjack' : 'holdem';
@@ -230,12 +242,32 @@ export function AdminPanel() {
             </button>
           </form>
 
+          {/* A free-text field, not the seated-player list: the player who needs this has lost
+              their token, so they usually can't sit down (audit C5). */}
+          <form onSubmit={handleReleaseName} className="flex flex-col gap-1">
+            <p className="text-xs text-slate-400">Release a name (player lost their browser data)</p>
+            <input
+              value={releaseName}
+              onChange={(event) => setReleaseName(event.target.value)}
+              aria-label="Name to release"
+              className="rounded border border-slate-600 bg-slate-900 px-2 py-1"
+            />
+            <button type="submit" className="rounded bg-emerald-600 px-2 py-1">
+              Release name
+            </button>
+          </form>
+
           {/* Admin-action rejections land here rather than in JoinScreen's
               form, where they used to be announced as a problem with the
               display-name input. */}
           {adminActionErrorMessage && (
             <p role="alert" className="text-xs text-red-400">
               {adminActionErrorMessage}
+            </p>
+          )}
+          {adminNoticeMessage && (
+            <p role="status" className="text-xs text-emerald-300">
+              {adminNoticeMessage}
             </p>
           )}
         </div>
