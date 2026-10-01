@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -10,6 +10,7 @@ import {
   makeHoldemPreflopState,
   makeBlackjackPlayingState,
 } from './fixtures/tableStateFixtures';
+import { MIN_ACTION_LOCKOUT_MS } from './socket/SocketContext';
 
 const handlers = new Map<string, (...args: unknown[]) => void>();
 const emitted: { event: string; payload: unknown }[] = [];
@@ -308,20 +309,34 @@ describe('App', () => {
       expect(actionEvents()).toHaveLength(1);
     });
 
+    it('a double-click whose second click lands after the server reply still emits one action (review IMP-1)', async () => {
+      // On a LAN the reply to the first click usually arrives inside the double-click
+      // window, carrying a new actionSeq that the second click would otherwise send.
+      const hit = await seatAtBlackjack(3);
+      await userEvent.click(hit);
+      act(() => {
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 4 })));
+      });
+      await userEvent.click(screen.getByRole('button', { name: 'Hit' }));
+      expect(actionEvents()).toHaveLength(1);
+    });
+
     it("sends the table's actionSeq with the action", async () => {
       const hit = await seatAtBlackjack(3);
       await userEvent.click(hit);
       expect(actionEvents()[0].payload).toEqual({ action: 'hit', amount: undefined, seq: 3 });
     });
 
-    it('re-enables the action buttons once a state with a new actionSeq arrives', async () => {
+    it('re-enables the action buttons once a state with a new actionSeq arrives and the lockout has passed', async () => {
       const hit = await seatAtBlackjack(3);
       await userEvent.click(hit);
       expect(hit).toBeDisabled();
       act(() => {
         handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 4 })));
       });
-      expect(screen.getByRole('button', { name: 'Hit' })).toBeEnabled();
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Hit' })).toBeEnabled(), {
+        timeout: MIN_ACTION_LOCKOUT_MS + 500,
+      });
       expect(screen.getByRole('button', { name: 'Stand' })).toBeEnabled();
     });
 

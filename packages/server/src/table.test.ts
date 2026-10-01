@@ -2154,4 +2154,41 @@ describe('Table concurrency (audit C3, I1, I2)', () => {
     expect(table.handInProgress).toBe(false);
     expect(handLog.entries).toHaveLength(0);
   });
+
+  it('I2: a hand start already queued on the lock when the table is retired never runs', async () => {
+    // What the mode switch relies on: the last Ready can queue a start behind other locked work
+    // (here an admin balance write) just before retire() is called.
+    let releaseWrite!: () => void;
+    const playerStore = new FakePlayerStore(1000);
+    const realSet = playerStore.setBalance.bind(playerStore);
+    let holdWrites = false;
+    playerStore.setBalance = async (name: string, balance: number) => {
+      if (holdWrites) await new Promise<void>((r) => (releaseWrite = r));
+      return realSet(name, balance);
+    };
+    const handLog = new FakeHandLog();
+    const table = new Table(
+      {
+        gameMode: 'holdem', seatCount: 8, smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000, reconnectGraceMs: 50, random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog, onStateChange: () => {} }
+    );
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+
+    holdWrites = true;
+    const adjust = table.adminSetBalance('bob', 500); // holds the lock
+    const ready = table.setReady(1); // queues the hand start behind it
+    await new Promise((r) => setTimeout(r, 10));
+    table.retire();
+    holdWrites = false;
+    releaseWrite();
+    await adjust;
+    await ready;
+
+    expect(table.handInProgress).toBe(false);
+    expect(handLog.entries).toHaveLength(0);
+  });
 });

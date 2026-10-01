@@ -739,12 +739,24 @@ describe('static file serving -- misconfigured STATIC_DIR', () => {
   });
 });
 
-// Test-local fake for audit C4: a real config store whose next read or write
-// fails the way a Windows file lock does (antivirus, backup or indexer holding
-// game-config.json), so each admin handler's failure path can be driven.
+// Test-local fake: a real config store whose next read or write fails the way a
+// Windows file lock does (antivirus, backup or indexer holding game-config.json),
+// so each admin handler's failure path can be driven (audit C4), or whose next
+// read can be held open to pause an admin handler mid-await (audit I2).
 class LockableGameConfigStore implements GameConfigStore {
   failNext = false;
+  holdNextGetConfig = false;
+  private releaseHeldGet: (() => void) | null = null;
   constructor(private inner: GameConfigStore) {}
+  get isHoldingGetConfig(): boolean {
+    return this.releaseHeldGet !== null;
+  }
+  releaseGetConfig(): void {
+    const release = this.releaseHeldGet;
+    if (!release) throw new Error('LockableGameConfigStore: no held getConfig to release');
+    this.releaseHeldGet = null;
+    release();
+  }
   private maybeFail(): void {
     if (this.failNext) {
       this.failNext = false;
@@ -753,6 +765,10 @@ class LockableGameConfigStore implements GameConfigStore {
   }
   async getConfig(): Promise<GameConfigValues> {
     this.maybeFail();
+    if (this.holdNextGetConfig) {
+      this.holdNextGetConfig = false;
+      await new Promise<void>((resolve) => (this.releaseHeldGet = resolve));
+    }
     return this.inner.getConfig();
   }
   async setConfig(update: Partial<GameConfigValues>): Promise<GameConfigValues> {
@@ -761,7 +777,7 @@ class LockableGameConfigStore implements GameConfigStore {
   }
 }
 
-describe('socketServer admin handlers on a storage failure (audit C4)', () => {
+describe('socketServer admin handlers against a controllable config store (audit C4, I2)', () => {
   let dir: string;
   let server: CreateServerResult;
   let port: number;
@@ -834,4 +850,32 @@ describe('socketServer admin handlers on a storage failure (audit C4)', () => {
       }
     });
   }
+
+  it('adminSwitchMode is rejected when the last Ready starts a hand while the switch is loading config (audit I2)', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+    const alice = connect();
+    alice.emit('join', { displayName: 'alice' });
+    await waitForSeated(alice, 'alice');
+    const bob = connect();
+    bob.emit('join', { displayName: 'bob' });
+    await waitForSeated(bob, 'bob');
+    alice.emit('ready');
+    await waitForReady(alice, 'alice');
+    const holdemTable = server.getTable();
+
+    gameConfigStore.holdNextGetConfig = true;
+    admin.emit('adminSwitchMode', { mode: 'blackjack' });
+    await vi.waitFor(() => expect(gameConfigStore.isHoldingGetConfig).toBe(true));
+
+    const handStarted = waitForState(bob, (s) => !!s.table?.handInProgress);
+    bob.emit('ready');
+    await handStarted;
+
+    const rejected = waitForEvent<{ message: string; scope?: string }>(admin, 'error');
+    gameConfigStore.releaseGetConfig();
+    expect(await rejected).toEqual({ message: "Can't switch modes while a hand is in progress", scope: 'admin' });
+    expect(server.getTable()).toBe(holdemTable); // not replaced by a blackjack table
+    expect(holdemTable!.handInProgress).toBe(true);
+  });
 });

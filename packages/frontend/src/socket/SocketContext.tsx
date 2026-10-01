@@ -17,6 +17,12 @@ export const DISPLAY_NAME_STORAGE_KEY = 'poker-blackjack:displayName';
 // click was a duplicate or raced a state change -- so it is not shown to the player.
 const STALE_ACTION_ERROR = 'That action has already been handled (the table moved on)';
 
+// Minimum time the action buttons stay disabled after a click, even if the table has already
+// moved on. On a LAN the server's reply often lands inside a double-click (Windows' default
+// window is 500 ms), and the second click would then go out with the new, valid seq. Also
+// covers most of a 3D card deal (0.35-0.7 s).
+export const MIN_ACTION_LOCKOUT_MS = 600;
+
 export interface SocketContextValue {
   status: ConnectionStatus;
   state: AppStateView | null;
@@ -35,9 +41,9 @@ export interface SocketContextValue {
   isAdmin: boolean;
   joinWithName: (displayName: string) => void;
   sendReady: () => void;
-  // True from sending an action until the table moves on (a state with a new actionSeq) or
-  // the server rejects it; the table buttons stay disabled meanwhile so a double-click
-  // cannot send the action twice.
+  // True from sending an action until the table moves on (a state with a new actionSeq, and at
+  // least MIN_ACTION_LOCKOUT_MS since the click) or the server rejects it; the table buttons
+  // stay disabled meanwhile so a double-click cannot send the action twice.
   actionPending: boolean;
   sendAction: (action: PlayerAction | HoldemAction, amount?: number) => void;
   leave: () => void;
@@ -102,6 +108,8 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   // action against. Refs, not state: sendAction must see the value at click time.
   const latestActionSeqRef = useRef<number | null>(null);
   const sentActionSeqRef = useRef<number | null>(null);
+  const actionSentAtRef = useRef(0);
+  const actionUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [state, setState] = useState<AppStateView | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -131,7 +139,13 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       const actionSeq = nextState.table?.actionSeq ?? null;
       latestActionSeqRef.current = actionSeq;
       if (actionSeq === null || actionSeq !== sentActionSeqRef.current) {
-        setActionPending(false);
+        clearTimeout(actionUnlockTimerRef.current);
+        const lockoutLeft = MIN_ACTION_LOCKOUT_MS - (Date.now() - actionSentAtRef.current);
+        if (lockoutLeft > 0) {
+          actionUnlockTimerRef.current = setTimeout(() => setActionPending(false), lockoutLeft);
+        } else {
+          setActionPending(false);
+        }
       }
 
       // displayNameRef.current guard matters here specifically because a
@@ -294,6 +308,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     });
 
     return () => {
+      clearTimeout(actionUnlockTimerRef.current);
       socket.disconnect();
     };
     // Runs once on mount: opens the connection immediately (so lobby/table
@@ -326,6 +341,8 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
 
   function sendAction(action: PlayerAction | HoldemAction, amount?: number) {
     sentActionSeqRef.current = latestActionSeqRef.current;
+    actionSentAtRef.current = Date.now();
+    clearTimeout(actionUnlockTimerRef.current);
     setActionPending(true);
     socketRef.current?.emit('action', { action, amount, seq: latestActionSeqRef.current ?? undefined });
   }
