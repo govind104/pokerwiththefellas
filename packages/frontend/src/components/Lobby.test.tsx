@@ -11,6 +11,7 @@ function renderWithSocket(overrides: Partial<SocketContextValue> = {}) {
     errorMessage: null,
     adminErrorMessage: null,
     adminActionErrorMessage: null,
+    adminNoticeMessage: null,
     actionPending: false,
     displayName: null,
     isAdmin: false,
@@ -25,6 +26,8 @@ function renderWithSocket(overrides: Partial<SocketContextValue> = {}) {
     adminSetBlinds: vi.fn(),
     adminSetDefaultBet: vi.fn(),
     adminSetStartingBalance: vi.fn(),
+    adminReleaseName: vi.fn(),
+    takeOver: vi.fn(),
     ...overrides,
   };
   render(

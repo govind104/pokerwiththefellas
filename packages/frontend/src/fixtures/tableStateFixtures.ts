@@ -294,6 +294,7 @@ export function makeAppState(
   return {
     mode: table.gameMode,
     isAdmin: false,
+    mySeatIndex: null,
     ...DEFAULT_CONFIG_VIEW,
     ...overrides,
     table,
@@ -304,6 +305,7 @@ export function makeLobbyState(overrides: Partial<Omit<AppStateView, 'table'>> =
   return {
     mode: null,
     isAdmin: false,
+    mySeatIndex: null,
     ...DEFAULT_CONFIG_VIEW,
     ...overrides,
     table: null,

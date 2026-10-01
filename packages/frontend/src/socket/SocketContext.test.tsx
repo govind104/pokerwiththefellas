@@ -1,6 +1,8 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useSocket, SocketProvider, DISPLAY_NAME_STORAGE_KEY } from './SocketContext';
+import { io } from 'socket.io-client';
+import { useSocket, SocketProvider, ADMIN_TOKEN_STORAGE_KEY } from './SocketContext';
+import { IDENTITY_STORAGE_KEY } from './identityStorage';
 import { makeAppState, makeLobbyState, makeWaitingState, makeHoldemPreflopState, makeSeat } from '../fixtures/tableStateFixtures';
 
 // A minimal fake socket.io-client: enough surface for SocketContext to drive
@@ -48,6 +50,9 @@ function TestConsumer() {
     leave,
     adminLogin,
     adminAdjustBalance,
+    adminNoticeMessage,
+    adminReleaseName,
+    takeOver,
   } = useSocket();
   return (
     <div>
@@ -62,8 +67,33 @@ function TestConsumer() {
       <button onClick={() => leave()}>leave</button>
       <button onClick={() => adminLogin('secret')}>admin-login</button>
       <button onClick={() => adminAdjustBalance('bob', 500)}>admin-adjust</button>
+      <p data-testid="adminNotice">{adminNoticeMessage ?? 'none'}</p>
+      <button onClick={() => takeOver()}>take-over</button>
+      <button onClick={() => adminReleaseName('bob')}>admin-release</button>
     </div>
   );
+}
+
+function renderProvider() {
+  render(
+    <SocketProvider serverUrl="http://localhost:3000">
+      <TestConsumer />
+    </SocketProvider>
+  );
+}
+
+function push(event: string, payload?: unknown) {
+  act(() => {
+    handlers.get(event)?.(payload);
+  });
+}
+
+function storeIdentity(lastName: string | null, tokens: Record<string, string>) {
+  localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify({ lastName, tokens }));
+}
+
+function storedIdentity() {
+  return JSON.parse(localStorage.getItem(IDENTITY_STORAGE_KEY) ?? 'null');
 }
 
 describe('SocketProvider', () => {
@@ -73,6 +103,7 @@ describe('SocketProvider', () => {
     emitted.length = 0;
     disconnectCalls = 0;
     sessionStorage.clear();
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -129,17 +160,18 @@ describe('SocketProvider', () => {
     });
     expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice' } });
 
+    push('identity', { displayName: 'alice', token: 'tok-a' }); // the server sends this before the seating broadcast
     act(() => {
-      handlers.get('state')?.(makeAppState(makeWaitingState())); // seats[0] is 'alice' per the fixture
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 })); // seats[0] is 'alice' per the fixture
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
     expect(screen.getByTestId('mode')).toHaveTextContent('holdem');
     expect(screen.getByTestId('name')).toHaveTextContent('alice');
-    expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBe('alice');
+    expect(storedIdentity().lastName).toBe('alice');
   });
 
   it('auto-rejoins with a remembered name once a mode becomes active, without a manual joinWithName call', async () => {
-    sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, 'alice');
+    storeIdentity('alice', {});
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
@@ -164,7 +196,7 @@ describe('SocketProvider', () => {
     // adds a status transition inside the 'error' handler's non-fatal
     // branch, so a rejoin that the server accepts must behave exactly as
     // before, landing on 'at-table' once the follow-up 'state' seats us.
-    sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, 'alice');
+    storeIdentity('alice', {});
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
@@ -180,7 +212,7 @@ describe('SocketProvider', () => {
     expect(screen.getByTestId('status')).toHaveTextContent('connecting');
 
     act(() => {
-      handlers.get('state')?.(makeAppState(makeWaitingState())); // seats[0] is 'alice' per the fixture
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 })); // seats[0] is 'alice' per the fixture
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
     expect(screen.getByTestId('name')).toHaveTextContent('alice');
@@ -196,7 +228,7 @@ describe('SocketProvider', () => {
     // to 'at-table' and skipping the `join` emit below -- stranding the
     // player behind the server's auto-check/auto-fold timeout forever, with
     // no visible sign anything was wrong.
-    sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, 'alice');
+    storeIdentity('alice', {});
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
@@ -220,7 +252,8 @@ describe('SocketProvider', () => {
         makeAppState(
           makeWaitingState({
             seats: [makeSeat({ seatIndex: 0, displayName: 'alice', connected: true, ready: true })],
-          })
+          }),
+          { mySeatIndex: 0 }
         )
       );
     });
@@ -237,10 +270,9 @@ describe('SocketProvider', () => {
     // Get seated first, the same way a normal player would.
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeWaitingState())); // seats[0] is 'alice' per the fixture
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 })); // seats[0] is 'alice' per the fixture
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
-    expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBe('alice');
 
     // Simulate the broadcast an admin's adminSwitchMode produces: seats are
     // cleared and a (possibly new) mode is immediately active again -- see
@@ -281,7 +313,7 @@ describe('SocketProvider', () => {
 
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeWaitingState()));
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -317,7 +349,8 @@ describe('SocketProvider', () => {
               makeSeat({ seatIndex: 0, displayName: 'dave' }),
               makeSeat({ seatIndex: 1, displayName: 'alice' }),
             ],
-          })
+          }),
+          { mySeatIndex: 1 }
         )
       );
     });
@@ -365,7 +398,7 @@ describe('SocketProvider', () => {
     );
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeWaitingState()));
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -384,7 +417,7 @@ describe('SocketProvider', () => {
     );
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeWaitingState()));
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -413,7 +446,7 @@ describe('SocketProvider', () => {
     );
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeWaitingState()));
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -444,7 +477,7 @@ describe('SocketProvider', () => {
     );
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeWaitingState()));
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -565,7 +598,7 @@ describe('SocketProvider', () => {
       // only set `errorMessage` and never touched `status`, leaving the user
       // stuck on App.tsx's bare "Connecting..." screen (which doesn't read
       // `errorMessage`) with no way to see the rejection or retry.
-      sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, 'alice');
+      storeIdentity('alice', {});
       render(
         <SocketProvider serverUrl="http://localhost:3000">
           <TestConsumer />
@@ -600,7 +633,7 @@ describe('SocketProvider', () => {
       );
       act(() => {
         screen.getByText('join').click();
-        handlers.get('state')?.(makeAppState(makeWaitingState(), { isAdmin: true }));
+        handlers.get('state')?.(makeAppState(makeWaitingState(), { isAdmin: true, mySeatIndex: 0 }));
       });
       await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -623,7 +656,7 @@ describe('SocketProvider', () => {
       );
       act(() => {
         screen.getByText('join').click();
-        handlers.get('state')?.(makeAppState(makeWaitingState()));
+        handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
       });
       await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -662,7 +695,7 @@ describe('SocketProvider', () => {
     );
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeWaitingState()));
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -686,7 +719,7 @@ describe('SocketProvider', () => {
     );
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeWaitingState()));
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -696,7 +729,7 @@ describe('SocketProvider', () => {
     expect(screen.getByTestId('error')).toHaveTextContent("It is not alice's turn");
 
     act(() => {
-      handlers.get('state')?.(makeAppState(makeWaitingState()));
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
     });
     expect(screen.getByTestId('error')).toHaveTextContent('none');
   });
@@ -709,10 +742,11 @@ describe('SocketProvider', () => {
     );
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeWaitingState()));
+      handlers.get('identity')?.({ displayName: 'alice', token: 'tok-a' });
+      handlers.get('state')?.(makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
-    expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBe('alice');
+    expect(storedIdentity().lastName).toBe('alice');
 
     emitted.length = 0;
     act(() => {
@@ -721,7 +755,7 @@ describe('SocketProvider', () => {
 
     expect(emitted).toContainEqual({ event: 'leave', payload: undefined });
     expect(disconnectCalls).toBe(0); // the socket itself stays connected -- we're still in the lobby, not gone
-    expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBeNull();
+    expect(storedIdentity().lastName).toBeNull();
     expect(screen.getByTestId('name')).toHaveTextContent('none');
   });
 
@@ -733,7 +767,8 @@ describe('SocketProvider', () => {
     );
     act(() => {
       screen.getByText('join').click();
-      handlers.get('state')?.(makeAppState(makeHoldemPreflopState())); // handInProgress: true
+      handlers.get('identity')?.({ displayName: 'alice', token: 'tok-a' });
+      handlers.get('state')?.(makeAppState(makeHoldemPreflopState(), { mySeatIndex: 0 })); // handInProgress: true
     });
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
 
@@ -744,6 +779,173 @@ describe('SocketProvider', () => {
 
     expect(emitted).toEqual([]);
     expect(screen.getByTestId('status')).toHaveTextContent('at-table');
-    expect(sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY)).toBe('alice');
+    expect(storedIdentity().lastName).toBe('alice');
+  });
+
+  describe('identity (audit C5, I9, M11)', () => {
+    it('is not at the table just because a connected seat has our name (I9)', async () => {
+      renderProvider();
+      push('state', makeAppState(makeWaitingState()));
+      act(() => screen.getByText('join').click());
+      push('state', makeAppState(makeWaitingState())); // seats[0] is a connected 'alice', but not us
+      push('error', { message: '"alice" belongs to another player.', code: 'name-claimed' });
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('entering-name'));
+    });
+
+    it('is at the table when the server says which seat is ours', async () => {
+      renderProvider();
+      push('state', makeAppState(makeWaitingState()));
+      act(() => screen.getByText('join').click());
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+    });
+
+    // The server broadcasts from Table.join / reconnect before it maps the socket to the seat, and
+    // on a fresh join the frame with our mySeatIndex only follows the token's disk write. Those
+    // transient frames have our name in the seats but mySeatIndex null. They must not read as a
+    // rejection, and must not fire a second `join`: a tokenless duplicate for a name the server has
+    // just claimed would come back as 'name-claimed' and show the player an error.
+    it('a transient null-mySeatIndex frame during a fresh join is neither an error nor a second join', async () => {
+      renderProvider();
+      push('state', makeAppState(makeWaitingState({ seats: [] })));
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('entering-name'));
+      act(() => screen.getByText('join').click());
+
+      push('state', makeAppState(makeWaitingState())); // alice is in the seats, mySeatIndex still null
+      expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+      expect(screen.getByTestId('error')).toHaveTextContent('none');
+      // A second one (another player's broadcast, say): the first must not have re-armed the
+      // auto-rejoin, or this is where the duplicate join would go out.
+      push('state', makeAppState(makeWaitingState()));
+      expect(emitted.filter((e) => e.event === 'join')).toHaveLength(1);
+
+      push('identity', { displayName: 'alice', token: 'tok-new' });
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+      expect(screen.getByTestId('error')).toHaveTextContent('none');
+      expect(emitted.filter((e) => e.event === 'join')).toHaveLength(1);
+    });
+
+    it('a transient null-mySeatIndex frame while rejoining after a transport reconnect does not send a second join', async () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+      push('disconnect');
+      expect(screen.getByTestId('status')).toHaveTextContent('reconnecting');
+
+      emitted.length = 0;
+      act(() => ioManagerHandlers.get('reconnect')?.());
+      push('state', makeAppState(makeWaitingState())); // Table.reconnect broadcast: name present, socket not mapped yet
+      expect(screen.getByTestId('status')).toHaveTextContent('reconnecting');
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+      expect(screen.getByTestId('error')).toHaveTextContent('none');
+      expect(emitted.filter((e) => e.event === 'join')).toEqual([
+        { event: 'join', payload: { displayName: 'alice', token: 'tok-a' } },
+      ]);
+    });
+
+    it('a transient null-mySeatIndex frame while a page-load rejoin is pending does not send a second join', async () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push(
+        'state',
+        makeAppState(makeWaitingState({ seats: [makeSeat({ seatIndex: 0, displayName: 'alice', connected: false })] }))
+      );
+      expect(emitted.filter((e) => e.event === 'join')).toHaveLength(1);
+
+      expect(screen.getByTestId('status')).toHaveTextContent('connecting');
+
+      push('state', makeAppState(makeWaitingState())); // Table.reconnect marked the seat connected; socket not mapped yet
+      push('state', makeAppState(makeWaitingState())); // and another broadcast before the mapping lands
+      expect(screen.getByTestId('status')).toHaveTextContent('connecting');
+      expect(emitted.filter((e) => e.event === 'join')).toHaveLength(1);
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('at-table'));
+      expect(screen.getByTestId('error')).toHaveTextContent('none');
+      expect(emitted.filter((e) => e.event === 'join')).toHaveLength(1);
+    });
+
+    it('rejoins with the stored name and its token', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState({ seats: [] })));
+      expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice', token: 'tok-a' } });
+    });
+
+    it('stores the token and name from an identity event', () => {
+      renderProvider();
+      push('identity', { displayName: 'Alice', token: 'tok-new' });
+      expect(storedIdentity()).toEqual({ lastName: 'Alice', tokens: { alice: 'tok-new' } });
+      expect(screen.getByTestId('name')).toHaveTextContent('Alice');
+    });
+
+    it('a rejected join forgets the last name but keeps the tokens', async () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState({ seats: [] })));
+      push('error', { message: '"alice" belongs to another player.', code: 'name-claimed' });
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('entering-name'));
+      expect(storedIdentity()).toEqual({ lastName: null, tokens: { alice: 'tok-a' } });
+    });
+
+    it('when replaced, shows the replaced status and does not rejoin on its own', async () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      push('error', { message: 'You opened the game in another tab or device.', code: 'replaced' });
+      push('state', makeAppState(makeWaitingState()));
+      await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('replaced'));
+      act(() => ioManagerHandlers.get('reconnect')?.());
+      expect(emitted.filter((e) => e.event === 'join')).toHaveLength(0); // seated from the first state, never rejoined
+    });
+
+    it('takeOver rejoins with the token', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      push('error', { message: 'You opened the game in another tab or device.', code: 'replaced' });
+      emitted.length = 0;
+      act(() => screen.getByText('take-over').click());
+      expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice', token: 'tok-a' } });
+    });
+
+    it('leave forgets the last name and keeps the token', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      expect(storedIdentity()).toEqual({ lastName: null, tokens: { alice: 'tok-a' } });
+    });
+
+    it('keeps the admin token for this tab and sends it on every connect (M11)', () => {
+      renderProvider();
+      push('adminLoginResult', { success: true, adminToken: 'adm-1' });
+      expect(sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY)).toBe('adm-1');
+      const options = vi.mocked(io).mock.calls[0][1] as { auth: (cb: (data: object) => void) => void };
+      const cb = vi.fn();
+      options.auth(cb);
+      expect(cb).toHaveBeenCalledWith({ adminToken: 'adm-1' });
+    });
+
+    it('explains a login lockout', async () => {
+      renderProvider();
+      push('adminLoginResult', { success: false, retryAfterMs: 42_100 });
+      await waitFor(() => expect(screen.getByTestId('adminError')).toHaveTextContent('Try again in 43 s'));
+    });
+
+    it('shows an admin notice until the next admin action', async () => {
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { isAdmin: true }));
+      push('adminNotice', { message: 'Released "bob"' });
+      await waitFor(() => expect(screen.getByTestId('adminNotice')).toHaveTextContent('Released "bob"'));
+      act(() => screen.getByText('admin-release').click());
+      expect(screen.getByTestId('adminNotice')).toHaveTextContent('none');
+      expect(emitted).toContainEqual({ event: 'adminReleaseName', payload: { displayName: 'bob' } });
+    });
   });
 });

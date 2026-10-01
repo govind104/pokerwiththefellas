@@ -5,13 +5,25 @@ import type {
   ServerToClientEvents,
   ErrorPayload,
   AdminLoginResultPayload,
+  IdentityPayload,
+  AdminNoticePayload,
 } from '@poker-blackjack/server/src/protocol';
 import type { AppStateView, GameMode } from '@poker-blackjack/server/src/table';
 import type { PlayerAction, HoldemAction } from '@poker-blackjack/game-engine';
+import { forgetLastName, readLastName, rememberIdentity, tokenFor } from './identityStorage';
 
-export type ConnectionStatus = 'connecting' | 'lobby' | 'entering-name' | 'at-table' | 'reconnecting' | 'error';
+export type ConnectionStatus =
+  | 'connecting'
+  | 'lobby'
+  | 'entering-name'
+  | 'at-table'
+  | 'reconnecting'
+  | 'replaced'
+  | 'error';
 
-export const DISPLAY_NAME_STORAGE_KEY = 'poker-blackjack:displayName';
+// The admin session token (audit M11). sessionStorage, not localStorage: admin rights should end
+// with the tab, unlike a player's name claim, which is meant to outlive it.
+export const ADMIN_TOKEN_STORAGE_KEY = 'poker-blackjack:adminToken';
 
 // Server's reply to an action sent with an out-of-date seq (table.ts). Harmless -- the
 // click was a duplicate or raced a state change -- so it is not shown to the player.
@@ -37,6 +49,9 @@ export interface SocketContextValue {
   // field would mean a login error and an action error could only ever be
   // told apart by which component happened to be mounted.
   adminActionErrorMessage: string | null;
+  // The server's confirmation of an admin action that has no state change to show for itself
+  // (e.g. a released name). Cleared when the next admin action is sent.
+  adminNoticeMessage: string | null;
   displayName: string | null;
   isAdmin: boolean;
   joinWithName: (displayName: string) => void;
@@ -54,6 +69,10 @@ export interface SocketContextValue {
   adminSetBlinds: (smallBlind: number, bigBlind: number) => void;
   adminSetDefaultBet: (blackjackDefaultBet: number) => void;
   adminSetStartingBalance: (defaultStartingBalance: number) => void;
+  // Frees a name that another player's token holds, so its owner can rejoin without it (audit C5).
+  adminReleaseName: (displayName: string) => void;
+  // From the 'replaced' screen: join again with our token, which moves the seat back to this tab.
+  takeOver: () => void;
 }
 
 export const SocketContext = createContext<SocketContextValue | null>(null);
@@ -104,6 +123,9 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   // rejected admin action -- is an ordinary rejection of one request and
   // must leave the session completely untouched.
   const hasEverReceivedStateRef = useRef(false);
+  // Set when another tab or device took our seat with the same token. Blocks every automatic
+  // rejoin: otherwise two tabs would take the seat back from each other forever (audit C5).
+  const replacedRef = useRef(false);
   // The table's actionSeq as of the latest 'state' event, and the one we last sent an
   // action against. Refs, not state: sendAction must see the value at click time.
   const latestActionSeqRef = useRef<number | null>(null);
@@ -115,6 +137,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [adminErrorMessage, setAdminErrorMessage] = useState<string | null>(null);
   const [adminActionErrorMessage, setAdminActionErrorMessage] = useState<string | null>(null);
+  const [adminNoticeMessage, setAdminNoticeMessage] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
 
@@ -122,14 +145,31 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     statusRef.current = status;
   }, [status]);
 
+  // Every join carries the token we hold for the name, if any: that is what proves a returning
+  // player is the one who claimed it (audit C5).
+  function emitJoin(socket: Socket<ServerToClientEvents, ClientToServerEvents>, name: string) {
+    socket.emit('join', { displayName: name, token: tokenFor(name) });
+  }
+
   useEffect(() => {
-    const storedName = sessionStorage.getItem(DISPLAY_NAME_STORAGE_KEY);
+    const storedName = readLastName();
     if (storedName) {
       displayNameRef.current = storedName;
       setDisplayName(storedName);
     }
 
-    const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(serverUrl);
+    const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(serverUrl, {
+      // A function, so each reconnect sends the token as it is then (audit M11).
+      auth: (cb) => {
+        let adminToken: string | null = null;
+        try {
+          adminToken = sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
+        } catch {
+          // storage blocked: log in again after a reconnect
+        }
+        cb(adminToken ? { adminToken } : {});
+      },
+    });
     socketRef.current = socket;
 
     socket.on('state', (nextState: AppStateView) => {
@@ -148,45 +188,33 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
         }
       }
 
-      // displayNameRef.current guard matters here specifically because a
-      // fresh table's unclaimed seats also carry `displayName: null` (see
-      // Table's seat initialization in table.ts) -- without it, the very
-      // first "welcome" broadcast a socket receives on connect (added
-      // alongside the lobby/admin work; see socketServer.ts's `connection`
-      // handler), which arrives before any join and thus while
-      // displayNameRef.current is still null, would spuriously match an
-      // empty seat's `displayName === null` and report this brand-new,
-      // not-yet-named socket as already seated.
-      //
-      // The `s.connected` half matters for a cold reconnect (page reload,
-      // new tab, or any fresh `io()` instance rather than the same socket
-      // resuming): the old socket's seat record persists as connected:false
-      // until the grace window clears it, so a name match alone is true
-      // immediately on the very first welcome broadcast -- before this new
-      // socket has ever emitted `join`. Without this check, that false
-      // positive short-circuits into `setStatus('at-table')` and skips the
-      // `else if` branch below entirely, so `table.reconnect()` is never
-      // called: the seat stays connected:false forever, this socket is
-      // never mapped in `seatBySocketId`, and every future turn is silently
-      // resolved by the grace-window auto-check/auto-fold timeout instead of
-      // this player, with no visible indication anything is wrong.
-      const mySeated =
-        displayNameRef.current !== null &&
-        (nextState.table?.seats.some((s) => s.displayName === displayNameRef.current && s.connected) ?? false);
+      // The server's socket→seat map is the only reliable answer (audit I9): matching names let a
+      // rejected join adopt the other player's seat view. Frames sent while our own join is being
+      // processed can carry our name in the seats with mySeatIndex still null (Table.join and
+      // reconnect broadcast before the socket is mapped); the joinInFlightRef branch below is what
+      // keeps those from reading as a rejection or triggering a second join.
+      const mySeatIndex = nextState.mySeatIndex ?? null;
+      const mySeated = mySeatIndex !== null;
       const wasSeated = wasSeatedRef.current;
       wasSeatedRef.current = mySeated;
 
       if (mySeated) {
         joinedRef.current = true;
         joinInFlightRef.current = false;
+        replacedRef.current = false;
         setStatus('at-table');
-        if (displayNameRef.current) {
-          sessionStorage.setItem(DISPLAY_NAME_STORAGE_KEY, displayNameRef.current);
+        // Take the server's spelling of our name (the seat holds the canonical one).
+        const seatName = nextState.table?.seats[mySeatIndex]?.displayName ?? null;
+        if (seatName !== null && seatName !== displayNameRef.current) {
+          displayNameRef.current = seatName;
+          setDisplayName(seatName);
         }
       } else if (nextState.mode === null) {
         joinedRef.current = false;
         joinInFlightRef.current = false;
         setStatus('lobby');
+      } else if (replacedRef.current) {
+        setStatus('replaced');
       } else if (joinInFlightRef.current) {
         // Our own auto-rejoin below is already awaiting the server's
         // response -- this broadcast is some OTHER change (another player's
@@ -208,23 +236,42 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
         // this branch and fall through to 'entering-name'.
         joinedRef.current = true;
         joinInFlightRef.current = true;
-        socket.emit('join', { displayName: displayNameRef.current });
+        emitJoin(socket, displayNameRef.current);
       } else {
         joinedRef.current = false;
         setStatus('entering-name');
       }
     });
 
-    socket.on('adminLoginResult', ({ success }: AdminLoginResultPayload) => {
+    socket.on('adminLoginResult', ({ success, adminToken, retryAfterMs }: AdminLoginResultPayload) => {
       // Deliberately separate from `errorMessage` (join/table errors, read by
       // JoinScreen): AdminEntry and JoinScreen can be mounted simultaneously,
       // and a failed admin passphrase attempt must not appear to be a failed
       // name-join too. See adminErrorMessage below.
-      if (!success) {
-        setAdminErrorMessage('Incorrect admin passphrase');
-      } else {
+      if (success) {
         setAdminErrorMessage(null);
+        if (adminToken) {
+          try {
+            sessionStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, adminToken);
+          } catch {
+            // storage blocked: admin rights end at the next reconnect, as before
+          }
+        }
+      } else if (retryAfterMs) {
+        setAdminErrorMessage(`Too many wrong passphrases. Try again in ${Math.ceil(retryAfterMs / 1000)} s.`);
+      } else {
+        setAdminErrorMessage('Incorrect admin passphrase');
       }
+    });
+
+    socket.on('identity', ({ displayName: name, token }: IdentityPayload) => {
+      rememberIdentity(name, token);
+      displayNameRef.current = name;
+      setDisplayName(name);
+    });
+
+    socket.on('adminNotice', ({ message }: AdminNoticePayload) => {
+      setAdminNoticeMessage(message);
     });
 
     socket.on('error', (payload: ErrorPayload) => {
@@ -256,6 +303,15 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       // to swallow in the first place -- so any "already seated" error that
       // does arrive for our name is a genuine conflict and must reach the
       // player like any other rejection.
+      if (payload.code === 'replaced') {
+        replacedRef.current = true;
+        joinedRef.current = false;
+        joinInFlightRef.current = false;
+        setErrorMessage(payload.message);
+        setStatus('replaced');
+        return;
+      }
+      const wasJoining = joinInFlightRef.current;
       joinInFlightRef.current = false;
       setErrorMessage(payload.message);
       // Fatal only before the connection has ever proven healthy. This used
@@ -269,6 +325,12 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
         setStatus('error');
         socket.disconnect();
         socketRef.current = null;
+      } else if (wasJoining) {
+        // A refused join must not be retried on the next reload (audit I9).
+        forgetLastName();
+        displayNameRef.current = null;
+        setDisplayName(null);
+        setStatus('entering-name');
       } else if (statusRef.current === 'connecting') {
         // The 'state' handler's auto-rejoin branch (first-time-tonight or
         // post-admin-switch) emits `join` without ever touching `status`, so
@@ -301,9 +363,9 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       // admin switches modes. Without it, both sites would independently
       // decide nothing is in flight yet and each emit their own `join` for
       // the same name.
-      if (name && !joinInFlightRef.current) {
+      if (name && !joinInFlightRef.current && !replacedRef.current) {
         joinInFlightRef.current = true;
-        socket.emit('join', { displayName: name });
+        emitJoin(socket, name);
       }
     });
 
@@ -330,9 +392,20 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     displayNameRef.current = name;
     setDisplayName(name);
     setErrorMessage(null);
+    replacedRef.current = false;
     joinedRef.current = true;
     joinInFlightRef.current = true;
-    socketRef.current?.emit('join', { displayName: name });
+    if (socketRef.current) emitJoin(socketRef.current, name);
+  }
+
+  function takeOver() {
+    const name = displayNameRef.current ?? readLastName();
+    if (!name || !socketRef.current) return;
+    replacedRef.current = false;
+    joinedRef.current = true;
+    joinInFlightRef.current = true;
+    setErrorMessage(null);
+    emitJoin(socketRef.current, name);
   }
 
   function sendReady() {
@@ -357,7 +430,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       return;
     }
     socketRef.current?.emit('leave');
-    sessionStorage.removeItem(DISPLAY_NAME_STORAGE_KEY);
+    forgetLastName();
     displayNameRef.current = null;
     joinedRef.current = false;
     setDisplayName(null);
@@ -380,32 +453,44 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   // rejection readable until the admin actually does something about it.
   function adminStartGame(mode: GameMode) {
     setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
     socketRef.current?.emit('adminStartGame', { mode });
   }
 
   function adminSwitchMode(mode: GameMode) {
     setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
     socketRef.current?.emit('adminSwitchMode', { mode });
   }
 
   function adminAdjustBalance(name: string, balance: number) {
     setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
     socketRef.current?.emit('adminAdjustBalance', { displayName: name, balance });
   }
 
   function adminSetBlinds(smallBlind: number, bigBlind: number) {
     setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
     socketRef.current?.emit('adminSetBlinds', { smallBlind, bigBlind });
   }
 
   function adminSetDefaultBet(blackjackDefaultBet: number) {
     setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
     socketRef.current?.emit('adminSetDefaultBet', { blackjackDefaultBet });
   }
 
   function adminSetStartingBalance(defaultStartingBalance: number) {
     setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
     socketRef.current?.emit('adminSetStartingBalance', { defaultStartingBalance });
+  }
+
+  function adminReleaseName(name: string) {
+    setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
+    socketRef.current?.emit('adminReleaseName', { displayName: name });
   }
 
   const value: SocketContextValue = {
@@ -414,6 +499,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     errorMessage,
     adminErrorMessage,
     adminActionErrorMessage,
+    adminNoticeMessage,
     displayName,
     actionPending,
     isAdmin: state?.isAdmin ?? false,
@@ -428,6 +514,8 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     adminSetBlinds,
     adminSetDefaultBet,
     adminSetStartingBalance,
+    adminReleaseName,
+    takeOver,
   };
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;

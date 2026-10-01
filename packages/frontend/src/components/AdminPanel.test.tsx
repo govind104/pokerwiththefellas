@@ -11,6 +11,7 @@ function makeSocketValue(overrides: Partial<SocketContextValue> = {}): SocketCon
     errorMessage: null,
     adminErrorMessage: null,
     adminActionErrorMessage: null,
+    adminNoticeMessage: null,
     actionPending: false,
     displayName: 'alice',
     isAdmin: true,
@@ -25,6 +26,8 @@ function makeSocketValue(overrides: Partial<SocketContextValue> = {}): SocketCon
     adminSetBlinds: vi.fn(),
     adminSetDefaultBet: vi.fn(),
     adminSetStartingBalance: vi.fn(),
+    adminReleaseName: vi.fn(),
+    takeOver: vi.fn(),
     ...overrides,
   };
 }

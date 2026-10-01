@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -51,6 +51,24 @@ describe('App', () => {
     emitted.length = 0;
     disconnectCalls = 0;
     sessionStorage.clear();
+    // Not localStorage.clear(): vitest.setup.ts has just set 'table.view' to '2d' for this test.
+    localStorage.removeItem('poker-blackjack:identity');
+  });
+
+  it('offers to play here after another tab took the seat (audit C5)', () => {
+    localStorage.setItem(
+      'poker-blackjack:identity',
+      JSON.stringify({ lastName: 'alice', tokens: { alice: 'tok-a' } })
+    );
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' }), { mySeatIndex: 0 }));
+      handlers.get('error')?.({ message: 'You opened the game in another tab or device.', code: 'replaced' });
+    });
+    expect(screen.getByText('You opened the game in another tab or device.')).toBeInTheDocument();
+    emitted.length = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'Play here instead' }));
+    expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice', token: 'tok-a' } });
   });
 
   it('shows a connecting message before any state has arrived', () => {
@@ -99,7 +117,7 @@ describe('App', () => {
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
     await userEvent.click(screen.getByRole('button', { name: /join table/i }));
     act(() => {
-      handlers.get('state')?.(makeAppState(makeHoldemPreflopState()));
+      handlers.get('state')?.(makeAppState(makeHoldemPreflopState(), { mySeatIndex: 0 }));
     });
     expect(await screen.findByRole('button', { name: 'Fold' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
@@ -113,7 +131,7 @@ describe('App', () => {
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
     await userEvent.click(screen.getByRole('button', { name: /join table/i }));
     act(() => {
-      handlers.get('state')?.(makeAppState(makeHoldemPreflopState(), { isAdmin: true }));
+      handlers.get('state')?.(makeAppState(makeHoldemPreflopState(), { isAdmin: true, mySeatIndex: 0 }));
     });
     expect(await screen.findByRole('button', { name: 'Fold' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /admin panel/i })).toBeInTheDocument();
@@ -133,7 +151,7 @@ describe('App', () => {
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
     await userEvent.click(screen.getByRole('button', { name: /join table/i }));
     act(() => {
-      handlers.get('state')?.(makeAppState(makeHoldemPreflopState(), { isAdmin: true }));
+      handlers.get('state')?.(makeAppState(makeHoldemPreflopState(), { isAdmin: true, mySeatIndex: 0 }));
     });
     await userEvent.click(await screen.findByRole('button', { name: /admin panel/i }));
 
@@ -165,7 +183,9 @@ describe('App', () => {
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
     await userEvent.click(screen.getByRole('button', { name: /join table/i }));
     act(() => {
-      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' }), { isAdmin: true }));
+      handlers.get('state')?.(
+        makeAppState(makeWaitingState({ gameMode: 'holdem' }), { isAdmin: true, mySeatIndex: 0 })
+      );
     });
 
     await userEvent.click(await screen.findByRole('button', { name: /admin panel/i }));
@@ -207,7 +227,7 @@ describe('App', () => {
     await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
     await userEvent.click(screen.getByRole('button', { name: /join table/i }));
     act(() => {
-      handlers.get('state')?.(makeAppState(makeBlackjackPlayingState()));
+      handlers.get('state')?.(makeAppState(makeBlackjackPlayingState(), { mySeatIndex: 0 }));
     });
     expect(await screen.findByRole('button', { name: 'Hit' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
@@ -222,7 +242,7 @@ describe('App', () => {
       await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
       await userEvent.click(screen.getByRole('button', { name: /join table/i }));
       act(() => {
-        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState()));
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState(), { mySeatIndex: 0 }));
       });
     }
 
@@ -276,7 +296,7 @@ describe('App', () => {
       await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
       await userEvent.click(screen.getByRole('button', { name: /join table/i }));
       act(() => {
-        handlers.get('state')?.(makeAppState(makeHoldemPreflopState()));
+        handlers.get('state')?.(makeAppState(makeHoldemPreflopState(), { mySeatIndex: 0 }));
       });
       await userEvent.click(await screen.findByRole('button', { name: '3D view' }));
       expect(await screen.findByTestId('poker3d')).toBeInTheDocument();
@@ -294,7 +314,9 @@ describe('App', () => {
     await userEvent.click(screen.getByRole('button', { name: /join table/i }));
     act(() => {
       handlers.get('state')?.(
-        makeAppState(makeWaitingState({ handStartError: 'The hand could not start: bad blinds' }))
+        makeAppState(makeWaitingState({ handStartError: 'The hand could not start: bad blinds' }), {
+          mySeatIndex: 0,
+        })
       );
     });
     expect(await screen.findByText('The hand could not start: bad blinds')).toBeInTheDocument();
@@ -312,7 +334,7 @@ describe('App', () => {
       await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
       await userEvent.click(screen.getByRole('button', { name: /join table/i }));
       act(() => {
-        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq })));
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq }), { mySeatIndex: 0 }));
       });
       return screen.findByRole('button', { name: 'Hit' });
     }
@@ -331,7 +353,7 @@ describe('App', () => {
       const hit = await seatAtBlackjack(3);
       await userEvent.click(hit);
       act(() => {
-        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 4 })));
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 4 }), { mySeatIndex: 0 }));
       });
       await userEvent.click(screen.getByRole('button', { name: 'Hit' }));
       expect(actionEvents()).toHaveLength(1);
@@ -348,7 +370,7 @@ describe('App', () => {
       await userEvent.click(hit);
       expect(hit).toBeDisabled();
       act(() => {
-        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 4 })));
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 4 }), { mySeatIndex: 0 }));
       });
       await waitFor(() => expect(screen.getByRole('button', { name: 'Hit' })).toBeEnabled(), {
         timeout: MIN_ACTION_LOCKOUT_MS + 500,
@@ -360,7 +382,7 @@ describe('App', () => {
       const hit = await seatAtBlackjack(3);
       await userEvent.click(hit);
       act(() => {
-        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 3 })));
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 3 }), { mySeatIndex: 0 }));
       });
       expect(screen.getByRole('button', { name: 'Hit' })).toBeDisabled();
     });
@@ -372,7 +394,7 @@ describe('App', () => {
       await userEvent.click(hit);
       act(() => {
         handlers.get('disconnect')?.('transport close');
-        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 3 })));
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 3 }), { mySeatIndex: 0 }));
       });
       expect(screen.getByRole('button', { name: 'Hit' })).toBeEnabled();
     });

@@ -1441,7 +1441,7 @@ export function forgetLastName(): void; // keeps every token
 - `ADMIN_TOKEN_STORAGE_KEY = 'poker-blackjack:adminToken'` (exported from SocketContext.tsx).
 - `TableView` prop `displayName` is replaced by `mySeatIndex: number | null`.
 
-- [ ] **Step 1: Failing storage tests** — `identityStorage.test.ts`
+- [x] **Step 1: Failing storage tests** — `identityStorage.test.ts`
 
 ```ts
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -1485,7 +1485,7 @@ describe('identityStorage', () => {
 
 Run: `npx vitest run src/socket/identityStorage.test.ts --root packages/frontend` → FAIL.
 
-- [ ] **Step 2: Implement** — `identityStorage.ts`
+- [x] **Step 2: Implement** — `identityStorage.ts`
 
 ```ts
 import { nameKey } from '@poker-blackjack/server/src/names';
@@ -1550,10 +1550,10 @@ export function forgetLastName(): void {
 Run → PASS. (If `Object.hasOwn` fails typecheck because of the frontend `lib` setting, use
 `Object.prototype.hasOwnProperty.call(tokens, key)`.)
 
-- [ ] **Step 3: Fixtures** — `tableStateFixtures.ts`: add `mySeatIndex: null,` to the objects built by
+- [x] **Step 3: Fixtures** — `tableStateFixtures.ts`: add `mySeatIndex: null,` to the objects built by
 `makeAppState` and `makeLobbyState`, before `...overrides`.
 
-- [ ] **Step 4: Failing SocketContext tests**
+- [x] **Step 4: Failing SocketContext tests**
 
 In `SocketContext.test.tsx`:
 - import `{ io } from 'socket.io-client'`, `IDENTITY_STORAGE_KEY` and `ADMIN_TOKEN_STORAGE_KEY`; drop `DISPLAY_NAME_STORAGE_KEY`.
@@ -1688,7 +1688,7 @@ Do not change what they assert otherwise.
 
 Run: `npx vitest run src/socket/SocketContext.test.tsx --root packages/frontend` → new tests FAIL.
 
-- [ ] **Step 5: Implement in `SocketContext.tsx`**
+- [x] **Step 5: Implement in `SocketContext.tsx`**
 
 1. Imports: `IdentityPayload`, `AdminNoticePayload` types from protocol; `{ forgetLastName, readLastName, rememberIdentity, tokenFor } from './identityStorage'`.
    Replace `DISPLAY_NAME_STORAGE_KEY` with `export const ADMIN_TOKEN_STORAGE_KEY = 'poker-blackjack:adminToken';`.
@@ -1841,7 +1841,7 @@ Run: `npx vitest run src/socket/SocketContext.test.tsx --root packages/frontend`
    `setAdminActionErrorMessage(null)`. Add `adminNoticeMessage`, `adminReleaseName`, `takeOver` to
    `SocketContextValue` (with a doc comment each) and to `value`.
 
-- [ ] **Step 6: Failing App test, then App.tsx**
+- [x] **Step 6: Failing App test, then App.tsx**
 
 In `App.test.tsx` (it renders the real `App` over the file's fake socket; add `localStorage.clear();`
 to its `beforeEach`, and give every test state that should seat us `{ mySeatIndex: 0 }`):
@@ -1881,14 +1881,14 @@ Run → FAIL. Then in `App.tsx`:
   }
 ```
 
-- [ ] **Step 7: Fix the other `SocketContextValue` fakes**
+- [x] **Step 7: Fix the other `SocketContextValue` fakes**
 
 Run: `npm run typecheck --workspace=@poker-blackjack/frontend`. Each `makeSocketValue` (AdminPanel.test,
 and any others) gains `adminNoticeMessage: null, adminReleaseName: vi.fn(), takeOver: vi.fn(),`.
 Any test that rendered `TableView`/`GameTable` with a `displayName` to pick the player's seat now
 passes `mySeatIndex` instead.
 
-- [ ] **Step 8: Run everything**
+- [x] **Step 8: Run everything**
 
 Run: `npm test`, `npm run typecheck`, `npm run build --workspace=@poker-blackjack/frontend`
 Expected: PASS. The frontend integration tests (`src/integration/*.integration.test.tsx`) run the
@@ -1896,7 +1896,7 @@ real server, so they also cover the token round trip end to end; they must pass 
 Guard check: in the `state` handler, temporarily put back a name match for `mySeated` and confirm
 "is not at the table just because a connected seat has our name" fails; restore.
 
-- [ ] **Step 9: Commit (after the user says yes)**
+- [x] **Step 9: Commit (after the user says yes)**
 
 ```bash
 git add packages/frontend/src

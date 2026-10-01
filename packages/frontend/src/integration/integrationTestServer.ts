@@ -10,6 +10,7 @@ import { JsonlHandLog } from '@poker-blackjack/server/src/handLog';
 import { JsonGameConfigStore, type GameConfigValues } from '@poker-blackjack/server/src/gameConfigStore';
 import type { TableConfig, AppStateView } from '@poker-blackjack/server/src/table';
 import type AppComponent from '../App';
+import { IDENTITY_STORAGE_KEY } from '../socket/identityStorage';
 
 // Matches packages/server/src/testHelpers.ts's ADMIN_PASSPHRASE -- the two
 // can't share an import (that file is test-only code in a different
@@ -64,11 +65,15 @@ export function setupIntegrationServer(
   beforeEach(async () => {
     ctx.bobSocket = null;
     // A prior test in this same file may have joined successfully and left
-    // its display name in sessionStorage (SocketContext.tsx writes it on
-    // every 'state' event). SocketProvider's mount effect reads that key and
-    // auto-connect()s with it -- without clearing it here, a second test's
-    // fresh <App /> render would silently skip the entering-name/JoinScreen
-    // step and resume the previous test's identity instead.
+    // its identity (last name and reconnect token) in localStorage
+    // (identityStorage.ts, written when the server's 'identity' event
+    // arrives). SocketProvider's mount effect reads the last name and
+    // auto-joins with it -- without clearing it here, a second test's fresh
+    // <App /> render would silently skip the entering-name/JoinScreen step
+    // and resume the previous test's identity instead. Only that key is
+    // removed: vitest.setup.ts has just set 'table.view' for this test. The
+    // admin token (audit M11) lives in sessionStorage.
+    localStorage.removeItem(IDENTITY_STORAGE_KEY);
     sessionStorage.clear();
 
     // Alice's socket receives real, independent server broadcasts (her own
