@@ -48,10 +48,32 @@ Decisions worth knowing:
   - MIN-5 (**fixed**): the two missing tests are added; each was checked to fail with the code it
     guards removed.
 
-**Next step:** build §8 item 5, **identity and exposure (C5, I7, I9, M8, M11)**, from the
-approved plan `docs/superpowers/plans/2026-10-01-identity-and-exposure.md` (9 tasks), using
-`superpowers:subagent-driven-development` (the user chose this on 2026-10-01). No task is started
-yet; the plan's checkboxes are the progress ledger, so tick them (and commit) as each task lands.
+**Next step:** continue §8 item 5, **identity and exposure (C5, I7, I9, M8, M11)**, at **Task 4**
+of the approved plan `docs/superpowers/plans/2026-10-01-identity-and-exposure.md` (9 tasks), using
+`superpowers:subagent-driven-development` (the user chose this on 2026-10-01). The plan's
+checkboxes are the progress ledger; tick them as each task lands and commit them with the task.
+
+Item 5 progress (2026-10-01 session):
+- Done: Task 1 `d441e73` (M8 names), Task 2 `4d7e0a0` (v2 balances file + tokens), Task 3
+  `9b5ed95` (token-checked join, `mySeatIndex`, takeover, admin release). 252 server tests green;
+  the frontend typecheck fails only on fixtures missing `mySeatIndex` until Task 6.
+- How this session ran the loop (keep it): implementers are told **not** to `git add`/commit; the
+  controller builds the review package from the working tree with
+  `bash .superpowers/sdd/wt-package.sh .superpowers/sdd/item5-review-task-N.diff` (marks new
+  files intent-to-add), reviews, then **asks the user before each commit** and commits code plus
+  the ticked plan together. Task briefs are pre-extracted at `.superpowers/sdd/item5-task-N-brief.md`,
+  reports go to `item5-task-N-report.md`, the reviewers' constraints block is
+  `.superpowers/sdd/item5-global-constraints.md`. Per-task results and every Minor finding for the
+  final review are in `.superpowers/sdd/progress.md` under "Item 5" (git-ignored).
+- **For Task 6 (frontend), tell the implementer:** the joining socket receives transient `state`
+  frames with `mySeatIndex: null` while its name is already in the seats (`Table.join` and
+  `reconnect` broadcast before the socket is mapped, and on a fresh join the right frame only comes
+  after the `issueToken` disk write). The client must not treat that as rejected or kicked.
+- Gotcha: tool inputs decode `\uXXXX` sequences into the real characters, so an agent cannot type a
+  literal escape with Edit/Bash. Build the backslash with `String.fromCharCode(92)` in a script and
+  check bytes with `od -c`, not by reading the file back.
+- User decision: the changed assertion in `integration.test.ts` "rejects a duplicate display name"
+  (now `code: 'name-claimed'`) is approved.
 
 - **Design decisions are locked** in the plan's "Global Constraints" (user answers, 2026-10-01):
   tokens in localStorage as a name→token map; a tokenless name is claimed by the first join;
