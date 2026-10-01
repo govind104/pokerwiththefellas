@@ -132,6 +132,7 @@ hand) or shown by unambiguous quoted code. INFERRED means reasoned from the code
 - **Status:** VERIFIED. Audit C `probe.cjs` T1: "mallory" typed `alice` mid-hand, saw alice's hole cards
   (`10♠ 4♦`) and balance, and acted for her. Live: the orchestrator freed six ghost seats by joining as those names
   and emitting `leave`. A connected seat cannot be taken (eve's `ann` attempt was rejected with "already seated").
+  FIXED on audit/2026-10-01-full-audit (item 5); browser pass and Tailscale Serve check pending.
 - **Scenario:** Alice's wifi drops mid-hand. Anyone sends `join {displayName:"alice"}` and gets her seat, cards and
   chips; Alice's own reconnect then fails with "already seated". After a restart, every seat can be claimed this way.
   Different spellings ("Bob" and "bob", a name with a zero-width space) are also separate accounts with fresh
@@ -240,6 +241,7 @@ hand) or shown by unambiguous quoted code. INFERRED means reasoned from the code
 - **Status:** VERIFIED (audit C): `netstat` shows `0.0.0.0:3251` and `[::]:3251`; a handshake with
   `Origin: evil.example` gets `ACAO: *`; 5000 wrong passphrases are answered in 198 ms with no lockout. Whether the
   Windows firewall or Tailscale ACLs on a real host block LAN access is INFERRED.
+  FIXED on audit/2026-10-01-full-audit (item 5); browser pass and Tailscale Serve check pending.
 - **Impact:** HOSTING tells the host to allow node.exe for Private networks, so the whole home LAN can reach the
   server and its plaintext admin login. Combined with C5, someone outside the friend group can rewrite balances or
   take seats. HOSTING also says to "share" the passphrase "with the group", which gives everyone admin.
@@ -267,6 +269,7 @@ hand) or shown by unambiguous quoted code. INFERRED means reasoned from the code
   connected seat. Eve's client then showed ann's panel as her own, had no join form, and a reload retried as ann; only
   clearing sessionStorage by hand got her out. Audit D's half-open reconnect repro (`status at-table error "alice" is
   already seated`) has the same root cause, and so does a duplicated tab.
+  FIXED on audit/2026-10-01-full-audit (item 5); browser pass and Tailscale Serve check pending.
 - **Impact:** a new player who picks a taken name is stuck out of the join form. A reconnecting player can sit on a
   socket the server never mapped (every action gets "Not seated"; no hole cards) until the ping timeout of about 45 s.
 - **Suggested fix:** have the server include `mySeatIndex` in each per-socket state and use that instead of a name
@@ -354,10 +357,10 @@ hand) or shown by unambiguous quoted code. INFERRED means reasoned from the code
 | M5 | The button advances even when `startHand` fails | `table.ts:372` | VERIFIED (quoted code) | Audit B. |
 | M6 | No dead-button or new-player-must-post rule | `table.ts:349-359` | VERIFIED (quoted code) | Audit B; acceptable for a casual table. |
 | M7 | The uncalled-bet refund appears as a separate one-player "pot"; `peek` pot includes it | engine `pots` | VERIFIED (gus H3: 2297.5 vs 1845) | Audit B, gus; cosmetic. |
-| M8 | Names are not normalised (case, zero-width, bidi, control characters); markup-like names accepted; no `maxLength` on the input | `socketServer.ts:52-54` | VERIFIED (audit C probe T2; eve) | Escaping is safe (no XSS found in 2D, 3D or sr text). Feeds C5. |
+| M8 | Names are not normalised (case, zero-width, bidi, control characters); markup-like names accepted; no `maxLength` on the input | `socketServer.ts:52-54` | VERIFIED (audit C probe T2; eve). FIXED on audit/2026-10-01-full-audit (item 5); browser pass and Tailscale Serve check pending | Escaping is safe (no XSS found in 2D, 3D or sr text). Feeds C5. |
 | M9 | Raw internal error text reaches clients: absolute paths in EBUSY errors; `Cannot read properties of null` for a null action payload | `socketServer.ts:242, 266-268` | VERIFIED (audit C; script S6) | Audit C, script B6. |
 | M10 | Balances from a hand-edited `balances.json` are not type-checked; NaN is written as `null` and resets to the default | `playerStore.ts:106` | VERIFIED (audit C) | Audit C. |
-| M11 | Admin rights are lost silently on every transport reconnect | `socketServer.ts:446` | VERIFIED (quoted code) | Audits C and D; ivy saw admin persist across Leave/Join on the same socket. |
+| M11 | Admin rights are lost silently on every transport reconnect | `socketServer.ts:446` | VERIFIED (quoted code). FIXED on audit/2026-10-01-full-audit (item 5); browser pass and Tailscale Serve check pending | Audits C and D; ivy saw admin persist across Leave/Join on the same socket. |
 | M12 | After settlement, a folded player's cards are visible to anyone who later sits down under that name | `table.ts:852` | INFERRED | Audit C. |
 | M13 | No security headers; no per-socket event or connection rate limit (5000 events in 200 ms all processed) | static serving, `socketServer.ts` | VERIFIED (audit C) | Audit C; low risk. |
 | M14 | Join-form errors are wiped by any broadcast, contradicting the comment at `:279-281` | `SocketContext.tsx:117` | VERIFIED (quoted lines) | Audit D. |

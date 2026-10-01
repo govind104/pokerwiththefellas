@@ -9,6 +9,7 @@ skill-observations/
 # `npm run dev/start --workspace=...`, or wherever the PLAYER_STORE_PATH / GAME_CONFIG_PATH /
 # HAND_LOG_PATH overrides point. The `.tmp` files are the atomic-write scratch copies.
 balances.json
+balances.json.*
 game-config.json
 hand.jsonl
 *.json.tmp

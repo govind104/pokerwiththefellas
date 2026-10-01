@@ -2000,7 +2000,7 @@ git commit -m "feat(frontend): admin can release a name for a player who lost th
 
 No code tests; the checks are the steps below.
 
-- [ ] **Step 1: Bots keep their token** — `bots.cjs`, replace line ~31:
+- [x] **Step 1: Bots keep their token** — `bots.cjs`, replace line ~31:
 
 ```js
   // The server now ties a name to a token (audit C5): keep the one it sends, so a bot that
@@ -2014,10 +2014,10 @@ No code tests; the checks are the steps below.
 
 Bots connect to `http://127.0.0.1:<port>`, which still works with the new default `HOST`.
 
-- [ ] **Step 2: `.gitignore`** — under `balances.json`, add `balances.json.*` (covers
+- [x] **Step 2: `.gitignore`** — under `balances.json`, add `balances.json.*` (covers
 `.v1-backup`, `.tmp` and `.corrupt-<ts>`, audit §7).
 
-- [ ] **Step 3: `docs/HOSTING.md`** — change these parts (keep the rest):
+- [x] **Step 3: `docs/HOSTING.md`** — change these parts (keep the rest):
 - **One-time setup (host), step 3:** set `ADMIN_PASSPHRASE` to at least 8 characters, keep it to
   yourself (or whoever runs the game); it can change balances and release names. Do not share it with
   the group. The server refuses `change-me`.
@@ -2047,10 +2047,10 @@ Bots connect to `http://127.0.0.1:<port>`, which still works with the new defaul
 - Also update the comment above `Table.reconnect` (`table.ts` ~330-338) to say the name match is
   only reached after `socketServer` has checked the token.
 
-- [ ] **Step 4: `README.md`** — `grep -n "3000\|display name\|passphrase" README.md`; update any line
+- [x] **Step 4: `README.md`** — `grep -n "3000\|display name\|passphrase" README.md`; update any line
 that gives the `http://` link or says the passphrase is shared, to match HOSTING.md.
 
-- [ ] **Step 5: Audit report and HANDOFF**
+- [x] **Step 5: Audit report and HANDOFF**
 - In the audit report §3, add to the **Status** line of C5, I7 and I9, and to the M8 and M11 table
   rows: `FIXED on audit/2026-10-01-full-audit (item 5); browser pass and Tailscale Serve check pending`.
 - `HANDOFF.md`: add a row to the "Done" table for this work (commits, findings, a one-paragraph
@@ -2058,7 +2058,7 @@ that gives the `http://` link or says the passphrase is shared, to match HOSTING
   "Decisions worth knowing", and set **Next step** to: browser pass over items 1-5 (delegated), the
   live Tailscale Serve check (Host/X-Forwarded-Host or `ALLOWED_ORIGINS`), then §8 item 6.
 
-- [ ] **Step 6: Commit (after the user says yes)**
+- [x] **Step 6: Commit (after the user says yes)**
 
 ```bash
 git add docs/HOSTING.md README.md .gitignore scripts/playtest/bots.cjs HANDOFF.md docs/superpowers/playtests/2026-10-01-full-audit-and-playtest.md packages/server/src/table.ts

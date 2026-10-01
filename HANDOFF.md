@@ -13,7 +13,7 @@ which docs are kept current and which are historical records.
 `.playtest-data/audit/` (git-ignored, not recoverable: never run `rm -rf .playtest-data`, which
 `scripts/playtest/README.md:15` still says to do).
 
-Done (each test-first; 530 tests green, `npm run typecheck` clean after the I4/I5/M5 commit):
+Done (each test-first; 530 tests green after the I4/I5/M5 commit, 620 after item 5 Task 7: frontend 211, game-engine 133, server 276; `npm run typecheck` clean):
 
 | Commit | Findings | What changed |
 |---|---|---|
@@ -23,6 +23,7 @@ Done (each test-first; 530 tests green, `npm run typecheck` clean after the I4/I
 | (C4 commit) | C4 | `adminHandler()` wraps every async admin handler in `socketServer.ts`: a rejection (e.g. EBUSY on a locked config file) becomes `rejectAdmin(message)` plus a server log. `processSafetyNet.ts` logs any other unhandled rejection and keeps the server running (called first in `index.ts`). EPERM/EBUSY `rename` retry not done |
 | (IMP-1 commit) | I1 (review IMP-1, MIN-5) | `SocketContext` keeps `actionPending` true for at least `MIN_ACTION_LOCKOUT_MS` (600 ms) after a click, as well as until a new `actionSeq` arrives, so a double-click whose second click lands after the server reply is still one action. Tests added for a hand start queued on the lock before `retire()` and for the `adminSwitchMode` hand-in-progress re-check |
 | (I4/I5/M5 commit) | I4, I5, M5 | `adminSetBlinds` rejects non-whole blinds and small > big. `JsonGameConfigStore` drops a non-whole stored blind and returns the default blinds if the stored pair is small > big (checked only on returned values, so blinds can still be set one at a time). New `envConfig.ts` reads PORT, RECONNECT_GRACE_MS and the four config defaults strictly; `index.ts` refuses to start on a bad one. `updateConfig` and `adminSetBalance` re-run the ready check. A failed `startHand` restores the dealer button, sets `handStartError` in the table view (cleared when a hand starts) and broadcasts; the frontend shows it in the existing table error slot. AdminPanel has no client-side check for small > big; the server's admin error is shown instead |
+| `d441e73`, `4d7e0a0`, `9b5ed95`, `26722a7`, `2ce54f2`, `3743b85`, `ab7c244`, Task 8 docs commit | C5, I7, I9, M8, M11 (item 5) | **A name now belongs to one browser.** Names are normalised (`names.ts`: case-insensitive, at most 32 characters, invisible characters removed). `balances.json` is a v2 file (old one copied to `balances.json.v1-backup`): per name a balance plus `sha256(token)`. The first join under a tokenless name is issued a 32-byte token (`identity` event); the client keeps it in localStorage (`poker-blackjack:identity`) and sends it with every `join`. `playerStore.checkToken` runs before any seating, so a wrong token gets `code: 'name-claimed'`. The server sends `mySeatIndex` in each socket's state and the client trusts it instead of matching names (I9). A join with the right token takes over a seat still held by another socket (old one gets `code: 'replaced'` and shows "Play here instead"). The admin's **Release a name** forgets the token and keeps the balance. Admin login: 5 wrong passphrases → 60 s lockout per address; the admin session token is memory-only on the server and in sessionStorage (`poker-blackjack:adminToken`), so admin rights survive a reconnect (M11). The server binds `HOST` (default `127.0.0.1`), checks `Origin` against Host / X-Forwarded-Host / `ALLOWED_ORIGINS` (a missing Origin is allowed), and refuses a passphrase that is unset, `change-me` or under 8 characters (I7). `docs/HOSTING.md` now documents Tailscale Serve; the playtest bots keep their token |
 
 Decisions worth knowing:
 - `recoverFromLog` still **voids** (does not pay) a hand that replays to `settled`. After the C1
@@ -34,6 +35,16 @@ Decisions worth knowing:
 - `seq` is optional on `action`: the playtest bots don't send it and are still accepted.
 - An unhandled rejection is now logged and the server keeps running, rather than exiting. The
   table could be left half-updated, but that beats dropping every player.
+- Item 5, decided with the user (2026-10-01; full list in the plan's "Global Constraints"): tokens
+  in localStorage as a name→token map; a name with a balance but no token (every existing player
+  on first run, any name after an admin release) is claimed by the first join; tokens never
+  expire; a valid token takes over a seat still held by another socket; `HOST` defaults to
+  `127.0.0.1` behind Tailscale Serve.
+- Item 5, chosen without the user (they may override): admin token in sessionStorage and memory-only
+  server side (a restart logs every admin out); 5 wrong passphrases → 60 s lockout; passphrase at
+  least 8 characters; names at most 32 characters and case-insensitive, a v1 case collision keeps
+  the larger balance; a missing Origin is allowed; markup-like names still accepted (escaping was
+  verified safe).
 - None of the fixes so far have been tried in the browser.
 - One Opus review of `8d7eacd` ran (findings: `.playtest-data/audit/review-8d7eacd.md`). It found
   no deadlock path and no wrongly-stale action, but:
@@ -48,58 +59,37 @@ Decisions worth knowing:
   - MIN-5 (**fixed**): the two missing tests are added; each was checked to fail with the code it
     guards removed.
 
-**Next step:** continue §8 item 5, **identity and exposure (C5, I7, I9, M8, M11)**, at **Task 4**
-of the approved plan `docs/superpowers/plans/2026-10-01-identity-and-exposure.md` (9 tasks), using
-`superpowers:subagent-driven-development` (the user chose this on 2026-10-01). The plan's
-checkboxes are the progress ledger; tick them as each task lands and commit them with the task.
+**Next step:** item 5 (§8, identity and exposure) has all code committed (Tasks 1-7); Task 8 is the
+docs commit. Remaining, in order, from the plan `docs/superpowers/plans/2026-10-01-identity-and-exposure.md`
+(use `superpowers:subagent-driven-development`):
+1. **Task 9, final verification:** `npm test`, `npm run typecheck`, build, `git status`. Then the final
+   whole-branch **Opus** review of item 5, giving the reviewer the Minor findings list in
+   `.superpowers/sdd/progress.md` under "Item 5". Two were explicitly deferred to that review by the
+   user: the DNS-rebinding gap in the Host-matching Origin check, and that any error during an
+   in-flight join is treated as a rejected join (`SocketContext.tsx`).
+2. **The delegated browser pass over items 1-5** (Task 9 step 5): a subagent drives the browser and
+   writes findings to a file; never drive the browser from the main thread.
+3. **The user's live Tailscale Serve check** (Task 9 step 6) on the real host: whether Serve's
+   Host / X-Forwarded-Host pass the Origin check, else set `ALLOWED_ORIGINS`; record which header Serve sends here. The `tailscale serve`
+   commands and the "share the machine rather than invite" advice in `docs/HOSTING.md` are untested
+   until then.
+Then §8 item 6.
 
-Item 5 progress (2026-10-01 session):
-- Done: Task 1 `d441e73` (M8 names), Task 2 `4d7e0a0` (v2 balances file + tokens), Task 3
-  `9b5ed95` (token-checked join, `mySeatIndex`, takeover, admin release). 252 server tests green;
-  the frontend typecheck fails only on fixtures missing `mySeatIndex` until Task 6.
-- How this session ran the loop (keep it): implementers are told **not** to `git add`/commit; the
-  controller builds the review package from the working tree with
+- How this session ran the loop (keep it, it applies to Task 9): implementers are told **not** to
+  `git add`/commit; the controller builds the review package from the working tree with
   `bash .superpowers/sdd/wt-package.sh .superpowers/sdd/item5-review-task-N.diff` (marks new
   files intent-to-add), reviews, then **asks the user before each commit** and commits code plus
   the ticked plan together. Task briefs are pre-extracted at `.superpowers/sdd/item5-task-N-brief.md`,
   reports go to `item5-task-N-report.md`, the reviewers' constraints block is
   `.superpowers/sdd/item5-global-constraints.md`. Per-task results and every Minor finding for the
   final review are in `.superpowers/sdd/progress.md` under "Item 5" (git-ignored).
-- **For Task 6 (frontend), tell the implementer:** the joining socket receives transient `state`
-  frames with `mySeatIndex: null` while its name is already in the seats (`Table.join` and
-  `reconnect` broadcast before the socket is mapped, and on a fresh join the right frame only comes
-  after the `issueToken` disk write). The client must not treat that as rejected or kicked.
-- Gotcha: tool inputs decode `\uXXXX` sequences into the real characters, so an agent cannot type a
-  literal escape with Edit/Bash. Build the backslash with `String.fromCharCode(92)` in a script and
-  check bytes with `od -c`, not by reading the file back.
-- User decision: the changed assertion in `integration.test.ts` "rejects a duplicate display name"
-  (now `code: 'name-claimed'`) is approved.
+- Models: Opus for the final whole-branch review; Sonnet elsewhere, escalating to Opus at a 2nd review
+  round. Always set the model explicitly. Tell reviewers "no findings" is a valid result.
+- Gotcha: tool inputs decode `\uXXXX` sequences into the real characters, so an agent cannot type
+  a literal escape with Edit/Bash. Build the backslash with `String.fromCharCode(92)` in a script
+  and check bytes with `od -c`, not by reading the file back.
 
-- **Design decisions are locked** in the plan's "Global Constraints" (user answers, 2026-10-01):
-  tokens in localStorage as a name→token map; a tokenless name is claimed by the first join;
-  tokens never expire (admin "Release name" removes the token, keeps the balance); a valid token
-  takes over a seat still held by another socket (old tab gets `code: 'replaced'` and never
-  auto-rejoins); `HOST` defaults to `127.0.0.1` behind Tailscale Serve. Choices made without the
-  user (they may still override): admin token in sessionStorage, memory-only server side; 5 wrong
-  passphrases → 60 s lockout; passphrase ≥ 8 chars; names ≤ 32 chars, case-insensitive, a v1 case
-  collision keeps the larger balance (backup in `balances.json.v1-backup`); a missing Origin is
-  allowed; markup-like names still accepted.
-- **Models:** Sonnet implementers for tasks 1, 2, 4, 5, 7, 8; Sonnet implementer + Opus reviewer
-  for tasks 3 and 6 (token handling, the riskiest); Sonnet reviewers elsewhere; escalate to Opus at
-  a 2nd review round; Opus for the final whole-branch review. Always set the model explicitly. Tell
-  reviewers "no findings" is a valid result.
-- **Budget:** the biggest item so far, likely most of one 5-hour window. Run subagents one at a
-  time and tick the plan after each task so a quota cut-off loses nothing; split into a second
-  session after task 5 if context passes ~150k.
-- **Unverified, checked in the plan:** that the frontend can bundle `packages/server/src/names.ts`
-  (Task 1 step 7 has a fallback to game-engine); whether Tailscale Serve's Host / X-Forwarded-Host
-  pass the Origin check (Task 9 step 6 is a manual check for the user on the real host;
-  `ALLOWED_ORIGINS` is the fallback).
-- Each task is test-first. A coverage test for code that already works passes at once, so check
-  it by temporarily removing the guarded code and watching it fail.
-
-Still open after item 5: MIN-1 to MIN-4 above; a browser pass over all fixes (Task 9 step 5 covers
-it, delegated to a subagent). Ask before committing; don't push or merge without asking.
+Still open after item 5: MIN-1 to MIN-4 above. Ask before committing; don't push or merge without asking.
 
 ## Where things stand
 
@@ -375,7 +365,7 @@ Per-workspace: `npm run test --workspace=@poker-blackjack/game-engine` /
    `packages/server/.env.example`, which lists every variable).
 2. Start the backend: `npm run dev --workspace=@poker-blackjack/server` (port 3000 by
    default). `packages/server/src/index.ts` is the authority on the env vars it reads:
-   `PORT`, `ADMIN_PASSPHRASE`, `SMALL_BLIND`/`BIG_BLIND`/`BLACKJACK_DEFAULT_BET`/
+   `PORT`, `HOST` (default `127.0.0.1`), `ALLOWED_ORIGINS`, `ADMIN_PASSPHRASE` (at least 8 characters, not `change-me`), `SMALL_BLIND`/`BIG_BLIND`/`BLACKJACK_DEFAULT_BET`/
    `DEFAULT_STARTING_BALANCE` (one-time defaults until an admin change writes
    `game-config.json`), `RECONNECT_GRACE_MS`, `STATIC_DIR`, and the
    `PLAYER_STORE_PATH`/`GAME_CONFIG_PATH`/`HAND_LOG_PATH` overrides for where its

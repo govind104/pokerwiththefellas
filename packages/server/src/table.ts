@@ -340,6 +340,9 @@ export class Table {
   // controls the one-shot auto-fold/auto-stand in onGraceWindowElapsed
   // below; it is not a seat-eviction timer. See docs/HOSTING.md's
   // troubleshooting section for the player-facing version of this.
+  // This matches by name only: socketServer has already checked the player's
+  // token (playerStore.checkToken) before it calls here, so only the browser
+  // that owns the name reaches this match (audit C5).
   reconnect(displayName: string): number | null {
     const seat = this.seats.find((s) => s !== null && sameName(s.displayName, displayName) && !s.connected);
     if (!seat) {
