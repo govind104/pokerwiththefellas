@@ -51,7 +51,11 @@ Decisions worth knowing:
 **Next step:** §8 item 5, **identity and exposure (C5, I7, I9, M8, M11)**: per-player reconnect
 token, server-sent `mySeatIndex`, name normalisation, `HOST` binding, CORS and Origin check, admin
 rate limit, refuse `change-me`; then update HOSTING.md. This is the biggest item so far: plan it
-before coding. MIN-1 to MIN-4 above are still open. A browser pass over all the fixes is still owed. Ask before committing; don't push
+before coding. Read those five findings in §3 of the audit report, then write a plan with
+`superpowers:writing-plans` to `docs/superpowers/plans/` and get the user's approval. The token
+design (where it is stored client-side, what happens to an existing seat with no token, expiry) is
+a decision for the user. Then build each task test-first. A coverage test for code that already
+works passes at once, so check it by temporarily removing the guarded code and watching it fail. MIN-1 to MIN-4 above are still open. A browser pass over all the fixes is still owed. Ask before committing; don't push
 or merge without asking.
 
 ## Where things stand
