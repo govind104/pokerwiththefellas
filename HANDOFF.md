@@ -53,8 +53,8 @@ Decisions worth knowing:
     worst the join screen flashes and recovers. Real fix: the server tags join errors
     `scope: 'join'`.
   - Admin **Release a name** does not unseat a holder who is still connected; a new join under
-    that name gets "already seated" until the old tab closes. Intended, but not yet stated in
-    `docs/HOSTING.md`.
+    that name gets "already seated" until the old tab closes. Intended, and stated in
+    `docs/HOSTING.md` ("Names and balances").
   - The other deferred item-5 Minors (each with a reason) are in the triage table of
     `.superpowers/sdd/item5-final-review.md` (git-ignored). The ones worth a later look:
     `loginLimiter` and `adminTokens` are never pruned (a restart clears both); malformed v2

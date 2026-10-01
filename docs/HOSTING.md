@@ -102,7 +102,9 @@ A name belongs to the browser that first sat down under it. The same
 browser gets back in automatically (it keeps a token for that name); another
 browser or device can't use the name. A player who clears their browser data
 or changes device asks the admin to use **Release a name** in the admin
-panel (their balance is kept) and then joins again. Names ignore capitals
+panel (their balance is kept) and then joins again. Releasing a name doesn't
+unseat a player who is still connected under it: a new join gets "already
+seated" until the old tab or device is closed. Names ignore capitals
 ("Bob" and "bob" are one player). If the same player opens a second tab or
 device, the newest one takes the seat over and the older one is told, with a
 **Play here instead** button if they want it back.
