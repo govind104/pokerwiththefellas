@@ -2069,11 +2069,11 @@ git commit -m "docs: hosting behind Tailscale Serve, name ownership, admin passp
 
 ### Task 9: Final verification
 
-- [ ] **Step 1:** `npm test` — all green; record the test count (530 before this plan).
-- [ ] **Step 2:** `npm run typecheck` — clean.
-- [ ] **Step 3:** `npm run build --workspace=@poker-blackjack/frontend` — succeeds.
-- [ ] **Step 4:** `git status` — nothing unexpected (no `balances.json*`, no `.env`).
-- [ ] **Step 5 (delegated, not in the main thread):** a browser pass by a subagent against
+- [x] **Step 1:** `npm test` — all green; record the test count (530 before this plan).
+- [x] **Step 2:** `npm run typecheck` — clean.
+- [x] **Step 3:** `npm run build --workspace=@poker-blackjack/frontend` — succeeds.
+- [x] **Step 4:** `git status` — nothing unexpected (no `balances.json*`, no `.env`).
+- [x] **Step 5 (delegated, not in the main thread):** a browser pass by a subagent against
   `npm run play` (started through `preview_start` with a `.claude/launch.json` entry), writing findings
   to `.playtest-data/audit/browser-pass-item5.md`: join, reload (same seat), second tab (takeover
   screen, "Play here instead"), different name in a private window under a claimed name (refused,

@@ -173,6 +173,20 @@ describe('JsonPlayerStore', () => {
       expect(JSON.parse(await readFile(`${filePath}.v1-backup`, 'utf-8'))).toEqual({ Bob: 700, alice: 900 });
     });
 
+    it('folds a v1 name with repeated spaces or invisible characters onto the name a join will look up', async () => {
+      const zeroWidth = String.fromCharCode(0x200b);
+      await writeFile(filePath, JSON.stringify({ 'Bob  Smith': 700, [`al${zeroWidth}ice`]: 900 }), 'utf-8');
+      const store = new JsonPlayerStore(filePath, 1000);
+      // Joins look names up already normalised, so this is the key every later join uses.
+      await expect(store.getBalance('bob smith')).resolves.toBe(700);
+      await expect(store.getBalance('alice')).resolves.toBe(900);
+      await store.setBalance('alice', 950);
+      expect(JSON.parse(await readFile(filePath, 'utf-8'))).toEqual({
+        'bob smith': { name: 'Bob Smith', balance: 700 },
+        alice: { name: 'alice', balance: 950 },
+      });
+    });
+
     it('keeps the larger balance when two v1 names differ only in case', async () => {
       await writeFile(filePath, JSON.stringify({ Bob: 700, bob: 900 }), 'utf-8');
       // Expected: the store logs which entry it kept.

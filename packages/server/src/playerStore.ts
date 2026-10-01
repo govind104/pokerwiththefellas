@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { constants } from 'node:fs';
 import { readFile, writeFile, rename, copyFile } from 'node:fs/promises';
-import { nameKey } from './names';
+import { nameKey, normaliseDisplayName } from './names';
 
 export interface PlayerStore {
   getBalance(displayName: string): Promise<number>;
@@ -128,16 +128,21 @@ export class JsonPlayerStore implements PlayerStore, IdentityStore {
     for (const [key, value] of Object.entries(parsed)) {
       if (typeof value === 'number') {
         sawV1 = true;
-        const k = nameKey(key);
+        // v1 keys were stored as typed (internal runs of spaces, zero-width or bidi characters
+        // kept), but every join now looks a name up normalised, so fold the key the same way or
+        // the balance sits under a key nothing can reach. The raw key is the fallback for one
+        // that normalises to nothing.
+        const canonical = normaliseDisplayName(key) ?? key;
+        const k = nameKey(canonical);
         const existing = data[k];
         if (existing && (existing.balance ?? 0) >= value) {
-          console.warn(`PlayerStore: "${key}" (${value}) and "${existing.name}" are now one player; keeping ${existing.balance}`);
+          console.warn(`PlayerStore: "${canonical}" (${value}) and "${existing.name}" are now one player; keeping ${existing.balance}`);
           continue;
         }
         if (existing) {
-          console.warn(`PlayerStore: "${existing.name}" (${existing.balance}) and "${key}" are now one player; keeping ${value}`);
+          console.warn(`PlayerStore: "${existing.name}" (${existing.balance}) and "${canonical}" are now one player; keeping ${value}`);
         }
-        data[k] = { name: key, balance: value };
+        data[k] = { name: canonical, balance: value };
       } else if (typeof value === 'object' && value !== null && typeof (value as PlayerRecord).name === 'string') {
         const record = value as PlayerRecord;
         data[key] = {

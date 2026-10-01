@@ -1,8 +1,19 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { IDENTITY_STORAGE_KEY, forgetLastName, readLastName, rememberIdentity, tokenFor } from './identityStorage';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  IDENTITY_STORAGE_KEY,
+  forgetLastName,
+  readLastName,
+  rememberIdentity,
+  resetIdentityMemoryForTests,
+  tokenFor,
+} from './identityStorage';
 
 describe('identityStorage', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    resetIdentityMemoryForTests();
+  });
+  afterEach(() => vi.restoreAllMocks());
 
   it('is empty at first', () => {
     expect(readLastName()).toBeNull();
@@ -33,5 +44,36 @@ describe('identityStorage', () => {
 
   it('ignores inherited keys', () => {
     expect(tokenFor('constructor')).toBeUndefined();
+  });
+
+  it('keeps the token for this tab when storage is blocked (audit C5)', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    rememberIdentity('alice', 'tok-a');
+    expect(tokenFor('alice')).toBe('tok-a');
+    expect(readLastName()).toBe('alice');
+    forgetLastName();
+    expect(readLastName()).toBeNull();
+    expect(tokenFor('alice')).toBe('tok-a');
+  });
+
+  it('keeps the token for this tab when only writes fail', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota');
+    });
+    rememberIdentity('alice', 'tok-a');
+    expect(tokenFor('alice')).toBe('tok-a');
+  });
+
+  it('finds a token under the name the server will normalise a typed name to', () => {
+    rememberIdentity('Bob Smith', 'tok-b');
+    expect(tokenFor('Bob  Smith')).toBe('tok-b');
+    expect(tokenFor(`bob${String.fromCharCode(0x200b)} smith`)).toBe('tok-b');
+    rememberIdentity('Carl  Jones', 'tok-c');
+    expect(tokenFor('carl jones')).toBe('tok-c');
   });
 });

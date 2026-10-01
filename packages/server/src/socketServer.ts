@@ -264,6 +264,11 @@ export async function createServer(
         // second tab, or a phone whose old connection has not timed out yet) moves to this one.
         const heldSeatIndex = tokenCheck === 'match' ? joinedTable.connectedSeatIndexOf(displayName) : null;
         if (heldSeatIndex !== null) {
+          // The new tab dropped during the token check: leave the old tab on its seat. Nothing
+          // awaits between here and the seat mapping below, so this check cannot go stale.
+          if (!socket.connected) {
+            return;
+          }
           for (const [otherSocketId, otherSeatIndex] of seatBySocketId) {
             if (otherSeatIndex === heldSeatIndex && otherSocketId !== socket.id) {
               seatBySocketId.delete(otherSocketId);

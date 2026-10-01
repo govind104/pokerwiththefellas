@@ -111,8 +111,9 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   // reconnect (socket.io.on('reconnect') below) can land in the same
   // window a mode-switch rejoin is already in flight. Without gating every
   // site on this flag, either source can fire a second `join` for a name we
-  // already hold: the server's duplicate-name guard (table.ts) rejects the
-  // loser of that race harmlessly, but it doesn't have to happen at all.
+  // already hold: with our token the server treats it as a no-op takeover of
+  // our own seat, without it the join is refused as a claimed name (audit
+  // C5), and neither has to happen at all.
   const joinInFlightRef = useRef(false);
   // True once any 'state' event has ever arrived, which is the signal that
   // the connection is established and healthy. Only an 'error' arriving
@@ -289,8 +290,11 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
         setAdminActionErrorMessage(payload.message);
         return;
       }
-      // Deliberately no special-casing of "already seated" here. An earlier
-      // version of this handler tried to swallow it when `status` was
+      // Deliberately no special-casing of "already seated" here (the one code
+      // handled specially, `replaced` just below, is sent by the server when
+      // another tab or device took this seat over with our token, not guessed
+      // from client state). An earlier version of this handler tried to
+      // swallow it when `status` was
       // already 'at-table', reasoning that meant our own join must have
       // already succeeded. That reasoning doesn't hold: the auto-rejoin
       // branch above never calls setStatus, so `status` sits on its *stale*

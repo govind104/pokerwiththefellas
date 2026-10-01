@@ -611,7 +611,9 @@ class ControllablePlayerStore implements PlayerStore, IdentityStore {
   private balances = new Map<string, number>();
   private tokens = new Map<string, string>();
   holdGetBalance = false;
+  holdCheckToken = false;
   private pendingResolvers: Array<() => void> = [];
+  private pendingTokenChecks: Array<() => void> = [];
   constructor(private defaultBalance: number) {}
   async getBalance(displayName: string): Promise<number> {
     if (this.holdGetBalance) {
@@ -628,6 +630,11 @@ class ControllablePlayerStore implements PlayerStore, IdentityStore {
     this.defaultBalance = balance;
   }
   async checkToken(displayName: string, token: string | undefined): Promise<TokenCheck> {
+    if (this.holdCheckToken) {
+      await new Promise<void>((resolve) => {
+        this.pendingTokenChecks.push(resolve);
+      });
+    }
     const stored = this.tokens.get(displayName.toLowerCase());
     if (stored === undefined) return 'unclaimed';
     return token === stored ? 'match' : 'mismatch';
@@ -636,6 +643,16 @@ class ControllablePlayerStore implements PlayerStore, IdentityStore {
     const token = `token-${displayName.toLowerCase()}`;
     this.tokens.set(displayName.toLowerCase(), token);
     return token;
+  }
+  get pendingTokenCheckCount(): number {
+    return this.pendingTokenChecks.length;
+  }
+  releaseNextTokenCheck(): void {
+    const resolve = this.pendingTokenChecks.shift();
+    if (!resolve) {
+      throw new Error('ControllablePlayerStore: no pending checkToken to release');
+    }
+    resolve();
   }
   async releaseName(displayName: string): Promise<boolean> {
     return this.tokens.delete(displayName.toLowerCase());
@@ -684,6 +701,45 @@ describe('socketServer join-handler seat-orphan race', () => {
     clients.push(socket);
     return socket;
   }
+
+  it('a new tab that drops while its token check is in flight does not kick the old tab off its seat', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+    const oldTab = connect();
+    const token = await joinAndGetToken(oldTab, 'alice');
+    const oldTabErrors: ErrorPayload[] = [];
+    oldTab.on('error', (e: ErrorPayload) => oldTabErrors.push(e));
+    let oldTabSeat: number | null = 0;
+    oldTab.on('state', (s: AppStateView) => {
+      oldTabSeat = s.mySeatIndex;
+    });
+
+    let disconnectedOnServer = false;
+    server.io.on('connection', (socket) => {
+      socket.on('disconnect', () => {
+        disconnectedOnServer = true;
+      });
+    });
+
+    playerStore.holdCheckToken = true;
+    const newTab = connect();
+    newTab.emit('join', { displayName: 'alice', token });
+    await vi.waitFor(() => {
+      expect(playerStore.pendingTokenCheckCount).toBe(1);
+    });
+    newTab.disconnect();
+    await vi.waitFor(() => {
+      expect(disconnectedOnServer).toBe(true);
+    });
+    // The handler continues synchronously from here (no await after the check on a takeover), so
+    // a tick later it has either returned or kicked the old tab.
+    playerStore.releaseNextTokenCheck();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(oldTabErrors).toEqual([]);
+    expect(oldTabSeat).toBe(0);
+    expect(server.getTable()!.seats[0]?.connected).toBe(true);
+  });
 
   it('a client disconnecting while its join() is still in flight does not orphan the seat or deadlock the table', async () => {
     const admin = connect();
