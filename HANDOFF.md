@@ -48,15 +48,36 @@ Decisions worth knowing:
   - MIN-5 (**fixed**): the two missing tests are added; each was checked to fail with the code it
     guards removed.
 
-**Next step:** §8 item 5, **identity and exposure (C5, I7, I9, M8, M11)**: per-player reconnect
-token, server-sent `mySeatIndex`, name normalisation, `HOST` binding, CORS and Origin check, admin
-rate limit, refuse `change-me`; then update HOSTING.md. This is the biggest item so far: plan it
-before coding. Read those five findings in §3 of the audit report, then write a plan with
-`superpowers:writing-plans` to `docs/superpowers/plans/` and get the user's approval. The token
-design (where it is stored client-side, what happens to an existing seat with no token, expiry) is
-a decision for the user. Then build each task test-first. A coverage test for code that already
-works passes at once, so check it by temporarily removing the guarded code and watching it fail. MIN-1 to MIN-4 above are still open. A browser pass over all the fixes is still owed. Ask before committing; don't push
-or merge without asking.
+**Next step:** build §8 item 5, **identity and exposure (C5, I7, I9, M8, M11)**, from the
+approved plan `docs/superpowers/plans/2026-10-01-identity-and-exposure.md` (9 tasks), using
+`superpowers:subagent-driven-development` (the user chose this on 2026-10-01). No task is started
+yet; the plan's checkboxes are the progress ledger, so tick them (and commit) as each task lands.
+
+- **Design decisions are locked** in the plan's "Global Constraints" (user answers, 2026-10-01):
+  tokens in localStorage as a name→token map; a tokenless name is claimed by the first join;
+  tokens never expire (admin "Release name" removes the token, keeps the balance); a valid token
+  takes over a seat still held by another socket (old tab gets `code: 'replaced'` and never
+  auto-rejoins); `HOST` defaults to `127.0.0.1` behind Tailscale Serve. Choices made without the
+  user (they may still override): admin token in sessionStorage, memory-only server side; 5 wrong
+  passphrases → 60 s lockout; passphrase ≥ 8 chars; names ≤ 32 chars, case-insensitive, a v1 case
+  collision keeps the larger balance (backup in `balances.json.v1-backup`); a missing Origin is
+  allowed; markup-like names still accepted.
+- **Models:** Sonnet implementers for tasks 1, 2, 4, 5, 7, 8; Sonnet implementer + Opus reviewer
+  for tasks 3 and 6 (token handling, the riskiest); Sonnet reviewers elsewhere; escalate to Opus at
+  a 2nd review round; Opus for the final whole-branch review. Always set the model explicitly. Tell
+  reviewers "no findings" is a valid result.
+- **Budget:** the biggest item so far, likely most of one 5-hour window. Run subagents one at a
+  time and tick the plan after each task so a quota cut-off loses nothing; split into a second
+  session after task 5 if context passes ~150k.
+- **Unverified, checked in the plan:** that the frontend can bundle `packages/server/src/names.ts`
+  (Task 1 step 7 has a fallback to game-engine); whether Tailscale Serve's Host / X-Forwarded-Host
+  pass the Origin check (Task 9 step 6 is a manual check for the user on the real host;
+  `ALLOWED_ORIGINS` is the fallback).
+- Each task is test-first. A coverage test for code that already works passes at once, so check
+  it by temporarily removing the guarded code and watching it fail.
+
+Still open after item 5: MIN-1 to MIN-4 above; a browser pass over all fixes (Task 9 step 5 covers
+it, delegated to a subagent). Ask before committing; don't push or merge without asking.
 
 ## Where things stand
 
