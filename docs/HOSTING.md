@@ -58,7 +58,7 @@ to pick Poker or Blackjack and start the game, everyone else takes a seat
 (the table has 6 seats).
 
 **3D or classic table.** Both games open in a first-person 3D saloon view on
-screens at least 900px wide (phones get the classic 2D table). Each player
+screens at least 900px wide (narrower screens such as phones get the classic 2D table). Each player
 can switch at any time with the "2D view" / "3D view" button; the choice is
 remembered per browser. The 3D view needs WebGL (any current desktop
 browser) and loads its code (~150 kB gzipped) only when it is shown; if

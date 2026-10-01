@@ -23,7 +23,7 @@ and 6 later built on:
 - **Saloon redesign** (PR #6, merge commit `9d575da`): RDR2-inspired visual restyle —
   wood/felt table, card frames, chip styling, Framer Motion animations. 7 tasks + one
   final-review fix round.
-- **Table layout redesign** (PR #7, merge commit `6891af5`): replaced the seat-ring
+- **Table layout redesign** (PR #7, fast-forwarded; last commit `6891af5`): replaced the seat-ring
   layout with a decoupled rail/felt-slot architecture (`GameTable` exposes `railSlot`/
   `bottomCenterSlot` content slots instead of owning seat positioning), fixing a real
   hole-card overflow bug as an architectural side effect. 4 tasks, a whole-branch
@@ -41,7 +41,8 @@ still works on its own (own shoe and dealer); the table now always plays it agai
 `SharedDealer` (see "After Plan 6").
 
 **Plan 3** is fully merged to `master` (PR #2, merge commit `3f8e7f2`, then the fix PR #3,
-merge commit `b1dfae1`), including a 2-round critical-bug-fix pass. 0 Critical, 0 Important findings remain. Full detail in
+merge commit `b1dfae1`), including a 2-round critical-bug-fix pass. 0 Critical, 0 Important
+findings remain. Full detail in
 `docs/superpowers/plans/2026-08-17-local-server-progress-ledger.md` and the other
 `2026-08-17-local-server-*.md` files in the same directory (fix spec, final review,
 carried-forward findings) — kept for historical reference.

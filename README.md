@@ -108,7 +108,7 @@ cloud hosting: **[docs/HOSTING.md](docs/HOSTING.md)**.
 
 ```bash
 npm test              # full suite across all three workspaces
-npm run typecheck      # TypeScript across all three workspaces
+npm run typecheck     # TypeScript across all three workspaces
 ```
 
 Per-package: `npm run test --workspace=@poker-blackjack/<game-engine|server|frontend>`.
@@ -122,6 +122,7 @@ packages/
   frontend/      React UI (lobby, 2D table views for both games, admin panel)
     src/three/   first-person 3D tables: pure scene models, Three.js engine, shared shell
     dev3d.html   dev-only 3D harness page (not part of the production build)
+    THIRD_PARTY_NOTICES.md   licences for the card SVGs, three.js and fonts
 scripts/
   playtest/      bot players, an admin conductor and a rule-checking spectator for playtesting a real server
 docs/
@@ -129,7 +130,7 @@ docs/
   HOSTING.md                 how to run a real session with friends
   superpowers/specs/         design docs for each feature area
   superpowers/plans/         the implementation plans those specs became (historical)
-  superpowers/playtests/     findings from the AI playtest of the 3D tables
+  superpowers/playtests/     findings from the AI playtests (3D tables; full audit 2026-10-01)
 HANDOFF.md       full development history and where things stand
 ```
 
