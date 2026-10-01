@@ -13,7 +13,7 @@ which docs are kept current and which are historical records.
 `.playtest-data/audit/` (git-ignored, not recoverable: never run `rm -rf .playtest-data`, which
 `scripts/playtest/README.md:15` still says to do).
 
-Done (each test-first; 530 tests green after the I4/I5/M5 commit, 620 after item 5 Task 7: frontend 211, game-engine 133, server 276; `npm run typecheck` clean):
+Done (each test-first; 530 tests green after the I4/I5/M5 commit, 625 after item 5's final-review fixes: frontend 214, game-engine 133, server 278; `npm run typecheck` clean):
 
 | Commit | Findings | What changed |
 |---|---|---|
@@ -23,7 +23,7 @@ Done (each test-first; 530 tests green after the I4/I5/M5 commit, 620 after item
 | (C4 commit) | C4 | `adminHandler()` wraps every async admin handler in `socketServer.ts`: a rejection (e.g. EBUSY on a locked config file) becomes `rejectAdmin(message)` plus a server log. `processSafetyNet.ts` logs any other unhandled rejection and keeps the server running (called first in `index.ts`). EPERM/EBUSY `rename` retry not done |
 | (IMP-1 commit) | I1 (review IMP-1, MIN-5) | `SocketContext` keeps `actionPending` true for at least `MIN_ACTION_LOCKOUT_MS` (600 ms) after a click, as well as until a new `actionSeq` arrives, so a double-click whose second click lands after the server reply is still one action. Tests added for a hand start queued on the lock before `retire()` and for the `adminSwitchMode` hand-in-progress re-check |
 | (I4/I5/M5 commit) | I4, I5, M5 | `adminSetBlinds` rejects non-whole blinds and small > big. `JsonGameConfigStore` drops a non-whole stored blind and returns the default blinds if the stored pair is small > big (checked only on returned values, so blinds can still be set one at a time). New `envConfig.ts` reads PORT, RECONNECT_GRACE_MS and the four config defaults strictly; `index.ts` refuses to start on a bad one. `updateConfig` and `adminSetBalance` re-run the ready check. A failed `startHand` restores the dealer button, sets `handStartError` in the table view (cleared when a hand starts) and broadcasts; the frontend shows it in the existing table error slot. AdminPanel has no client-side check for small > big; the server's admin error is shown instead |
-| `d441e73`, `4d7e0a0`, `9b5ed95`, `26722a7`, `2ce54f2`, `3743b85`, `ab7c244`, Task 8 docs commit | C5, I7, I9, M8, M11 (item 5) | **A name now belongs to one browser.** Names are normalised (`names.ts`: case-insensitive, at most 32 characters, invisible characters removed). `balances.json` is a v2 file (old one copied to `balances.json.v1-backup`): per name a balance plus `sha256(token)`. The first join under a tokenless name is issued a 32-byte token (`identity` event); the client keeps it in localStorage (`poker-blackjack:identity`) and sends it with every `join`. `playerStore.checkToken` runs before any seating, so a wrong token gets `code: 'name-claimed'`. The server sends `mySeatIndex` in each socket's state and the client trusts it instead of matching names (I9). A join with the right token takes over a seat still held by another socket (old one gets `code: 'replaced'` and shows "Play here instead"). The admin's **Release a name** forgets the token and keeps the balance. Admin login: 5 wrong passphrases → 60 s lockout per address; the admin session token is memory-only on the server and in sessionStorage (`poker-blackjack:adminToken`), so admin rights survive a reconnect (M11). The server binds `HOST` (default `127.0.0.1`), checks `Origin` against Host / X-Forwarded-Host / `ALLOWED_ORIGINS` (a missing Origin is allowed), and refuses a passphrase that is unset, `change-me` or under 8 characters (I7). `docs/HOSTING.md` now documents Tailscale Serve; the playtest bots keep their token |
+| `d441e73`, `4d7e0a0`, `9b5ed95`, `26722a7`, `2ce54f2`, `3743b85`, `ab7c244`, `ad2d938`, `be44565` | C5, I7, I9, M8, M11 (item 5) | **A name now belongs to one browser.** Names are normalised (`names.ts`: case-insensitive, at most 32 characters, invisible characters removed). `balances.json` is a v2 file (old one copied to `balances.json.v1-backup`): per name a balance plus `sha256(token)`. The first join under a tokenless name is issued a 32-byte token (`identity` event); the client keeps it in localStorage (`poker-blackjack:identity`) and sends it with every `join`. `playerStore.checkToken` runs before any seating, so a wrong token gets `code: 'name-claimed'`. The server sends `mySeatIndex` in each socket's state and the client trusts it instead of matching names (I9). A join with the right token takes over a seat still held by another socket (old one gets `code: 'replaced'` and shows "Play here instead"). The admin's **Release a name** forgets the token and keeps the balance. Admin login: 5 wrong passphrases → 60 s lockout per address; the admin session token is memory-only on the server and in sessionStorage (`poker-blackjack:adminToken`), so admin rights survive a reconnect (M11). The server binds `HOST` (default `127.0.0.1`), checks `Origin` against Host / X-Forwarded-Host / `ALLOWED_ORIGINS` (a missing Origin is allowed), and refuses a passphrase that is unset, `change-me` or under 8 characters (I7). `docs/HOSTING.md` now documents Tailscale Serve; the playtest bots keep their token. Final-review fixes (`be44565`): a browser that blocks storage keeps its token in memory for the tab's life; a socket that drops mid-join no longer kicks the tab holding the seat; the v1 migration and the client's token lookup both use the normalised name |
 
 Decisions worth knowing:
 - `recoverFromLog` still **voids** (does not pay) a hand that replays to `settled`. After the C1
@@ -45,7 +45,25 @@ Decisions worth knowing:
   least 8 characters; names at most 32 characters and case-insensitive, a v1 case collision keeps
   the larger balance; a missing Origin is allowed; markup-like names still accepted (escaping was
   verified safe).
-- None of the fixes so far have been tried in the browser.
+- Item 5 known limitations, deferred by the final review with the user's agreement (2026-10-01):
+  - **DNS rebinding** passes the Host-matching Origin check. Low risk: the server binds 127.0.0.1,
+    so only a browser on the host machine can reach it, and a rebound page gets no token or admin
+    session. Fix later with a Host allowlist (localhost, `*.ts.net`, `ALLOWED_ORIGINS`).
+  - **Any error while a join is in flight counts as a rejected join** (`SocketContext.tsx`): at
+    worst the join screen flashes and recovers. Real fix: the server tags join errors
+    `scope: 'join'`.
+  - Admin **Release a name** does not unseat a holder who is still connected; a new join under
+    that name gets "already seated" until the old tab closes. Intended, but not yet stated in
+    `docs/HOSTING.md`.
+  - The other deferred item-5 Minors (each with a reason) are in the triage table of
+    `.superpowers/sdd/item5-final-review.md` (git-ignored). The ones worth a later look:
+    `loginLimiter` and `adminTokens` are never pruned (a restart clears both); malformed v2
+    `balances.json` entries are dropped without a log line; `issueToken` can bind a token to a
+    socket that disconnected during the write (admin release recovers it).
+- Browser pass (Task 9 step 5, 2026-10-01, `.playtest-data/audit/browser-pass-item5.md`): item 5's
+  checklist 11/11 PASS on an isolated server (port 3100), console clean, listens on 127.0.0.1 only.
+  Items 1-4 were covered only by one blackjack hand played to settlement. Not yet investigated:
+  after "Leave table" with the admin panel open, the table stayed on screen until a reload.
 - One Opus review of `8d7eacd` ran (findings: `.playtest-data/audit/review-8d7eacd.md`). It found
   no deadlock path and no wrongly-stale action, but:
   - IMP-1 (Important, **fixed**): on a LAN the server's reply landed between the two clicks of a
@@ -59,23 +77,19 @@ Decisions worth knowing:
   - MIN-5 (**fixed**): the two missing tests are added; each was checked to fail with the code it
     guards removed.
 
-**Next step:** item 5 (§8, identity and exposure) has all code committed (Tasks 1-7); Task 8 is the
-docs commit. Remaining, in order, from the plan `docs/superpowers/plans/2026-10-01-identity-and-exposure.md`
-(use `superpowers:subagent-driven-development`):
-1. **Task 9, final verification:** `npm test`, `npm run typecheck`, build, `git status`. Then the final
-   whole-branch **Opus** review of item 5, giving the reviewer the Minor findings list in
-   `.superpowers/sdd/progress.md` under "Item 5". Two were explicitly deferred to that review by the
-   user: the DNS-rebinding gap in the Host-matching Origin check, and that any error during an
-   in-flight join is treated as a rejected join (`SocketContext.tsx`).
-2. **The delegated browser pass over items 1-5** (Task 9 step 5): a subagent drives the browser and
-   writes findings to a file; never drive the browser from the main thread.
-3. **The user's live Tailscale Serve check** (Task 9 step 6) on the real host: whether Serve's
-   Host / X-Forwarded-Host pass the Origin check, else set `ALLOWED_ORIGINS`; record which header Serve sends here. The `tailscale serve`
-   commands and the "share the machine rather than invite" advice in `docs/HOSTING.md` are untested
-   until then.
-Then §8 item 6.
+**Next step:** item 5 (§8, identity and exposure) is done: Tasks 1-9 step 5 committed
+(`be44565` holds the final-review fixes; Opus final review `.superpowers/sdd/item5-final-review.md`,
+fix re-review approved). Remaining:
+1. **The user's live Tailscale Serve check** (Task 9 step 6) on the real host:
+   `tailscale serve --bg http://127.0.0.1:3000`, open the `https://...ts.net` link from another
+   tailnet device, confirm the socket connects. If refused, set `ALLOWED_ORIGINS`; record here which
+   header Serve sends. The `tailscale serve` commands and the "share the machine rather than invite"
+   advice in `docs/HOSTING.md` are untested until then.
+2. **§8 item 6**: I10 (`joinInFlightRef` survives a disconnect) and I11 (leave racing a hand start).
+   Write its plan first (`superpowers:writing-plans`). Look at the "Leave table with the admin panel
+   open" observation above while in that area.
 
-- How this session ran the loop (keep it, it applies to Task 9): implementers are told **not** to
+- How this session ran the loop (keep it for item 6): implementers are told **not** to
   `git add`/commit; the controller builds the review package from the working tree with
   `bash .superpowers/sdd/wt-package.sh .superpowers/sdd/item5-review-task-N.diff` (marks new
   files intent-to-add), reviews, then **asks the user before each commit** and commits code plus
@@ -89,7 +103,7 @@ Then §8 item 6.
   a literal escape with Edit/Bash. Build the backslash with `String.fromCharCode(92)` in a script
   and check bytes with `od -c`, not by reading the file back.
 
-Still open after item 5: MIN-1 to MIN-4 above. Ask before committing; don't push or merge without asking.
+Still open after item 5: MIN-1 to MIN-4 above, and the item-5 known limitations above. Ask before committing; don't push or merge without asking.
 
 ## Where things stand
 
