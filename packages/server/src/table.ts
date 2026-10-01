@@ -81,6 +81,8 @@ export interface TableStateView {
   handInProgress: boolean;
   seats: SeatView[];
   activeSeatIndex: number | null;
+  /** See Table.actionSeq: send it back with each action so a double-click is not applied twice. */
+  actionSeq: number;
   blackjackRounds: Record<number, BlackjackRoundView> | null;
   holdem: HoldemView | null;
 }
@@ -116,6 +118,20 @@ export class Table {
   private holdemSettled = false;
   private lastSettledHoldemHand: HoldemHand | null = null;
   private lastSettledBlackjackRounds: Map<number, BlackjackRound> | null = null;
+  /**
+   * Moves on with every applied action and every new hand, and is published in each view.
+   * A client sends back the value it saw, so the second click of a double-click (a legal
+   * action, but not one the player meant) is refused instead of applied twice.
+   */
+  actionSeq = 0;
+  // Set when the socket server replaces this table (mode switch). A retired table must
+  // never start a hand: the hand log is shared, so its start entry would poison the new table.
+  private retired = false;
+  // Serialises everything that checks hand state, awaits a write, then changes the state:
+  // player actions, auto-acts, hand starts and admin balance writes. Without it two
+  // actions sent close together were both checked against the state from before either
+  // was applied (audit C3), and an admin write could interleave with a hand start (I2).
+  private exclusiveTail: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly config: TableConfig,
@@ -148,19 +164,38 @@ export class Table {
     Object.assign(this.config, update);
   }
 
-  // Seat mutation belongs to this class -- the admin balance-correction
-  // socket handler used to reach in and assign `seat.balance` directly,
-  // which was the one place outside Table that mutated a Seat. Returns
-  // whether a matching seat existed so the caller can distinguish "corrected
-  // a seated player" from "the player isn't at this table right now".
-  setSeatBalance(displayName: string, balance: number): boolean {
-    const seat = this.seats.find((s) => s?.displayName === displayName);
-    if (!seat) {
-      return false;
+  private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.exclusiveTail.then(fn);
+    this.exclusiveTail = run.catch(() => {});
+    return run;
+  }
+
+  /** Stops this table from ever starting another hand and cancels its timers. */
+  retire(): void {
+    this.retired = true;
+    for (const timer of this.disconnectTimers.values()) {
+      clearTimeout(timer);
     }
-    seat.balance = balance;
-    this.deps.onStateChange();
-    return true;
+    this.disconnectTimers.clear();
+  }
+
+  // The admin balance correction. The checks, the durable write and the in-memory update
+  // all run inside the table lock, so a hand cannot start between the "no hand in
+  // progress" check and the write (which used to persist a balance that the hand then
+  // overwrote or went negative against).
+  adminSetBalance(displayName: string, balance: number): Promise<void> {
+    return this.runExclusive(async () => {
+      const seat = this.seats.find((s) => s?.displayName === displayName);
+      if (!seat) {
+        throw new Error(`No player named "${displayName}" is currently seated`);
+      }
+      if (this.handInProgress) {
+        throw new Error(`Can't adjust -- ${displayName} is in an active hand`);
+      }
+      await this.deps.playerStore.setBalance(displayName, balance);
+      seat.balance = balance;
+      this.deps.onStateChange();
+    });
   }
 
   async join(displayName: string): Promise<number> {
@@ -241,12 +276,17 @@ export class Table {
     });
   }
 
-  private async startHandIfEveryoneReady(): Promise<void> {
-    const eligibleSeats = this.eligibleSeatsForHand();
-    const allReady = eligibleSeats.length >= 2 && eligibleSeats.every((s) => s.ready);
-    if (allReady && !this.handInProgress) {
-      await this.startHand(eligibleSeats);
-    }
+  private startHandIfEveryoneReady(): Promise<void> {
+    return this.runExclusive(async () => {
+      if (this.retired) {
+        return;
+      }
+      const eligibleSeats = this.eligibleSeatsForHand();
+      const allReady = eligibleSeats.length >= 2 && eligibleSeats.every((s) => s.ready);
+      if (allReady && !this.handInProgress) {
+        await this.startHand(eligibleSeats);
+      }
+    });
   }
 
   disconnect(seatIndex: number): void {
@@ -314,8 +354,12 @@ export class Table {
       return;
     }
     this.timedOutSeats.add(seatIndex);
-    await this.autoActIfSeatIsUpAndTimedOut(seatIndex);
+    await this.runExclusive(() => this.autoActIfSeatIsUpAndTimedOut(seatIndex));
   }
+
+  // Called with the table lock held (from the grace timer above, or from the end of
+  // applyAction), so it calls applyAction directly: going through submitAction would wait
+  // on the lock it already holds.
 
   private async autoActIfSeatIsUpAndTimedOut(seatIndex: number): Promise<void> {
     if (!this.handInProgress || !this.timedOutSeats.has(seatIndex)) {
@@ -332,12 +376,12 @@ export class Table {
       }
       const context = this.holdemHand.getBettingContext();
       const action: HoldemAction = context && context.toCall === 0 ? 'check' : 'fold';
-      await this.submitAction(seatIndex, action);
+      await this.applyAction(seatIndex, action);
     } else {
       if (this.activeSeatIndex !== seatIndex) {
         return;
       }
-      await this.submitAction(seatIndex, 'stand');
+      await this.applyAction(seatIndex, 'stand');
     }
   }
 
@@ -360,6 +404,7 @@ export class Table {
 
   private async startHand(seatedSeats: Seat[]): Promise<void> {
     this.handInProgress = true;
+    this.actionSeq += 1; // a click left over from the previous hand must not land in this one
     this.lastSettledHoldemHand = null;
     this.lastSettledBlackjackRounds = null;
 
@@ -439,10 +484,24 @@ export class Table {
     this.deps.onStateChange();
   }
 
-  async submitAction(
+  /**
+   * `expectedSeq` is the `actionSeq` the client saw when the player clicked. Clients that
+   * omit it (the playtest bots, older pages) are still accepted.
+   */
+  submitAction(
     seatIndex: number,
     action: PlayerAction | HoldemAction,
-    amount?: number
+    amount?: number,
+    expectedSeq?: number
+  ): Promise<void> {
+    return this.runExclusive(() => this.applyAction(seatIndex, action, amount, expectedSeq));
+  }
+
+  private async applyAction(
+    seatIndex: number,
+    action: PlayerAction | HoldemAction,
+    amount?: number,
+    expectedSeq?: number
   ): Promise<void> {
     const seat = this.seats[seatIndex];
     if (!seat) {
@@ -450,6 +509,9 @@ export class Table {
     }
     if (!this.handInProgress) {
       throw new Error('No hand in progress');
+    }
+    if (expectedSeq !== undefined && expectedSeq !== this.actionSeq) {
+      throw new Error('That action has already been handled (the table moved on)');
     }
 
     if (this.config.gameMode === 'holdem') {
@@ -467,6 +529,7 @@ export class Table {
         data: { playerId: seat.displayName, action, amount },
       });
       hand.act(seat.displayName, action as HoldemAction, amount);
+      this.actionSeq += 1;
       if (hand.street === 'settled') {
         await this.settleHoldem(hand);
       }
@@ -481,6 +544,7 @@ export class Table {
       // dealer different cards from then on.
       await this.deps.handLog.append({ type: 'blackjack_action', data: { seatIndex, action } });
       round.act(action as PlayerAction);
+      this.actionSeq += 1;
       await this.advanceBlackjackTurn();
     }
 
@@ -869,6 +933,7 @@ export class Table {
       handInProgress: this.handInProgress,
       seats,
       activeSeatIndex: this.activeSeatIndex,
+      actionSeq: this.actionSeq,
       blackjackRounds,
       holdem,
     };

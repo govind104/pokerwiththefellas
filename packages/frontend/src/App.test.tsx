@@ -282,4 +282,89 @@ describe('App', () => {
       expect(window.localStorage.getItem('table.view')).toBe('3d');
     });
   });
+
+  describe('double-click protection', () => {
+    const STALE_SEQ_ERROR = 'That action has already been handled (the table moved on)';
+
+    async function seatAtBlackjack(actionSeq: number) {
+      window.localStorage.setItem('table.view', '2d');
+      render(<App />);
+      act(() => {
+        handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack' })));
+      });
+      await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
+      await userEvent.click(screen.getByRole('button', { name: /join table/i }));
+      act(() => {
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq })));
+      });
+      return screen.findByRole('button', { name: 'Hit' });
+    }
+
+    const actionEvents = () => emitted.filter((e) => e.event === 'action');
+
+    it('a double-click on Hit emits exactly one action', async () => {
+      const hit = await seatAtBlackjack(3);
+      await userEvent.dblClick(hit);
+      expect(actionEvents()).toHaveLength(1);
+    });
+
+    it("sends the table's actionSeq with the action", async () => {
+      const hit = await seatAtBlackjack(3);
+      await userEvent.click(hit);
+      expect(actionEvents()[0].payload).toEqual({ action: 'hit', amount: undefined, seq: 3 });
+    });
+
+    it('re-enables the action buttons once a state with a new actionSeq arrives', async () => {
+      const hit = await seatAtBlackjack(3);
+      await userEvent.click(hit);
+      expect(hit).toBeDisabled();
+      act(() => {
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 4 })));
+      });
+      expect(screen.getByRole('button', { name: 'Hit' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Stand' })).toBeEnabled();
+    });
+
+    it('keeps the buttons disabled when a state arrives with the same actionSeq', async () => {
+      const hit = await seatAtBlackjack(3);
+      await userEvent.click(hit);
+      act(() => {
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 3 })));
+      });
+      expect(screen.getByRole('button', { name: 'Hit' })).toBeDisabled();
+    });
+
+    it('does not stay disabled after a disconnect, even if the next state repeats the actionSeq', async () => {
+      // A restarted server recovers with actionSeq back at a low number, which can equal
+      // the seq the lost action was sent with.
+      const hit = await seatAtBlackjack(3);
+      await userEvent.click(hit);
+      act(() => {
+        handlers.get('disconnect')?.('transport close');
+        handlers.get('state')?.(makeAppState(makeBlackjackPlayingState({ actionSeq: 3 })));
+      });
+      expect(screen.getByRole('button', { name: 'Hit' })).toBeEnabled();
+    });
+
+    it('re-enables the buttons after an ordinary rejection', async () => {
+      const hit = await seatAtBlackjack(3);
+      await userEvent.click(hit);
+      act(() => {
+        handlers.get('error')?.({ message: 'Cannot split these cards' });
+      });
+      expect(screen.getByRole('button', { name: 'Hit' })).toBeEnabled();
+      expect(screen.getByRole('alert')).toHaveTextContent('Cannot split these cards');
+    });
+
+    it('does not show the stale-action error to the player, and re-enables the buttons', async () => {
+      const hit = await seatAtBlackjack(3);
+      await userEvent.click(hit);
+      act(() => {
+        handlers.get('error')?.({ message: STALE_SEQ_ERROR });
+      });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByText(STALE_SEQ_ERROR)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Hit' })).toBeEnabled();
+    });
+  });
 });

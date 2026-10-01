@@ -11,6 +11,7 @@ function makeSocketValue(overrides: Partial<SocketContextValue> = {}): SocketCon
     errorMessage: null,
     adminErrorMessage: null,
     adminActionErrorMessage: null,
+    actionPending: false,
     displayName: 'alice',
     isAdmin: true,
     joinWithName: vi.fn(),

@@ -111,6 +111,13 @@ describe('Poker3D', () => {
     expect(screen.queryByRole('button', { name: 'Fold' })).not.toBeInTheDocument();
   });
 
+  it('disables every action button while an action is pending', () => {
+    render(<Poker3D {...props()} actionPending />);
+    for (const name of ['Fold', 'Check', 'Call 10', 'Raise', 'All In']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled();
+    }
+  });
+
   it('allows Check (and blocks Call) when nothing is owed', async () => {
     const even: HoldemView = { ...holdem, players: holdem.players.map((pl) => ({ ...pl, streetContributed: 0 })) };
     const p = props({ holdem: even });

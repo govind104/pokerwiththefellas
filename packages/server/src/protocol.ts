@@ -8,6 +8,8 @@ export interface JoinPayload {
 export interface ActionPayload {
   action: PlayerAction | HoldemAction;
   amount?: number;
+  /** The table's `actionSeq` when the player clicked; a stale one is rejected. Optional. */
+  seq?: number;
 }
 
 export interface ErrorPayload {

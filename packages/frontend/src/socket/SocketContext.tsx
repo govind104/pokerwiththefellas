@@ -13,6 +13,10 @@ export type ConnectionStatus = 'connecting' | 'lobby' | 'entering-name' | 'at-ta
 
 export const DISPLAY_NAME_STORAGE_KEY = 'poker-blackjack:displayName';
 
+// Server's reply to an action sent with an out-of-date seq (table.ts). Harmless -- the
+// click was a duplicate or raced a state change -- so it is not shown to the player.
+const STALE_ACTION_ERROR = 'That action has already been handled (the table moved on)';
+
 export interface SocketContextValue {
   status: ConnectionStatus;
   state: AppStateView | null;
@@ -31,6 +35,10 @@ export interface SocketContextValue {
   isAdmin: boolean;
   joinWithName: (displayName: string) => void;
   sendReady: () => void;
+  // True from sending an action until the table moves on (a state with a new actionSeq) or
+  // the server rejects it; the table buttons stay disabled meanwhile so a double-click
+  // cannot send the action twice.
+  actionPending: boolean;
   sendAction: (action: PlayerAction | HoldemAction, amount?: number) => void;
   leave: () => void;
   adminLogin: (passphrase: string) => void;
@@ -90,12 +98,17 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   // rejected admin action -- is an ordinary rejection of one request and
   // must leave the session completely untouched.
   const hasEverReceivedStateRef = useRef(false);
+  // The table's actionSeq as of the latest 'state' event, and the one we last sent an
+  // action against. Refs, not state: sendAction must see the value at click time.
+  const latestActionSeqRef = useRef<number | null>(null);
+  const sentActionSeqRef = useRef<number | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [state, setState] = useState<AppStateView | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [adminErrorMessage, setAdminErrorMessage] = useState<string | null>(null);
   const [adminActionErrorMessage, setAdminActionErrorMessage] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [actionPending, setActionPending] = useState(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -115,6 +128,11 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       hasEverReceivedStateRef.current = true;
       setState(nextState);
       setErrorMessage(null);
+      const actionSeq = nextState.table?.actionSeq ?? null;
+      latestActionSeqRef.current = actionSeq;
+      if (actionSeq === null || actionSeq !== sentActionSeqRef.current) {
+        setActionPending(false);
+      }
 
       // displayNameRef.current guard matters here specifically because a
       // fresh table's unclaimed seats also carry `displayName: null` (see
@@ -196,6 +214,10 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     });
 
     socket.on('error', (payload: ErrorPayload) => {
+      setActionPending(false);
+      if (payload.message === STALE_ACTION_ERROR) {
+        return;
+      }
       // Admin-action rejections get their own surface: routing them through
       // `errorMessage` would render them inside JoinScreen's form, wired via
       // aria-describedby to the display-name input the admin never touched.
@@ -247,6 +269,10 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     });
 
     socket.on('disconnect', () => {
+      // A pending action may never be answered, and a restarted server can come back with
+      // the same actionSeq we sent, which would otherwise leave the buttons disabled.
+      sentActionSeqRef.current = null;
+      setActionPending(false);
       if (statusRef.current === 'at-table') {
         setStatus('reconnecting');
       }
@@ -299,7 +325,9 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   }
 
   function sendAction(action: PlayerAction | HoldemAction, amount?: number) {
-    socketRef.current?.emit('action', { action, amount });
+    sentActionSeqRef.current = latestActionSeqRef.current;
+    setActionPending(true);
+    socketRef.current?.emit('action', { action, amount, seq: latestActionSeqRef.current ?? undefined });
   }
 
   function leave() {
@@ -370,6 +398,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     adminErrorMessage,
     adminActionErrorMessage,
     displayName,
+    actionPending,
     isAdmin: state?.isAdmin ?? false,
     joinWithName,
     sendReady,

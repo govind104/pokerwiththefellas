@@ -50,6 +50,7 @@ function TableView({
   displayName,
   connectionStatus,
   errorMessage,
+  actionPending,
   onReady,
   onAction,
   onLeave,
@@ -58,6 +59,7 @@ function TableView({
   displayName: string | null;
   connectionStatus: ConnectionStatus;
   errorMessage: string | null;
+  actionPending: boolean;
   onReady: () => void;
   onAction: (action: PlayerAction | HoldemAction, amount?: number) => void;
   onLeave: () => void;
@@ -75,6 +77,7 @@ function TableView({
     connectionStatus,
     handInProgress: table.handInProgress,
     errorMessage,
+    actionPending,
     onReady,
     onLeave,
   };
@@ -137,7 +140,7 @@ function TableView({
 }
 
 function AppContent() {
-  const { status, state, errorMessage, displayName, sendReady, sendAction, leave } = useSocket();
+  const { status, state, errorMessage, displayName, actionPending, sendReady, sendAction, leave } = useSocket();
 
   if (status === 'error') {
     // Reached only when an 'error' arrives before the connection has ever
@@ -181,6 +184,7 @@ function AppContent() {
           displayName={displayName}
           connectionStatus={status}
           errorMessage={errorMessage}
+          actionPending={actionPending}
           onReady={sendReady}
           onAction={sendAction}
           onLeave={leave}

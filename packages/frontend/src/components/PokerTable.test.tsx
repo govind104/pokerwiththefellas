@@ -50,6 +50,14 @@ describe('PokerTable', () => {
     expect(screen.getByTestId('player-info-1')).toHaveTextContent(/disconnected/i);
   });
 
+  it('disables every action button while an action is pending', () => {
+    const state = makeHoldemMyTurnState();
+    render(<PokerTable {...baseProps} actionPending seats={state.seats} mySeatIndex={0} holdem={state.holdem} />);
+    for (const name of ['Fold', 'Check', 'Call', 'Raise', 'All In']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled();
+    }
+  });
+
   it('still shows Folded for a disconnected opponent who folded, not Disconnected', () => {
     const base = makeHoldemPreflopState();
     const state = makeHoldemPreflopState({

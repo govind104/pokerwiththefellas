@@ -574,6 +574,37 @@ describe('socketServer join-handler seat-orphan race', () => {
     expect(state.table!.holdem).not.toBeNull();
   });
 
+  it('a join that resolves after a mode switch does not bind the socket to a seat on the new table (audit I2)', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+
+    playerStore.holdGetBalance = true;
+    const alice = connect();
+    alice.emit('join', { displayName: 'alice' });
+    await vi.waitFor(() => {
+      expect(playerStore.pendingCount).toBe(1);
+    });
+
+    const switched = waitForState(admin, (s) => s.mode === 'blackjack');
+    admin.emit('adminSwitchMode', { mode: 'blackjack' });
+    await switched;
+    playerStore.holdGetBalance = false;
+
+    // bob takes seat 0 on the new table -- the index alice's stale join will come back with.
+    const bob = connect();
+    bob.emit('join', { displayName: 'bob' });
+    await waitForSeated(bob, 'bob');
+
+    const aliceError = waitForEvent<{ message: string }>(alice, 'error');
+    playerStore.releaseNextGetBalance();
+    expect((await aliceError).message).toMatch(/game changed/i);
+
+    // Before the fix this socket was mapped to seat 0 of the new table, which is bob's.
+    alice.emit('ready');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(server.getTable()!.seats.find((s) => s?.displayName === 'bob')?.ready).toBe(false);
+  });
+
   it('a second join from the same still-connected socket disconnects the first seat instead of orphaning it', async () => {
     const admin = connect();
     await startGameAsAdmin(admin, 'holdem');

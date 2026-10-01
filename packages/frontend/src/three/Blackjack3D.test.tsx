@@ -108,6 +108,13 @@ describe('Blackjack3D', () => {
     expect(screen.queryByRole('button', { name: 'Hit' })).not.toBeInTheDocument();
   });
 
+  it('disables every action button while an action is pending', () => {
+    render(<Blackjack3D {...props()} actionPending />);
+    for (const name of ['Hit', 'Stand', 'Double', 'Split']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled();
+    }
+  });
+
   it('offers Ready and Leave between hands', async () => {
     const p = props({
       handInProgress: false,

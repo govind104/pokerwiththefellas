@@ -16,6 +16,8 @@ export interface Poker3DProps {
   onLeave: () => void;
   holdem: HoldemView | null;
   onAction: (action: HoldemAction, amount?: number) => void;
+  // True while a sent action awaits the server's response: the action buttons stay disabled.
+  actionPending?: boolean;
   onSwitchTo2D: () => void;
   // Called if WebGL can't start, so the parent can fall back to the 2D table.
   onUnsupported: () => void;
@@ -35,6 +37,7 @@ export function Poker3D({
   onLeave,
   holdem,
   onAction,
+  actionPending = false,
   onSwitchTo2D,
   onUnsupported,
 }: Poker3DProps) {
@@ -86,13 +89,13 @@ export function Poker3D({
     >
       {showActions && (
         <div className="flex flex-wrap items-center justify-center gap-2 px-2">
-          <Button variant="danger" size="md" onClick={() => onAction('fold')}>
+          <Button variant="danger" size="md" disabled={actionPending} onClick={() => onAction('fold')}>
             Fold
           </Button>
           <Button
             variant="neutral"
             size="md"
-            disabled={toCall > 0}
+            disabled={actionPending || toCall > 0}
             title={toCall > 0 ? 'You are facing a bet' : undefined}
             onClick={() => onAction('check')}
           >
@@ -101,7 +104,7 @@ export function Poker3D({
           <Button
             variant="neutral"
             size="md"
-            disabled={toCall === 0}
+            disabled={actionPending || toCall === 0}
             title={toCall === 0 ? 'Nothing to call' : undefined}
             onClick={() => onAction('call')}
           >
@@ -118,10 +121,10 @@ export function Poker3D({
             max={me ? me.stack : undefined}
             className="w-20 rounded-md border border-wood-grain bg-surface px-2 py-2 text-fg"
           />
-          <Button variant="primary" size="md" onClick={() => onAction('raise', raiseAmount)}>
+          <Button variant="primary" size="md" disabled={actionPending} onClick={() => onAction('raise', raiseAmount)}>
             Raise
           </Button>
-          <Button variant="danger" size="md" onClick={() => onAction('all-in')}>
+          <Button variant="danger" size="md" disabled={actionPending} onClick={() => onAction('all-in')}>
             All In
           </Button>
         </div>

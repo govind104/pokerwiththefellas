@@ -217,9 +217,17 @@ export async function createServer(
         socket.emit('error', { message: 'Invalid display name' });
         return;
       }
+      // An admin mode switch can replace `table` while join() is awaiting. The seat index it
+      // returns belongs to the old table; mapping it on the new one would hand this socket
+      // whoever sits at that index there (their cards, their turn).
+      const joinedTable = table;
       try {
-        const existingSeatIndex = table.reconnect(payload.displayName);
-        const seatIndex = existingSeatIndex ?? (await table.join(payload.displayName));
+        const existingSeatIndex = joinedTable.reconnect(payload.displayName);
+        const seatIndex = existingSeatIndex ?? (await joinedTable.join(payload.displayName));
+        if (table !== joinedTable) {
+          socket.emit('error', { message: 'The game changed while you were joining -- please join again' });
+          return;
+        }
         const previousSeatIndex = seatBySocketId.get(socket.id);
         if (previousSeatIndex !== undefined && previousSeatIndex !== seatIndex) {
           // This socket already held a different seat -- e.g. it sent an
@@ -263,7 +271,7 @@ export async function createServer(
         return;
       }
       try {
-        await table.submitAction(seatIndex, payload.action, payload.amount);
+        await table.submitAction(seatIndex, payload.action, payload.amount, payload.seq);
       } catch (err) {
         socket.emit('error', { message: (err as Error).message });
       }
@@ -362,7 +370,16 @@ export async function createServer(
         // display name auto-rejoins via the frontend's own logic (Task 6)
         // the moment this broadcast reports the new mode; nobody needs to
         // retype anything they'd already typed once tonight.
+        const oldTable = table;
         const nextConfig = await buildTableConfig(payload.mode);
+        // Re-check after the await: the last Ready can start a hand while the config loads.
+        // From the check to retire() there is no await, so no hand can start in between, and
+        // a hand start already queued on the old table's lock becomes a no-op once retired.
+        if (oldTable.handInProgress) {
+          rejectAdmin("Can't switch modes while a hand is in progress");
+          return;
+        }
+        oldTable.retire();
         seatBySocketId.clear();
         currentMode = payload.mode;
         table = createTable(nextConfig);
@@ -382,23 +399,20 @@ export async function createServer(
         rejectAdmin('Balance must be a number of 0 or more');
         return;
       }
-      const seat = table?.seats.find((s) => s?.displayName === payload.displayName);
-      if (!seat) {
-        // Without this check, a typo'd or never-joined display name fell
-        // through to an unconditional playerStore.setBalance write with zero
-        // error feedback -- the admin panel would show success while
-        // silently creating an orphaned entry in balances.json for a player
-        // who was never seated. Balance corrections only make sense for
-        // someone actually at the table right now.
+      if (!table) {
+        // Balance corrections only make sense for someone actually at the table right now
+        // (an unconditional write used to create orphaned balances.json entries).
         rejectAdmin(`No player named "${payload.displayName}" is currently seated`);
         return;
       }
-      if (table!.handInProgress) {
-        rejectAdmin(`Can't adjust -- ${payload.displayName} is in an active hand`);
+      // Table does the seated / no-hand checks and the write under its lock, so a hand
+      // cannot start between the check and the write.
+      try {
+        await table.adminSetBalance(payload.displayName, payload.balance);
+      } catch (err) {
+        rejectAdmin((err as Error).message);
         return;
       }
-      await playerStore.setBalance(payload.displayName, payload.balance);
-      table?.setSeatBalance(payload.displayName, payload.balance);
       broadcast();
     });
 
