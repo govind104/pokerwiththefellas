@@ -1118,3 +1118,51 @@ describe('admin login (audit I7, M11)', () => {
     expect((await waitForEvent<AppStateView>(socket, 'state')).isAdmin).toBe(false);
   });
 });
+
+describe('origin check (audit I7)', () => {
+  let dir: string;
+  let server: CreateServerResult;
+  let port: number;
+  let clients: ClientSocket[];
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'socket-server-origin-test-'));
+    const playerStore = new JsonPlayerStore(join(dir, 'balances.json'), DEFAULT_GAME_CONFIG.defaultStartingBalance);
+    const handLog = new JsonlHandLog(join(dir, 'hand.jsonl'));
+    const gameConfigStore = new JsonGameConfigStore(join(dir, 'game-config.json'), DEFAULT_GAME_CONFIG);
+    server = await createServer(DEFAULT_STATIC_CONFIG, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE, {
+      allowedOrigins: ['https://box.tail1.ts.net'],
+    });
+    await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
+    port = (server.httpServer.address() as { port: number }).port;
+    clients = [];
+  });
+
+  afterEach(async () => {
+    for (const c of clients) c.disconnect();
+    server.io.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function connectWithOrigin(origin: string, transport: 'websocket' | 'polling'): Promise<'connected' | 'refused'> {
+    const socket = ioClient(`http://localhost:${port}`, {
+      transports: [transport],
+      extraHeaders: { origin },
+      reconnection: false,
+    });
+    clients.push(socket);
+    return new Promise((resolve) => {
+      socket.once('connect', () => resolve('connected'));
+      socket.once('connect_error', () => resolve('refused'));
+    });
+  }
+
+  it.each(['websocket', 'polling'] as const)('refuses a cross-site page (%s)', async (transport) => {
+    expect(await connectWithOrigin('http://evil.example', transport)).toBe('refused');
+  });
+
+  it('accepts its own origin and a listed one', async () => {
+    expect(await connectWithOrigin(`http://localhost:${port}`, 'websocket')).toBe('connected');
+    expect(await connectWithOrigin('https://box.tail1.ts.net', 'websocket')).toBe('connected');
+  });
+});

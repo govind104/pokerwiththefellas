@@ -28,20 +28,6 @@ const staticConfig: StaticTableConfig = {
 
 const gameConfigStore = new JsonGameConfigStore(process.env.GAME_CONFIG_PATH ?? './game-config.json', configDefaults);
 
-// Fail fast rather than warn-and-continue. Under the empty-lobby design
-// nothing can start without a successful admin login, so a server booted
-// without a passphrase is not "degraded" -- it is unusable: it accepts
-// connections and shows every client a permanent "waiting for a game to
-// start", with the only diagnosis being a console line already scrolled off.
-const adminPassphrase = process.env.ADMIN_PASSPHRASE;
-if (!adminPassphrase) {
-  console.error(
-    'ADMIN_PASSPHRASE is not set. No game can ever be started without it, so refusing to start a server ' +
-      'that would only ever show clients an empty lobby. Set ADMIN_PASSPHRASE and try again.'
-  );
-  process.exit(1);
-}
-
 async function main() {
   const currentConfig = await gameConfigStore.getConfig();
   const playerStore = new JsonPlayerStore(
@@ -49,14 +35,15 @@ async function main() {
     currentConfig.defaultStartingBalance
   );
   const handLog = new JsonlHandLog(process.env.HAND_LOG_PATH ?? './hand.jsonl');
-  const { port } = envConfig;
+  const { port, host, allowedOrigins, adminPassphrase } = envConfig;
   const staticDir = process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : undefined;
 
   const { httpServer, io } = await createServer(staticConfig, gameConfigStore, playerStore, handLog, adminPassphrase, {
     staticDir,
+    allowedOrigins,
   });
-  httpServer.listen(port, () => {
-    console.log(`Server listening on port ${port}${staticDir ? ` (serving frontend from ${staticDir})` : ''}`);
+  httpServer.listen(port, host, () => {
+    console.log(`Server listening on http://${host}:${port}${staticDir ? ` (serving frontend from ${staticDir})` : ''}`);
   });
 
   // Without this, Ctrl+C (or a service manager's stop signal) just hard-kills

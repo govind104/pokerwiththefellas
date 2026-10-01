@@ -21,9 +21,12 @@ export default defineConfig({
     // being deleted -- this proxy config is checked into source instead.
     // `ws: true` is required for Engine.IO's websocket upgrade, not just
     // its initial polling handshake.
+    // 127.0.0.1, not localhost: the server binds to 127.0.0.1 by default, and Node may resolve
+    // localhost to ::1 first (audit I7). No `changeOrigin`: the dev server keeps the browser's Host
+    // header, so the server's Origin check still sees matching Origin and Host.
     proxy: {
       '/socket.io': {
-        target: `http://localhost:${BACKEND_PORT}`,
+        target: `http://127.0.0.1:${BACKEND_PORT}`,
         ws: true,
       },
     },

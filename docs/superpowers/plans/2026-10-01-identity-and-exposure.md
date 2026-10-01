@@ -1179,7 +1179,7 @@ git commit -m "fix(server): rate-limit admin login and keep admin rights across 
   `EnvConfig` gains `host: string; allowedOrigins: string[]; adminPassphrase: string`;
   `CreateServerOptions` gains `allowedOrigins?: string[]` (default `[]`).
 
-- [ ] **Step 1: Failing Origin tests** — `originCheck.test.ts`
+- [x] **Step 1: Failing Origin tests** — `originCheck.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -1212,7 +1212,7 @@ describe('isAllowedOrigin (audit I7)', () => {
 
 Run: `npx vitest run src/originCheck.test.ts --root packages/server` → FAIL.
 
-- [ ] **Step 2: Implement** — `originCheck.ts`
+- [x] **Step 2: Implement** — `originCheck.ts`
 
 ```ts
 import type { IncomingHttpHeaders } from 'node:http';
@@ -1243,7 +1243,7 @@ export function isAllowedOrigin(headers: IncomingHttpHeaders, allowedOrigins: re
 
 Run → PASS.
 
-- [ ] **Step 3: Failing socket test** — in `socketServer.test.ts`, a new top-level `describe` that
+- [x] **Step 3: Failing socket test** — in `socketServer.test.ts`, a new top-level `describe` that
 starts its own server with `{ allowedOrigins: ['https://box.tail1.ts.net'] }` (same setup shape as
 the first describe):
 
@@ -1277,7 +1277,7 @@ describe('origin check (audit I7)', () => {
 
 Run → FAIL (evil origin connects).
 
-- [ ] **Step 4: Implement in `socketServer.ts`**
+- [x] **Step 4: Implement in `socketServer.ts`**
 
 ```ts
   const { staticDir, adminLoginLimiter = createAttemptLimiter(), allowedOrigins = [] } = options;
@@ -1292,7 +1292,7 @@ Run → FAIL (evil origin connects).
 Add `allowedOrigins?: string[];` to `CreateServerOptions` with a one-line comment pointing at
 `ALLOWED_ORIGINS`. Run → PASS.
 
-- [ ] **Step 5: Failing env tests** — `envConfig.test.ts`
+- [x] **Step 5: Failing env tests** — `envConfig.test.ts`
 
 Add `const BASE = { ADMIN_PASSPHRASE: 'a-good-passphrase' };`, spread it into every existing
 `readEnvConfig({...})` call, and add `host: '127.0.0.1', allowedOrigins: [], adminPassphrase: 'a-good-passphrase'`
@@ -1322,7 +1322,7 @@ to the two existing `toEqual` expectations. New tests:
 
 Run: `npx vitest run src/envConfig.test.ts --root packages/server` → FAIL.
 
-- [ ] **Step 6: Implement in `envConfig.ts`**
+- [x] **Step 6: Implement in `envConfig.ts`**
 
 Add the three fields to `EnvConfig`, and before the `problems.length` check:
 
@@ -1361,7 +1361,7 @@ Add the three fields to `EnvConfig`, and before the `problems.length` check:
 
 Return `{ port, host, reconnectGraceMs, configDefaults, allowedOrigins, adminPassphrase }`. Run → PASS.
 
-- [ ] **Step 7: `index.ts`**
+- [x] **Step 7: `index.ts`**
 
 Delete the `adminPassphrase` block (lines ~31-43, its job moved into `readEnvConfig`). Then:
 
@@ -1377,7 +1377,7 @@ Delete the `adminPassphrase` block (lines ~31-43, its job moved into `readEnvCon
   });
 ```
 
-- [ ] **Step 8: Vite proxy and `.env.example`**
+- [x] **Step 8: Vite proxy and `.env.example`**
 
 `vite.config.ts`: change the target to `` `http://127.0.0.1:${BACKEND_PORT}` `` and add to the comment:
 "127.0.0.1, not localhost: the server binds to 127.0.0.1 by default, and Node may resolve localhost
@@ -1402,12 +1402,12 @@ and add under the optional block:
 # ALLOWED_ORIGINS=
 ```
 
-- [ ] **Step 9: Run everything**
+- [x] **Step 9: Run everything**
 
 Run: `npm test` and `npm run typecheck --workspace=@poker-blackjack/server`
 Expected: PASS.
 
-- [ ] **Step 10: Commit (after the user says yes)**
+- [x] **Step 10: Commit (after the user says yes)**
 
 ```bash
 git add packages/server/src packages/server/.env.example packages/frontend/vite.config.ts

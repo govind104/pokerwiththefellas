@@ -5,6 +5,7 @@ import sirv from 'sirv';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import { normaliseDisplayName } from './names';
 import { createAttemptLimiter, type AttemptLimiter } from './loginLimiter';
+import { isAllowedOrigin } from './originCheck';
 import { Table, type TableConfig, type GameMode, type AppStateView } from './table';
 import type { PlayerStore, IdentityStore } from './playerStore';
 import type { HandLog } from './handLog';
@@ -48,6 +49,8 @@ export interface CreateServerOptions {
   staticDir?: string;
   // Brute-force guard for adminLogin (audit I7). Injectable so tests can drive the lockout clock.
   adminLoginLimiter?: AttemptLimiter;
+  // Extra page origins allowed to connect, beyond the server's own host (index.ts passes ALLOWED_ORIGINS).
+  allowedOrigins?: string[];
 }
 
 // Same "reject malformed payloads before they reach anything durable"
@@ -90,7 +93,7 @@ export async function createServer(
   adminPassphrase: string | undefined,
   options: CreateServerOptions = {}
 ): Promise<CreateServerResult> {
-  const { staticDir, adminLoginLimiter = createAttemptLimiter() } = options;
+  const { staticDir, adminLoginLimiter = createAttemptLimiter(), allowedOrigins = [] } = options;
   if (staticDir) {
     // sirv() walks the directory synchronously at construction time and
     // throws a bare, unhelpful error with no indication of what to do about
@@ -123,7 +126,9 @@ export async function createServer(
   }
   const httpServer = createHttpServer(staticDir ? sirv(staticDir, { single: true }) : undefined);
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-    cors: { origin: '*' },
+    // No `cors` option: socket.io then sends no CORS headers, so a cross-site page can't use
+    // HTTP polling, and allowRequest refuses its WebSocket handshake (audit I7).
+    allowRequest: (req, callback) => callback(null, isAllowedOrigin(req.headers, allowedOrigins)),
   });
 
   const seatBySocketId = new Map<string, number>();
