@@ -5,23 +5,25 @@ import { JsonPlayerStore } from './playerStore';
 import { JsonlHandLog } from './handLog';
 import { JsonGameConfigStore } from './gameConfigStore';
 import { logUnhandledRejections } from './processSafetyNet';
+import { readEnvConfig, type EnvConfig } from './envConfig';
 import type { StaticTableConfig } from './socketServer';
-import type { GameConfigValues } from './gameConfigStore';
 
 logUnhandledRejections();
+
+let envConfig: EnvConfig;
+try {
+  envConfig = readEnvConfig(process.env);
+} catch (err) {
+  console.error((err as Error).message);
+  process.exit(1);
+}
+const { configDefaults } = envConfig;
 
 const staticConfig: StaticTableConfig = {
   // Friend-group-sized table: 6 seats for both game modes.
   seatCount: 6,
-  reconnectGraceMs: Number(process.env.RECONNECT_GRACE_MS ?? 120_000),
+  reconnectGraceMs: envConfig.reconnectGraceMs,
   random: Math.random,
-};
-
-const configDefaults: GameConfigValues = {
-  smallBlind: Number(process.env.SMALL_BLIND ?? 5),
-  bigBlind: Number(process.env.BIG_BLIND ?? 10),
-  blackjackDefaultBet: Number(process.env.BLACKJACK_DEFAULT_BET ?? 25),
-  defaultStartingBalance: Number(process.env.DEFAULT_STARTING_BALANCE ?? 1000),
 };
 
 const gameConfigStore = new JsonGameConfigStore(process.env.GAME_CONFIG_PATH ?? './game-config.json', configDefaults);
@@ -47,7 +49,7 @@ async function main() {
     currentConfig.defaultStartingBalance
   );
   const handLog = new JsonlHandLog(process.env.HAND_LOG_PATH ?? './hand.jsonl');
-  const port = Number(process.env.PORT ?? 3000);
+  const { port } = envConfig;
   const staticDir = process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : undefined;
 
   const { httpServer, io } = await createServer(staticConfig, gameConfigStore, playerStore, handLog, adminPassphrase, {

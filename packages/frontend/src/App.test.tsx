@@ -284,6 +284,22 @@ describe('App', () => {
     });
   });
 
+  it('shows the players why a hand could not start (audit I4)', async () => {
+    window.localStorage.setItem('table.view', '2d');
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState()));
+    });
+    await userEvent.type(screen.getByLabelText(/display name/i), 'alice');
+    await userEvent.click(screen.getByRole('button', { name: /join table/i }));
+    act(() => {
+      handlers.get('state')?.(
+        makeAppState(makeWaitingState({ handStartError: 'The hand could not start: bad blinds' }))
+      );
+    });
+    expect(await screen.findByText('The hand could not start: bad blinds')).toBeInTheDocument();
+  });
+
   describe('double-click protection', () => {
     const STALE_SEQ_ERROR = 'That action has already been handled (the table moved on)';
 

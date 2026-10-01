@@ -83,6 +83,8 @@ export interface TableStateView {
   activeSeatIndex: number | null;
   /** See Table.actionSeq: send it back with each action so a double-click is not applied twice. */
   actionSeq: number;
+  /** Why the last attempt to start a hand failed (e.g. unplayable blinds); null once a hand starts. */
+  handStartError: string | null;
   blackjackRounds: Record<number, BlackjackRoundView> | null;
   holdem: HoldemView | null;
 }
@@ -113,6 +115,8 @@ export class Table {
   blackjackSettledSeats: Set<number> = new Set();
 
   private buttonSeatIndex: number | null = null;
+  // Shown to everyone at the table; without it a failed start looked like a frozen table (audit I4).
+  private handStartError: string | null = null;
   private disconnectTimers: Map<number, NodeJS.Timeout> = new Map();
   private timedOutSeats: Set<number> = new Set();
   private holdemSettled = false;
@@ -162,6 +166,11 @@ export class Table {
     update: Partial<Pick<TableConfig, 'smallBlind' | 'bigBlind' | 'blackjackDefaultBet'>>
   ): void {
     Object.assign(this.config, update);
+    // A new bet can make a ready seat able (or unable) to afford the hand; with nothing to
+    // re-check, the ready players had no button left to press (audit I5).
+    this.startHandIfEveryoneReady().catch((err) => {
+      console.error('Table: error starting hand after a config change:', err);
+    });
   }
 
   private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
@@ -183,8 +192,8 @@ export class Table {
   // all run inside the table lock, so a hand cannot start between the "no hand in
   // progress" check and the write (which used to persist a balance that the hand then
   // overwrote or went negative against).
-  adminSetBalance(displayName: string, balance: number): Promise<void> {
-    return this.runExclusive(async () => {
+  async adminSetBalance(displayName: string, balance: number): Promise<void> {
+    await this.runExclusive(async () => {
       const seat = this.seats.find((s) => s?.displayName === displayName);
       if (!seat) {
         throw new Error(`No player named "${displayName}" is currently seated`);
@@ -195,6 +204,11 @@ export class Table {
       await this.deps.playerStore.setBalance(displayName, balance);
       seat.balance = balance;
       this.deps.onStateChange();
+    });
+    // Same reason as updateConfig: a top-up can make a ready seat eligible (audit I5). Not
+    // awaited, so a failed start is not reported to the admin as a failed balance change.
+    this.startHandIfEveryoneReady().catch((err) => {
+      console.error('Table: error starting hand after an admin balance change:', err);
     });
   }
 
@@ -407,6 +421,7 @@ export class Table {
     this.actionSeq += 1; // a click left over from the previous hand must not land in this one
     this.lastSettledHoldemHand = null;
     this.lastSettledBlackjackRounds = null;
+    const buttonBeforeStart = this.buttonSeatIndex;
 
     // Independent safety net, on top of eligibleSeatsForHand() already
     // removing the one known cause of a throw here: any failure to construct
@@ -452,7 +467,10 @@ export class Table {
       }
     } catch (err) {
       console.error('Table: failed to start hand, reverting to no hand in progress:', err);
+      this.handStartError = `The hand could not start: ${(err as Error).message}`;
       this.handInProgress = false;
+      // A hand that never started must not use up a turn on the button (audit M5).
+      this.buttonSeatIndex = buttonBeforeStart;
       this.holdemHand = null;
       this.blackjackRounds = new Map();
       this.blackjackDealer = null;
@@ -468,10 +486,10 @@ export class Table {
       } catch (clearErr) {
         console.error('Table: failed to clear hand log after a failed hand start:', clearErr);
       }
-      // No broadcast: nothing observable changed from any connected client's
-      // perspective, and no broadcast happened during the failed attempt either.
+      this.deps.onStateChange(); // tell the table why nothing happened
       return;
     }
+    this.handStartError = null;
 
     // When every player is all-in from posting the blinds, nobody can act and the
     // HoldemHand runs the board out to 'settled' inside its constructor. No action will
@@ -934,6 +952,7 @@ export class Table {
       seats,
       activeSeatIndex: this.activeSeatIndex,
       actionSeq: this.actionSeq,
+      handStartError: this.handStartError,
       blackjackRounds,
       holdem,
     };

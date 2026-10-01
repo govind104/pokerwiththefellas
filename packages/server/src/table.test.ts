@@ -2155,6 +2155,91 @@ describe('Table concurrency (audit C3, I1, I2)', () => {
     expect(handLog.entries).toHaveLength(0);
   });
 
+  it('M5: a hand that fails to start does not move the dealer button', async () => {
+    async function firstDealtButton(failFirstStart: boolean): Promise<unknown> {
+      const { table, handLog } = makeTable();
+      const realAppend = handLog.append.bind(handLog);
+      let failNext = failFirstStart;
+      handLog.append = async (entry) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('disk full');
+        }
+        return realAppend(entry);
+      };
+      await table.join('alice');
+      await table.join('bob');
+      await table.join('carol');
+      await table.setReady(0);
+      await table.setReady(1);
+      await table.setReady(2);
+      if (failFirstStart) {
+        expect(table.handInProgress).toBe(false);
+        await table.setReady(0); // retry: everyone is still ready
+      }
+      expect(table.handInProgress).toBe(true);
+      const started = handLog.entries.find((e) => e.type === 'holdem_hand_started') as
+        | { data: { config: { buttonIndex: number } } }
+        | undefined;
+      return started?.data.config.buttonIndex;
+    }
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await firstDealtButton(true)).toBe(await firstDealtButton(false));
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('I4: a hand that fails to start is reported in the table view until a hand starts', async () => {
+    const { table, getStateChangeCount } = makeTable({ smallBlind: 50, bigBlind: 10 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const changesBefore = getStateChangeCount();
+    await table.setReady(1);
+    errorSpy.mockRestore();
+
+    expect(table.handInProgress).toBe(false);
+    expect(getStateChangeCount()).toBe(changesBefore + 2); // the Ready, then the failure
+    expect(table.getStateForSeat(null).handStartError).toMatch(/^The hand could not start: .*blind/i);
+
+    table.updateConfig({ smallBlind: 5 }); // the admin fixes the blinds; the ready check re-runs
+    await wait(10);
+    expect(table.handInProgress).toBe(true);
+    expect(table.getStateForSeat(null).handStartError).toBeNull();
+  });
+
+  it('I5: topping up a ready player who could not afford the hand starts it', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.adminSetBalance('bob', 0);
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(false); // bob is not eligible, so only one player
+
+    await table.adminSetBalance('bob', 500);
+    await wait(10);
+    expect(table.handInProgress).toBe(true);
+  });
+
+  it('I5: lowering the Blackjack bet so a ready player can afford it starts the hand', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.adminSetBalance('bob', 10);
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(false); // bob can't cover the 25 bet
+
+    table.updateConfig({ blackjackDefaultBet: 10 });
+    await wait(10);
+    expect(table.handInProgress).toBe(true);
+  });
+
   it('I2: a hand start already queued on the lock when the table is retired never runs', async () => {
     // What the mode switch relies on: the last Ready can queue a start behind other locked work
     // (here an admin balance write) just before retire() is called.

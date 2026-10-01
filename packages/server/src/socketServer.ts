@@ -434,6 +434,15 @@ export async function createServer(
         rejectAdmin('Blinds must be positive numbers');
         return;
       }
+      if (!Number.isInteger(payload.smallBlind) || !Number.isInteger(payload.bigBlind)) {
+        rejectAdmin('Blinds must be whole numbers');
+        return;
+      }
+      if (payload.smallBlind > payload.bigBlind) {
+        // HoldemHand refuses this pair, so saving it stopped every hand from starting (audit I4).
+        rejectAdmin("The small blind can't be larger than the big blind");
+        return;
+      }
       currentConfig = await gameConfigStore.setConfig({
         smallBlind: payload.smallBlind,
         bigBlind: payload.bigBlind,

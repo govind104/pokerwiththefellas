@@ -183,7 +183,7 @@ function AppContent() {
           table={state.table}
           displayName={displayName}
           connectionStatus={status}
-          errorMessage={errorMessage}
+          errorMessage={errorMessage ?? state.table.handStartError}
           actionPending={actionPending}
           onReady={sendReady}
           onAction={sendAction}

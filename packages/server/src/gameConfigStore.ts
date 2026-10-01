@@ -39,7 +39,8 @@ function sanitize(stored: Partial<GameConfigValues>, filePath: string): Partial<
   for (const key of CONFIG_KEYS) {
     const value = stored[key];
     if (value === undefined) continue;
-    if (isPositiveFiniteNumber(value)) {
+    const isBlind = key === 'smallBlind' || key === 'bigBlind';
+    if (isPositiveFiniteNumber(value) && (!isBlind || Number.isInteger(value))) {
       clean[key] = value;
     } else {
       console.error(
@@ -120,8 +121,22 @@ export class JsonGameConfigStore implements GameConfigStore {
     return { ...this.defaults, ...stored };
   }
 
+  // HoldemHand refuses a small blind above the big blind, so handing out such a pair would
+  // stop every hand from starting (audit I4). Applied only to what callers get back, not to
+  // what setConfig merges with, so the blinds can still be updated one at a time.
+  private withPlayableBlinds(values: GameConfigValues): GameConfigValues {
+    if (values.smallBlind <= values.bigBlind) {
+      return values;
+    }
+    console.error(
+      `GameConfigStore: config file at ${this.filePath} has a small blind (${values.smallBlind}) larger ` +
+        `than the big blind (${values.bigBlind}), using the default blinds instead.`
+    );
+    return { ...values, smallBlind: this.defaults.smallBlind, bigBlind: this.defaults.bigBlind };
+  }
+
   async getConfig(): Promise<GameConfigValues> {
-    return this.enqueue(() => this.getConfigUnqueued());
+    return this.enqueue(async () => this.withPlayableBlinds(await this.getConfigUnqueued()));
   }
 
   async setConfig(update: Partial<GameConfigValues>): Promise<GameConfigValues> {
@@ -131,7 +146,7 @@ export class JsonGameConfigStore implements GameConfigStore {
       const tmpPath = `${this.filePath}.tmp`;
       await writeFile(tmpPath, JSON.stringify(next, null, 2), 'utf-8');
       await rename(tmpPath, this.filePath);
-      return next;
+      return this.withPlayableBlinds(next);
     });
   }
 }

@@ -13,7 +13,7 @@ which docs are kept current and which are historical records.
 `.playtest-data/audit/` (git-ignored, not recoverable: never run `rm -rf .playtest-data`, which
 `scripts/playtest/README.md:15` still says to do).
 
-Done (each test-first; 512 tests green, `npm run typecheck` clean after the IMP-1 commit):
+Done (each test-first; 530 tests green, `npm run typecheck` clean after the I4/I5/M5 commit):
 
 | Commit | Findings | What changed |
 |---|---|---|
@@ -22,6 +22,7 @@ Done (each test-first; 512 tests green, `npm run typecheck` clean after the IMP-
 | `8d7eacd` | C3, I1, I2 | `Table.runExclusive` per-table lock (actions, auto-acts, hand starts, admin balance). `actionSeq` in every view, client sends it back as `seq`, stale ones rejected; frontend `actionPending` disables action buttons. `Table.adminSetBalance` replaces `setSeatBalance`. `Table.retire()` on mode switch. A join that resolves after a switch is dropped. I1 was incomplete; finished by the IMP-1 commit |
 | (C4 commit) | C4 | `adminHandler()` wraps every async admin handler in `socketServer.ts`: a rejection (e.g. EBUSY on a locked config file) becomes `rejectAdmin(message)` plus a server log. `processSafetyNet.ts` logs any other unhandled rejection and keeps the server running (called first in `index.ts`). EPERM/EBUSY `rename` retry not done |
 | (IMP-1 commit) | I1 (review IMP-1, MIN-5) | `SocketContext` keeps `actionPending` true for at least `MIN_ACTION_LOCKOUT_MS` (600 ms) after a click, as well as until a new `actionSeq` arrives, so a double-click whose second click lands after the server reply is still one action. Tests added for a hand start queued on the lock before `retire()` and for the `adminSwitchMode` hand-in-progress re-check |
+| (I4/I5/M5 commit) | I4, I5, M5 | `adminSetBlinds` rejects non-whole blinds and small > big. `JsonGameConfigStore` drops a non-whole stored blind and returns the default blinds if the stored pair is small > big (checked only on returned values, so blinds can still be set one at a time). New `envConfig.ts` reads PORT, RECONNECT_GRACE_MS and the four config defaults strictly; `index.ts` refuses to start on a bad one. `updateConfig` and `adminSetBalance` re-run the ready check. A failed `startHand` restores the dealer button, sets `handStartError` in the table view (cleared when a hand starts) and broadcasts; the frontend shows it in the existing table error slot. AdminPanel has no client-side check for small > big; the server's admin error is shown instead |
 
 Decisions worth knowing:
 - `recoverFromLog` still **voids** (does not pay) a hand that replays to `settled`. After the C1
@@ -47,9 +48,10 @@ Decisions worth knowing:
   - MIN-5 (**fixed**): the two missing tests are added; each was checked to fail with the code it
     guards removed.
 
-**Next step:** §8 item 4, **I4/I5/M5**: validate blinds and env at the edges; re-run the ready
-check after balance and config changes; tell players when a hand fails to start. Then 5 (C5/I7
-identity and exposure), ... MIN-1 to MIN-4 above are still open. Ask before committing; don't push
+**Next step:** §8 item 5, **identity and exposure (C5, I7, I9, M8, M11)**: per-player reconnect
+token, server-sent `mySeatIndex`, name normalisation, `HOST` binding, CORS and Origin check, admin
+rate limit, refuse `change-me`; then update HOSTING.md. This is the biggest item so far: plan it
+before coding. MIN-1 to MIN-4 above are still open. A browser pass over all the fixes is still owed. Ask before committing; don't push
 or merge without asking.
 
 ## Where things stand

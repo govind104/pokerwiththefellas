@@ -23,6 +23,7 @@ export function makeWaitingState(overrides: Partial<TableStateView> = {}): Table
     handInProgress: false,
     activeSeatIndex: null,
     actionSeq: 0,
+    handStartError: null,
     blackjackRounds: null,
     holdem: null,
     seats: [
@@ -67,6 +68,7 @@ export function makeHoldemPreflopState(overrides: Partial<TableStateView> = {}):
     handInProgress: true,
     activeSeatIndex: null,
     actionSeq: 0,
+    handStartError: null,
     blackjackRounds: null,
     holdem,
     seats: [
@@ -169,6 +171,7 @@ export function makeHoldemSettledState(overrides: Partial<TableStateView> = {}):
     handInProgress: true,
     activeSeatIndex: null,
     actionSeq: 0,
+    handStartError: null,
     blackjackRounds: null,
     holdem,
     seats: [
@@ -205,6 +208,7 @@ export function makeBlackjackPlayingState(overrides: Partial<TableStateView> = {
     handInProgress: true,
     activeSeatIndex: 0,
     actionSeq: 0,
+    handStartError: null,
     blackjackRounds,
     holdem: null,
     seats: [makeSeat({ seatIndex: 0, displayName: 'alice', balance: 975 })],

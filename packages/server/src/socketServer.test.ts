@@ -383,6 +383,13 @@ describe('socketServer', () => {
       { event: 'adminSetBlinds', payload: { smallBlind: 5, bigBlind: -10 }, expected: 'Blinds must be positive numbers' },
       { event: 'adminSetBlinds', payload: { smallBlind: 5 }, expected: 'Blinds must be positive numbers' },
       { event: 'adminSetBlinds', payload: undefined, expected: 'Blinds must be positive numbers' },
+      // audit I4: each of these used to be saved, after which no hand could ever start.
+      {
+        event: 'adminSetBlinds',
+        payload: { smallBlind: 50, bigBlind: 10 },
+        expected: "The small blind can't be larger than the big blind",
+      },
+      { event: 'adminSetBlinds', payload: { smallBlind: 0.5, bigBlind: 1 }, expected: 'Blinds must be whole numbers' },
       { event: 'adminSetDefaultBet', payload: { blackjackDefaultBet: 0 }, expected: 'Default bet must be a positive number' },
       { event: 'adminSetDefaultBet', payload: undefined, expected: 'Default bet must be a positive number' },
       {
