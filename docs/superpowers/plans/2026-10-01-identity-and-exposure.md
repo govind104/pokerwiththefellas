@@ -951,7 +951,7 @@ export interface AdminLoginResultPayload {
 // CreateServerOptions gains: adminLoginLimiter?: AttemptLimiter;
 ```
 
-- [ ] **Step 1: Failing limiter tests** — `loginLimiter.test.ts`
+- [x] **Step 1: Failing limiter tests** — `loginLimiter.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -996,7 +996,7 @@ describe('createAttemptLimiter (audit I7)', () => {
 
 Run: `npx vitest run src/loginLimiter.test.ts --root packages/server` → FAIL (module missing).
 
-- [ ] **Step 2: Implement** — `loginLimiter.ts`
+- [x] **Step 2: Implement** — `loginLimiter.ts`
 
 ```ts
 // Brute-force guard for the admin passphrase (audit I7: 5000 wrong guesses were answered in
@@ -1038,7 +1038,7 @@ export function createAttemptLimiter({
 
 Run → PASS.
 
-- [ ] **Step 3: Failing server tests** — in `socketServer.test.ts`. This needs its own server so it
+- [x] **Step 3: Failing server tests** — in `socketServer.test.ts`. This needs its own server so it
 can inject a limiter with a fake clock; add a new top-level `describe` with the same
 `beforeEach`/`afterEach` shape as `describe('socketServer')`, passing
 `{ adminLoginLimiter: createAttemptLimiter({ maxFailures: 3, lockoutMs: 60_000, now: () => clock }) }`
@@ -1087,7 +1087,7 @@ describe('admin login (audit I7, M11)', () => {
 
 Run: `npx vitest run src/socketServer.test.ts --root packages/server` → FAIL.
 
-- [ ] **Step 4: Implement** — `socketServer.ts`
+- [x] **Step 4: Implement** — `socketServer.ts`
 
 Imports: `import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';`,
 `import { createAttemptLimiter, type AttemptLimiter } from './loginLimiter';`.
@@ -1152,13 +1152,13 @@ Replace the `adminLogin` handler:
 
 Update `AdminLoginResultPayload` in protocol.ts as in **Interfaces**.
 
-- [ ] **Step 5: Run and check**
+- [x] **Step 5: Run and check**
 
 Run: `npm test --workspace=@poker-blackjack/server`
 Expected: PASS. Existing tests that assert `adminLoginResult` equals `{ success: true }` exactly
 must change to `toMatchObject({ success: true })` (they are not wrong, the payload grew).
 
-- [ ] **Step 6: Commit (after the user says yes)**
+- [x] **Step 6: Commit (after the user says yes)**
 
 ```bash
 git add packages/server/src

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type CreateServerResult } from './socketServer';
 import { JsonPlayerStore } from './playerStore';
+import { createAttemptLimiter } from './loginLimiter';
 import { JsonlHandLog } from './handLog';
 import { JsonGameConfigStore } from './gameConfigStore';
 import type { PlayerStore, IdentityStore, TokenCheck } from './playerStore';
@@ -1046,5 +1047,74 @@ describe('socketServer admin handlers against a controllable config store (audit
     expect(await rejected).toEqual({ message: "Can't switch modes while a hand is in progress", scope: 'admin' });
     expect(server.getTable()).toBe(holdemTable); // not replaced by a blackjack table
     expect(holdemTable!.handInProgress).toBe(true);
+  });
+});
+
+describe('admin login (audit I7, M11)', () => {
+  let dir: string;
+  let server: CreateServerResult;
+  let port: number;
+  let clients: ClientSocket[];
+  let clock: number;
+
+  beforeEach(async () => {
+    clock = 0;
+    dir = await mkdtemp(join(tmpdir(), 'socket-server-admin-login-test-'));
+    const playerStore = new JsonPlayerStore(join(dir, 'balances.json'), DEFAULT_GAME_CONFIG.defaultStartingBalance);
+    const handLog = new JsonlHandLog(join(dir, 'hand.jsonl'));
+    const gameConfigStore = new JsonGameConfigStore(join(dir, 'game-config.json'), DEFAULT_GAME_CONFIG);
+    server = await createServer(DEFAULT_STATIC_CONFIG, gameConfigStore, playerStore, handLog, ADMIN_PASSPHRASE, {
+      adminLoginLimiter: createAttemptLimiter({ maxFailures: 3, lockoutMs: 60_000, now: () => clock }),
+    });
+    await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
+    port = (server.httpServer.address() as { port: number }).port;
+    clients = [];
+  });
+
+  afterEach(async () => {
+    for (const c of clients) c.disconnect();
+    server.io.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function connect(): ClientSocket {
+    const socket = ioClient(`http://localhost:${port}`, { transports: ['websocket'] });
+    clients.push(socket);
+    return socket;
+  }
+
+  it('locks out after too many wrong passphrases, even for the right one', async () => {
+    const socket = connect();
+    for (let i = 0; i < 3; i++) {
+      socket.emit('adminLogin', { passphrase: 'wrong' });
+      expect(await waitForEvent(socket, 'adminLoginResult')).toEqual({ success: false });
+    }
+    socket.emit('adminLogin', { passphrase: ADMIN_PASSPHRASE });
+    expect(await waitForEvent(socket, 'adminLoginResult')).toEqual({ success: false, retryAfterMs: 60_000 });
+    clock += 60_000;
+    socket.emit('adminLogin', { passphrase: ADMIN_PASSPHRASE });
+    expect(await waitForEvent(socket, 'adminLoginResult')).toMatchObject({ success: true });
+  });
+
+  it('rejects a non-string passphrase without throwing', async () => {
+    const socket = connect();
+    socket.emit('adminLogin', { passphrase: 42 as unknown as string });
+    expect(await waitForEvent(socket, 'adminLoginResult')).toEqual({ success: false });
+  });
+
+  it('a new connection that presents the admin token is admin from its first state', async () => {
+    const first = connect();
+    first.emit('adminLogin', { passphrase: ADMIN_PASSPHRASE });
+    const { adminToken } = await waitForEvent<{ success: boolean; adminToken: string }>(first, 'adminLoginResult');
+    expect(adminToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const second = ioClient(`http://localhost:${port}`, { transports: ['websocket'], auth: { adminToken } });
+    clients.push(second);
+    expect((await waitForEvent<AppStateView>(second, 'state')).isAdmin).toBe(true);
+  });
+
+  it('an unknown admin token gives no admin rights', async () => {
+    const socket = ioClient(`http://localhost:${port}`, { transports: ['websocket'], auth: { adminToken: 'made-up' } });
+    clients.push(socket);
+    expect((await waitForEvent<AppStateView>(socket, 'state')).isAdmin).toBe(false);
   });
 });

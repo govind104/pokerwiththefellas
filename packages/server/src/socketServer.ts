@@ -1,8 +1,10 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { statSync } from 'node:fs';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import sirv from 'sirv';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import { normaliseDisplayName } from './names';
+import { createAttemptLimiter, type AttemptLimiter } from './loginLimiter';
 import { Table, type TableConfig, type GameMode, type AppStateView } from './table';
 import type { PlayerStore, IdentityStore } from './playerStore';
 import type { HandLog } from './handLog';
@@ -44,6 +46,8 @@ export interface CreateServerOptions {
   // (seatCount, reconnectGraceMs, random), and staticDir is purely an
   // HTTP-serving concern with nothing to do with the Table it configures.
   staticDir?: string;
+  // Brute-force guard for adminLogin (audit I7). Injectable so tests can drive the lockout clock.
+  adminLoginLimiter?: AttemptLimiter;
 }
 
 // Same "reject malformed payloads before they reach anything durable"
@@ -66,6 +70,14 @@ function isNonNegativeNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
+// Constant-time, so the reply time doesn't reveal how much of a guess was right (audit I7).
+// Hashing first gives both buffers the same length, which timingSafeEqual requires.
+function passphraseMatches(given: unknown, expected: string): boolean {
+  if (typeof given !== 'string') return false;
+  const digest = (value: string) => createHash('sha256').update(value).digest();
+  return timingSafeEqual(digest(given), digest(expected));
+}
+
 function isGameMode(value: unknown): value is GameMode {
   return value === 'holdem' || value === 'blackjack';
 }
@@ -78,7 +90,7 @@ export async function createServer(
   adminPassphrase: string | undefined,
   options: CreateServerOptions = {}
 ): Promise<CreateServerResult> {
-  const { staticDir } = options;
+  const { staticDir, adminLoginLimiter = createAttemptLimiter() } = options;
   if (staticDir) {
     // sirv() walks the directory synchronously at construction time and
     // throws a bare, unhelpful error with no indication of what to do about
@@ -116,6 +128,10 @@ export async function createServer(
 
   const seatBySocketId = new Map<string, number>();
   const adminSocketIds = new Set<string>();
+  // Admin session tokens, issued on a successful login and sent back by the client in the
+  // handshake `auth` on every (re)connect, so a wifi blip no longer logs the admin out (audit
+  // M11). Memory only: a server restart logs every admin out, which is fine.
+  const adminTokens = new Set<string>();
   let table: Table | null = null;
   let currentMode: GameMode | null = null;
   // Mirrors the config store's current values so every `state` broadcast can
@@ -200,7 +216,13 @@ export async function createServer(
     // A fresh connection needs to see the current lobby/table state
     // immediately, before it does anything -- otherwise the frontend has no
     // way to know whether to show the lobby, a join screen, or a table.
-    socket.emit('state', buildAppStateView(null, null));
+    // A client that reconnects presents its admin token in the handshake; honour it before the
+    // welcome state so isAdmin is already true in the first state it sees (audit M11).
+    const resumeToken: unknown = socket.handshake.auth?.adminToken;
+    if (typeof resumeToken === 'string' && adminTokens.has(resumeToken)) {
+      adminSocketIds.add(socket.id);
+    }
+    socket.emit('state', buildAppStateView(socket.id, null));
 
     socket.on('join', async (payload: JoinPayload) => {
       if (!table) {
@@ -331,14 +353,23 @@ export async function createServer(
     });
 
     socket.on('adminLogin', (payload: AdminLoginPayload) => {
-      const success = !!adminPassphrase && payload?.passphrase === adminPassphrase;
-      if (success) {
-        adminSocketIds.add(socket.id);
+      const clientKey = socket.handshake.address;
+      const retryAfterMs = adminLoginLimiter.retryAfterMs(clientKey);
+      if (retryAfterMs > 0) {
+        socket.emit('adminLoginResult', { success: false, retryAfterMs });
+        return;
       }
-      socket.emit('adminLoginResult', { success });
-      if (success) {
-        broadcast();
+      if (!adminPassphrase || !passphraseMatches(payload?.passphrase, adminPassphrase)) {
+        adminLoginLimiter.recordFailure(clientKey);
+        socket.emit('adminLoginResult', { success: false });
+        return;
       }
+      adminLoginLimiter.recordSuccess(clientKey);
+      adminSocketIds.add(socket.id);
+      const adminToken = randomBytes(32).toString('base64url');
+      adminTokens.add(adminToken);
+      socket.emit('adminLoginResult', { success: true, adminToken });
+      broadcast();
     });
 
     // Every admin handler below rejects through this helper rather than a

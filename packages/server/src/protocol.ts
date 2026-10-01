@@ -41,6 +41,10 @@ export interface AdminLoginPayload {
 
 export interface AdminLoginResultPayload {
   success: boolean;
+  /** On success: send back in the socket.io handshake `auth.adminToken` to stay admin after a reconnect. */
+  adminToken?: string;
+  /** Set when refused because of too many wrong passphrases. */
+  retryAfterMs?: number;
 }
 
 export interface StartGamePayload {
