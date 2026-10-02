@@ -469,6 +469,14 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     leavePendingRef.current = true;
     socketRef.current.emit('leave', (result: LeaveResult) => {
       leavePendingRef.current = false;
+      // Another tab took the seat while this leave was queued: the replaced screen owns the
+      // session now. The ack (a refusal, since this socket no longer holds the seat) must not
+      // forget the name or clear the replaced message, or "Play here instead" (takeOver) has
+      // nothing to rejoin with (audit I11, I9). replacedRef resets on a seated state, join or
+      // takeOver.
+      if (replacedRef.current) {
+        return;
+      }
       // A refusal while the latest state still shows us seated (a hand just started): stay, and
       // say why. A kicked reason is never overwritten by the leave refusal (audit I6).
       if (!result.ok && wasSeatedRef.current) {

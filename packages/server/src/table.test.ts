@@ -2322,6 +2322,35 @@ describe('Table.leave mid-hand and under the lock (audit I11)', () => {
     expect(table.seats[0]?.displayName).toBe('alice');
   });
 
+  it("a Hold'em player who folded mid-hand still cannot leave, keeps the seat, and the loss is settled", async () => {
+    const { table, playerStore } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.setReady(2);
+    expect(table.handInProgress).toBe(true);
+    const seatOf = (name: string) => table.seats.findIndex((s) => s?.displayName === name);
+
+    // Three-handed: the first player to act calls, the small blind folds (5 chips already in),
+    // and the hand carries on between the other two.
+    await table.submitAction(seatOf(table.holdemHand!.actingPlayerId!), 'call');
+    const folder = table.holdemHand!.actingPlayerId!;
+    const folderSeat = seatOf(folder);
+    await table.submitAction(folderSeat, 'fold');
+    expect(table.handInProgress).toBe(true);
+
+    await expect(table.leave(folderSeat)).rejects.toThrow('Cannot leave while a hand you are in is in progress');
+    expect(table.seats[folderSeat]?.displayName).toBe(folder);
+
+    // Finish the hand: the folder's chips are lost at settlement, which needs their seat.
+    await table.submitAction(seatOf(table.holdemHand!.actingPlayerId!), 'fold');
+    expect(table.handInProgress).toBe(false);
+    await expect(playerStore.getBalance(folder)).resolves.toBe(995);
+    await expect(table.leave(folderSeat)).resolves.toBeUndefined();
+  });
+
   it('a leave sent while a hand start is mid-write waits for it, then sees the player is in the hand', async () => {
     const handLog = new ControllableHandLog();
     const config: TableConfig = {

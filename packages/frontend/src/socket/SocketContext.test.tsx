@@ -1084,6 +1084,28 @@ describe('SocketProvider', () => {
       expect(emitted.filter((e) => e.event === 'join')).toEqual([]);
     });
 
+    it('a leave ack that lands after a takeover keeps the replaced screen and the name, so Play here instead still works (I11, I9)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      push('error', { message: 'You opened the game in another tab or device.', code: 'replaced' });
+      answerLeave({ ok: false, message: 'Not seated' });
+
+      // The ack itself leaves the replaced message alone (a state broadcast clears it, as before).
+      expect(screen.getByTestId('status')).toHaveTextContent('replaced');
+      expect(screen.getByTestId('error')).toHaveTextContent('You opened the game in another tab or device.');
+      expect(screen.getByTestId('name')).toHaveTextContent('alice');
+      expect(storedIdentity().lastName).toBe('alice');
+      push('state', makeAppState(makeWaitingState({ seats: [] }), { mySeatIndex: null }));
+      expect(screen.getByTestId('status')).toHaveTextContent('replaced');
+      expect(screen.getByTestId('name')).toHaveTextContent('alice');
+
+      emitted.length = 0;
+      act(() => screen.getByText('take-over').click());
+      expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice', token: 'tok-a' } });
+    });
+
     it('a kicked error message is not overwritten by a later leave ok:false ack', () => {
       storeIdentity('alice', { alice: 'tok-a' });
       renderProvider();
