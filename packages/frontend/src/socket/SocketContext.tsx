@@ -72,6 +72,11 @@ export interface SocketContextValue {
   adminSetStartingBalance: (defaultStartingBalance: number) => void;
   // Frees a name that another player's token holds, so its owner can rejoin without it (audit C5).
   adminReleaseName: (displayName: string) => void;
+  // Unsticking a table (audit I6): free an idle player's seat, act once for whoever is up, and
+  // set the turn clock (seconds, 0 = off).
+  adminKick: (displayName: string) => void;
+  adminForceAct: () => void;
+  adminSetTurnClock: (seconds: number) => void;
   // From the 'replaced' screen: join again with our token, which moves the seat back to this tab.
   takeOver: () => void;
 }
@@ -540,6 +545,25 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     socketRef.current?.emit('adminReleaseName', { displayName: name });
   }
 
+  function adminKick(name: string) {
+    setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
+    socketRef.current?.emit('adminKick', { displayName: name });
+  }
+
+  // Carries the actionSeq the admin saw, like a player's action, so a double-click acts once.
+  function adminForceAct() {
+    setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
+    socketRef.current?.emit('adminForceAct', { seq: latestActionSeqRef.current ?? undefined });
+  }
+
+  function adminSetTurnClock(seconds: number) {
+    setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
+    socketRef.current?.emit('adminSetTurnClock', { seconds });
+  }
+
   const value: SocketContextValue = {
     status,
     state,
@@ -562,6 +586,9 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     adminSetDefaultBet,
     adminSetStartingBalance,
     adminReleaseName,
+    adminKick,
+    adminForceAct,
+    adminSetTurnClock,
     takeOver,
   };
 

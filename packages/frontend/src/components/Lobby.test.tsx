@@ -27,6 +27,9 @@ function renderWithSocket(overrides: Partial<SocketContextValue> = {}) {
     adminSetDefaultBet: vi.fn(),
     adminSetStartingBalance: vi.fn(),
     adminReleaseName: vi.fn(),
+    adminKick: vi.fn(),
+    adminForceAct: vi.fn(),
+    adminSetTurnClock: vi.fn(),
     takeOver: vi.fn(),
     ...overrides,
   };

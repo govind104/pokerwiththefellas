@@ -1470,7 +1470,7 @@ git commit -m "fix(frontend): rejoin after two quick drops, leave on server conf
 - Produces: `SocketContextValue.adminKick(displayName: string): void`, `adminForceAct(): void` and
   `adminSetTurnClock(seconds: number): void`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In every `SocketContextValue` literal in `AdminPanel.test.tsx`, `AdminEntry.test.tsx`,
 `JoinScreen.test.tsx` and `Lobby.test.tsx`, add next to `adminReleaseName: vi.fn(),`:
@@ -1551,12 +1551,12 @@ and add this test inside `describe('unsticking (audit I10, I11, I6)', …)`:
     });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `npx vitest run src/components/AdminPanel.test.tsx src/socket/SocketContext.test.tsx --root packages/frontend`
 Expected: FAIL (missing functions and controls).
 
-- [ ] **Step 3: Implement `SocketContext.tsx`**
+- [x] **Step 3: Implement `SocketContext.tsx`**
 
 In `SocketContextValue`, after `adminReleaseName`, add:
 
@@ -1593,7 +1593,7 @@ After `adminReleaseName()`, add:
 
 and add `adminKick, adminForceAct, adminSetTurnClock,` to the `value` object.
 
-- [ ] **Step 4: Implement `AdminPanel.tsx`**
+- [x] **Step 4: Implement `AdminPanel.tsx`**
 
 Add the three functions to the `useSocket()` destructuring. Add state after `releaseName`:
 
@@ -1690,7 +1690,7 @@ The force-act button's accessible name is "Act for alice". The existing test's
 `getByLabelText(/select player/i)` matches only the balance select, because the new one is labelled
 "Player to remove".
 
-- [ ] **Step 5: Run the tests and typecheck**
+- [x] **Step 5: Run the tests and typecheck**
 
 Run: `npm test --workspace=@poker-blackjack/frontend` then `npm run typecheck`
 Expected: all PASS, typecheck clean.

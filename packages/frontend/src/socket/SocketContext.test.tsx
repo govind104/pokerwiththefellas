@@ -53,6 +53,9 @@ function TestConsumer() {
     adminAdjustBalance,
     adminNoticeMessage,
     adminReleaseName,
+    adminKick,
+    adminForceAct,
+    adminSetTurnClock,
     takeOver,
   } = useSocket();
   return (
@@ -71,6 +74,9 @@ function TestConsumer() {
       <p data-testid="adminNotice">{adminNoticeMessage ?? 'none'}</p>
       <button onClick={() => takeOver()}>take-over</button>
       <button onClick={() => adminReleaseName('bob')}>admin-release</button>
+      <button onClick={() => adminKick('bob')}>admin-kick</button>
+      <button onClick={() => adminForceAct()}>admin-force</button>
+      <button onClick={() => adminSetTurnClock(30)}>admin-clock</button>
     </div>
   );
 }
@@ -962,6 +968,20 @@ describe('SocketProvider', () => {
   });
 
   describe('unsticking (audit I10, I11, I6)', () => {
+    it('sends the admin unsticking events, force-act with the latest actionSeq', () => {
+      renderProvider();
+      push('state', makeAppState(makeHoldemPreflopState({ actionSeq: 7 }), { isAdmin: true }));
+      emitted.length = 0;
+      act(() => screen.getByText('admin-kick').click());
+      act(() => screen.getByText('admin-force').click());
+      act(() => screen.getByText('admin-clock').click());
+      expect(emitted).toEqual([
+        { event: 'adminKick', payload: { displayName: 'bob' } },
+        { event: 'adminForceAct', payload: { seq: 7 } },
+        { event: 'adminSetTurnClock', payload: { seconds: 30 } },
+      ]);
+    });
+
     it('rejoins after a second drop that lands before the first rejoin was answered (I10)', () => {
       storeIdentity('alice', { alice: 'tok-a' });
       renderProvider();
