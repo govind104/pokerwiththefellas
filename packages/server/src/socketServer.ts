@@ -18,6 +18,7 @@ import type {
   AdminLoginPayload,
   StartGamePayload,
   ReleaseNamePayload,
+  LeaveResult,
 } from './protocol';
 
 export interface StaticTableConfig {
@@ -132,6 +133,8 @@ export async function createServer(
   });
 
   const seatBySocketId = new Map<string, number>();
+  // Sockets with a `leave` waiting on the table lock (audit I11).
+  const leavingSocketIds = new Set<string>();
   const adminSocketIds = new Set<string>();
   // Admin session tokens, issued on a successful login and sent back by the client in the
   // handshake `auth` on every (re)connect, so a wifi blip no longer logs the admin out (audit
@@ -185,6 +188,20 @@ export async function createServer(
       socket.emit('state', buildAppStateView(socketId, seatBySocketId.get(socketId) ?? null));
     }
   };
+
+  // No socket may stay mapped to a seat that is being freed: its next state would point it at an
+  // empty seat (the leaver's table stayed on screen), or at whoever sits down there next. Called
+  // inside the table lock, just before the broadcast that shows the seat empty.
+  function unmapSeat(seatIndex: number): string[] {
+    const unmapped: string[] = [];
+    for (const [socketId, mappedSeat] of seatBySocketId) {
+      if (mappedSeat === seatIndex) {
+        seatBySocketId.delete(socketId);
+        unmapped.push(socketId);
+      }
+    }
+    return unmapped;
+  }
 
   function createTable(config: TableConfig): Table {
     return new Table(config, { playerStore, handLog, onStateChange: broadcast });
@@ -348,17 +365,44 @@ export async function createServer(
       }
     });
 
-    socket.on('leave', async () => {
+    socket.on('leave', async (ack?: (result: LeaveResult) => void) => {
+      const reply = typeof ack === 'function' ? ack : undefined;
+      // A client that asked for an answer gets it in the ack only; one that didn't (the playtest
+      // bots, older pages) gets the error event as before.
+      const fail = (message: string) => {
+        if (reply) {
+          reply({ ok: false, message });
+        } else {
+          socket.emit('error', { message });
+        }
+      };
       const seatIndex = seatBySocketId.get(socket.id);
-      if (seatIndex === undefined || !table) {
-        socket.emit('error', { message: 'Not seated' });
+      const leavingTable = table;
+      if (seatIndex === undefined || !leavingTable) {
+        fail('Not seated');
         return;
       }
+      // The seat index above was read before waiting for the table lock. A second leave from this
+      // socket would carry the same index, and by the time it ran someone else could have sat in
+      // that seat and be freed in the leaver's place (audit I11).
+      if (leavingSocketIds.has(socket.id)) {
+        fail('Already leaving');
+        return;
+      }
+      leavingSocketIds.add(socket.id);
       try {
-        await table.leave(seatIndex);
-        seatBySocketId.delete(socket.id);
+        await leavingTable.leave(seatIndex, () => {
+          // A mode switch while we waited for the lock cleared the map; the same index may
+          // now belong to someone at the new table.
+          if (table === leavingTable) {
+            unmapSeat(seatIndex);
+          }
+        });
+        reply?.({ ok: true });
       } catch (err) {
-        socket.emit('error', { message: (err as Error).message });
+        fail((err as Error).message);
+      } finally {
+        leavingSocketIds.delete(socket.id);
       }
     });
 

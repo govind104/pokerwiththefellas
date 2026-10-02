@@ -77,11 +77,15 @@ export interface SetStartingBalancePayload {
   defaultStartingBalance: number;
 }
 
+// The answer to `leave` (audit I11): the client forgets its name only once the server has freed
+// the seat, because a hand can start between the click and the server seeing it.
+export type LeaveResult = { ok: true } | { ok: false; message: string };
+
 export interface ClientToServerEvents {
   join: (payload: JoinPayload) => void;
   ready: () => void;
   action: (payload: ActionPayload) => void;
-  leave: () => void;
+  leave: (ack?: (result: LeaveResult) => void) => void;
   adminLogin: (payload: AdminLoginPayload) => void;
   adminStartGame: (payload: StartGamePayload) => void;
   adminSwitchMode: (payload: StartGamePayload) => void;

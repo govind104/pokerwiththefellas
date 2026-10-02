@@ -321,7 +321,7 @@ git commit -m "fix(server): leave runs under the table lock; seats not in the ha
   - `socketServer.ts` (inside `createServer`): `function unmapSeat(seatIndex: number): string[]`,
     which returns the socket ids it unmapped. Task 3 uses it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add inside the top-level `describe('socketServer', …)` block in
 `packages/server/src/socketServer.test.ts`:
@@ -379,14 +379,14 @@ Add inside the top-level `describe('socketServer', …)` block in
   });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run src/socketServer.test.ts --root packages/server -t "audit I11"`
 Expected: FAIL. The first test fails on `mySeatIndex` being 0 or the ack never arriving (the
 `emitWithAck` timeout), the second on the ack. The third may already pass; check it fails with the
 `fail` fallback removed in Step 3.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `packages/server/src/protocol.ts`, add above `ClientToServerEvents`:
 
@@ -456,7 +456,7 @@ Replace the whole `socket.on('leave', …)` handler with:
     });
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npm test --workspace=@poker-blackjack/server` then `npm run typecheck`
 Expected: all PASS, typecheck clean. The frontend still compiles because its `emit('leave')` passes
