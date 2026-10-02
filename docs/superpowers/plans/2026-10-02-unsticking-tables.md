@@ -297,7 +297,7 @@ handler, change `table.leave(seatIndex);` to the code below. Task 2 replaces thi
 Run: `npm test --workspace=@poker-blackjack/server` then `npm run typecheck`
 Expected: all PASS, typecheck clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/server/src/table.ts packages/server/src/table.test.ts packages/server/src/socketServer.ts docs/superpowers/plans/2026-10-02-unsticking-tables.md
@@ -462,7 +462,7 @@ Run: `npm test --workspace=@poker-blackjack/server` then `npm run typecheck`
 Expected: all PASS, typecheck clean. The frontend still compiles because its `emit('leave')` passes
 no ack, which the optional parameter allows.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/server/src/protocol.ts packages/server/src/socketServer.ts packages/server/src/socketServer.test.ts docs/superpowers/plans/2026-10-02-unsticking-tables.md
@@ -846,7 +846,7 @@ after the `adminReleaseName` handler:
 Run: `npm test --workspace=@poker-blackjack/server` then `npm run typecheck`
 Expected: all PASS, typecheck clean.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/server/src docs/superpowers/plans/2026-10-02-unsticking-tables.md
@@ -1217,7 +1217,7 @@ then `npm run typecheck`.
 Expected: all PASS, typecheck clean. If typecheck names another `AppStateView` literal, add
 `turnClockSeconds: 0` there.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/server/src packages/frontend/src/fixtures/tableStateFixtures.ts docs/superpowers/plans/2026-10-02-unsticking-tables.md
@@ -1448,7 +1448,7 @@ Run: `npm test --workspace=@poker-blackjack/frontend` then `npm run typecheck`
 Expected: all PASS, typecheck clean. The integration tests in `src/integration/` run against a real
 server and must still pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/socket docs/superpowers/plans/2026-10-02-unsticking-tables.md
@@ -1695,7 +1695,7 @@ The force-act button's accessible name is "Act for alice". The existing test's
 Run: `npm test --workspace=@poker-blackjack/frontend` then `npm run typecheck`
 Expected: all PASS, typecheck clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src docs/superpowers/plans/2026-10-02-unsticking-tables.md
