@@ -4,7 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { TABLE_Y, type SceneModel } from '../sceneModel';
+import { TABLE_Y, feltPrintKey, type SceneModel } from '../sceneModel';
 import { fitCamera } from '../cameraFit';
 import { CardObject } from './cards';
 import { ChipStackObject } from './chips';
@@ -82,6 +82,7 @@ export class SceneRoot {
   private sweeping = new Set<CardObject>();
   private chips = new Map<string, ChipStackObject>();
   private raf = 0;
+  private feltKey = '';
   private disposed = false;
   private width = 1;
   private height = 1;
@@ -203,6 +204,12 @@ export class SceneRoot {
 
     const origin = model.kind === 'blackjack' ? BJ_DEAL_POS : DECK_POS;
     const sweepTo = model.kind === 'blackjack' ? BJ_DISCARD_POS : MUCK_POS;
+
+    const feltKey = feltPrintKey(model.felt);
+    if (feltKey !== this.feltKey) {
+      this.room.setFeltPrint(model.felt);
+      this.feltKey = feltKey;
+    }
 
     // Cards.
     const keep = new Set<string>();

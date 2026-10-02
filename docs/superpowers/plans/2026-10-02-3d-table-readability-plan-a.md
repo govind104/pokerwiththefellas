@@ -1959,7 +1959,8 @@ Added 2026-10-02 after Gate 1: the user judged the two Blackjack boxes clutter (
 - [x] **Step 4: Commit** `feat(3d): remove the dealing shoe and discard tray (Gate 1 decision)`.
 
 Task 6 Step 5's anchor changes accordingly: add the felt-print block in `apply` right after the `const sweepTo = ...` line (the `setMode` call it used to follow is gone).
-n---
+
+---
 
 ### Task 6: Printed felt
 
@@ -1974,7 +1975,7 @@ n---
 - Consumes: `FeltPrint`, `feltPrintKey` (Task 4); `recordingContext` (Task 5); `TABLE_A`, `TABLE_B`, `BOARD_STEP`, `BOARD_Z` (Task 1).
 - Produces: `FELT_TEX_W`, `FELT_TEX_H`, `FELT_INK`, `BET_RING_R`, `BETTING_LINE_FACTOR`, `BLACKJACK_LINES`, `feltPx(x, z): [number, number]`, `interface FeltBase { image: CanvasImageSource; width: number; height: number; repeat: [number, number] }`, `paintFelt(ctx, base, print): void`; `printedFeltTexture(base: THREE.CanvasTexture, print: FeltPrint): THREE.CanvasTexture`; `Room.setFeltPrint(print: FeltPrint): void`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/frontend/src/three/engine/feltPrint.test.ts`:
 
@@ -2033,12 +2034,12 @@ describe('paintFelt', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run src/three/engine/feltPrint.test.ts --root packages/frontend`
 Expected: FAIL, "Failed to resolve import './feltPrint'".
 
-- [ ] **Step 3: Write the painter**
+- [x] **Step 3: Write the painter**
 
 Create `packages/frontend/src/three/engine/feltPrint.ts`:
 
@@ -2152,11 +2153,11 @@ function arcText(ctx: CanvasRenderingContext2D, line: ArcLine): void {
 }
 ```
 
-- [ ] **Step 4: Run the painter tests**
+- [x] **Step 4: Run the painter tests**
 
 Run: `npx vitest run src/three/engine/feltPrint.test.ts --root packages/frontend` → PASS.
 
-- [ ] **Step 5: Texture, room and scene wiring**
+- [x] **Step 5: Texture, room and scene wiring**
 
 In `packages/frontend/src/three/engine/textures.ts` add the imports
 ```ts
@@ -2211,11 +2212,11 @@ In `packages/frontend/src/three/engine/SceneRoot.ts`:
     }
   ```
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `npm test` and `npm run typecheck` → green.
 
-- [ ] **Step 7: Commit (controller, after the user says yes)**
+- [x] **Step 7: Commit (controller, after the user says yes)**
 
 ```bash
 git add packages/frontend/src/three/engine/feltPrint.ts packages/frontend/src/three/engine/feltPrint.test.ts packages/frontend/src/three/engine/textures.ts packages/frontend/src/three/engine/room.ts packages/frontend/src/three/engine/SceneRoot.ts docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md

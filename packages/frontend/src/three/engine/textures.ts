@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { Card } from '@poker-blackjack/game-engine';
+import type { FeltPrint } from '../sceneModel';
 import { FACE_PAPER, drawCardFace, glyphSupported } from './cardFace';
+import { FELT_TEX_H, FELT_TEX_W, paintFelt } from './feltPrint';
 
 // Every texture is generated on a canvas at startup (seeded, so it looks the same every run). No image downloads.
 
@@ -114,6 +116,18 @@ export function feltTexture(seed = 3): THREE.CanvasTexture {
     }
   }
   return tex(c, { repeat: [3, 2] });
+}
+
+// The printed felt for one seat layout, mapped across the felt ellipse with UV = metres and clamped.
+export function printedFeltTexture(base: THREE.CanvasTexture, print: FeltPrint): THREE.CanvasTexture {
+  const [c, ctx] = canvas(FELT_TEX_W, FELT_TEX_H);
+  const image = base.image as HTMLCanvasElement;
+  paintFelt(ctx, { image, width: image.width, height: image.height, repeat: [base.repeat.x, base.repeat.y] }, print);
+  const t = tex(c);
+  t.repeat.set(1 / 2.4, 1 / 1.7);
+  t.offset.set(0.5, 0.5);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
 }
 
 export function plankTexture(seed = 11, tint = '#3a2616'): THREE.CanvasTexture {

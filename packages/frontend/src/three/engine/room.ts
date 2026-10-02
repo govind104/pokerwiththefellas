@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { TABLE_A, TABLE_B, TABLE_Y } from '../sceneModel';
-import { feltTexture, plankTexture, rng, softDotTexture, woodTexture } from './textures';
+import { TABLE_A, TABLE_B, TABLE_Y, type FeltPrint } from '../sceneModel';
+import { feltTexture, plankTexture, printedFeltTexture, rng, softDotTexture, woodTexture } from './textures';
 
 const LAMP_POS = new THREE.Vector3(0, 2.3, -0.05);
 
@@ -18,6 +18,9 @@ export class Room {
   private dust: THREE.Points;
   private dustSeeds: Float32Array;
   private baseSpot = 22;
+  private feltBase = feltTexture();
+  private feltMat = new THREE.MeshStandardMaterial({ map: this.feltBase, roughness: 0.96 });
+  private printedFelt: THREE.CanvasTexture | null = null;
 
   constructor() {
     const g = this.group;
@@ -117,11 +120,10 @@ export class Room {
     // --- Table ---------------------------------------------------------
     const woodTex = woodTexture('#4a2f1c', 7, [1, 1]);
     const woodMat = new THREE.MeshStandardMaterial({ map: woodTex, color: 0xb09a86, roughness: 0.66, metalness: 0 });
-    const feltMat = new THREE.MeshStandardMaterial({ map: feltTexture(), roughness: 0.96 });
 
     const feltGeo = new THREE.ShapeGeometry(ellipseShape(TABLE_A, TABLE_B), 72);
     feltGeo.rotateX(-Math.PI / 2);
-    const felt = new THREE.Mesh(feltGeo, feltMat);
+    const felt = new THREE.Mesh(feltGeo, this.feltMat);
     felt.position.y = TABLE_Y;
     felt.receiveShadow = true;
 
@@ -182,6 +184,15 @@ export class Room {
       }),
     );
     g.add(this.dust);
+  }
+
+  // Called only when the seat layout changes, i.e. between hands (spec §A5).
+  setFeltPrint(print: FeltPrint): void {
+    const next = printedFeltTexture(this.feltBase, print);
+    this.feltMat.map = next;
+    this.feltMat.needsUpdate = true;
+    this.printedFelt?.dispose();
+    this.printedFelt = next;
   }
 
   setQuality(q: 'low' | 'medium' | 'high'): void {
