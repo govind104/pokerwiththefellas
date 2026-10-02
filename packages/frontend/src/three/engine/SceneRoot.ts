@@ -8,7 +8,7 @@ import { TABLE_Y, type SceneModel } from '../sceneModel';
 import { fitCamera } from '../cameraFit';
 import { CardObject } from './cards';
 import { ChipStackObject } from './chips';
-import { Room, SHOE_POS, TRAY_POS } from './room';
+import { Room } from './room';
 import { SoundStage } from './audio';
 import { Tweens, easeInOutCubic } from './tween';
 
@@ -60,7 +60,11 @@ const GradeShader = {
   `,
 };
 
-// Hold'em has no shoe: cards come from a deck in the middle and are mucked to the far side.
+// Where cards are dealt from and swept to. Nothing is drawn at these points: the Blackjack shoe and
+// discard tray were removed as clutter at Gate 1 (plan A deviation 8), so Blackjack cards come from
+// beside the dealer's right hand and go to the left. Hold'em deals from the middle and mucks far side.
+const BJ_DEAL_POS = new THREE.Vector3(0.62, TABLE_Y + 0.03, -0.55);
+const BJ_DISCARD_POS = new THREE.Vector3(-0.62, TABLE_Y + 0.01, -0.55);
 const DECK_POS = new THREE.Vector3(0, TABLE_Y + 0.03, -0.3);
 const MUCK_POS = new THREE.Vector3(0, TABLE_Y + 0.01, -0.62);
 
@@ -197,9 +201,8 @@ export class SceneRoot {
     const now = this.time;
     if (this.nextDealAt < now) this.nextDealAt = now;
 
-    this.room.setMode(model.kind);
-    const origin = model.kind === 'blackjack' ? SHOE_POS : DECK_POS;
-    const sweepTo = model.kind === 'blackjack' ? TRAY_POS : MUCK_POS;
+    const origin = model.kind === 'blackjack' ? BJ_DEAL_POS : DECK_POS;
+    const sweepTo = model.kind === 'blackjack' ? BJ_DISCARD_POS : MUCK_POS;
 
     // Cards.
     const keep = new Set<string>();

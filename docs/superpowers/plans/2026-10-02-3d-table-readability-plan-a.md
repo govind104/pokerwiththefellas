@@ -17,7 +17,7 @@
 - HUD-safe zones (fractions of the viewport from its top-left, 16:9 reference): players bottom-left 25% wide × 32% tall; table panel top-right 26% × 20%; actions bottom-right 15% × 26%.
 - Card faces: parchment `#e4d5ad` plus the existing `age()` pass; red `#a3221b`, black `#1b1410`; rank in bold Georgia; symbol font stack `"Segoe UI Symbol", "Noto Sans Symbols 2", "Apple Symbols", serif`; a missing glyph falls back to the letter. Faces are drawn synchronously (no SVG load).
 - Felt print: 2048×1451 canvas, `repeat (1/2.4, 1/1.7)`, `offset (0.5, 0.5)`, clamped; canvas pixel for world (x, z) is `((x + 1.2) / 2.4 · W, (z + 0.85) / 1.7 · H)`. Ink `rgba(232, 205, 140, 0.5)`, Georgia.
-- Unchanged: the 2D view (`components/Card.tsx` keeps its SVGs), card backs, the shoe and tray, the room shell. The projected 3D name plates, pot label and outcome labels stay until Plan B.
+- Unchanged: the 2D view (`components/Card.tsx` keeps its SVGs), card backs, the room shell. (The shoe and tray were removed after Gate 1: deviation 8.) The projected 3D name plates, pot label and outcome labels stay until Plan B.
 - Out of scope: the room, the 2D view, phones (the 3D view only opens at ≥ 900 px wide), the HUD and showdown highlight (Plan B).
 - Every task is test-first where a test is possible. When a new test passes at once (coverage for code that already works), temporarily remove the code it guards, watch it fail, then restore it. WebGL code (`SceneRoot`, `room`) has no unit tests: it is checked by typecheck, the full suite, and the gates.
 - Commands (repo root): all tests `npm test`; frontend only `npm test --workspace=@poker-blackjack/frontend`; one file `npx vitest run <path relative to packages/frontend> --root packages/frontend`; typecheck `npm run typecheck`. Both must be green at every commit.
@@ -36,6 +36,7 @@ The spec says its tuned values are "starting points, settled at Gate 1". A numer
 5. **Property test scope.** A split with 4-card hands is tested at 2–5 players; at 6 players the split is tested with 2-card hands. At 6 players a split into 3+-card hands cannot fit (0.15 m cards, ~0.55 m between seats): those cards may touch a neighbour's. Rare; noted in HANDOFF.
 6. **Hold'em betting line at 0.61 of the felt (spec ~0.68).** At 0.68 it would run under the hole cards now that hands sit at 0.76.
 7. **Turn light glide is exponential** (time constant 0.12 s, 95% there in ≈ 0.36 s) rather than a fixed 0.4 s tween, so a retarget mid-glide never jumps.
+8. **No dealing shoe or discard tray** (user decision at Gate 1, 2026-10-02): the two Blackjack boxes were clutter. Cards are still dealt from and swept to the same points beside the dealer, with nothing drawn there (Task 5b).
 
 ## File map
 
@@ -1944,6 +1945,22 @@ git commit -m "feat(3d): big-index card faces drawn on the card canvas (spec A4)
 
 ---
 
+### Task 5b: Remove the dealing shoe and discard tray (user decision at Gate 1)
+
+Added 2026-10-02 after Gate 1: the user judged the two Blackjack boxes clutter (deviation 8). Small, controller-implemented; no unit test (WebGL), checked by typecheck, the suite, the grep below and Gate 2.
+
+**Files:**
+- Modify: `packages/frontend/src/three/engine/room.ts` (delete the shoe and tray meshes, `dealerProps`, `setMode`, `SHOE_POS`, `TRAY_POS`)
+- Modify: `packages/frontend/src/three/engine/SceneRoot.ts` (Blackjack deal and discard points move here as `BJ_DEAL_POS` / `BJ_DISCARD_POS`, same coordinates; drop the `setMode` call)
+
+- [x] **Step 1:** In `room.ts` delete `SHOE_POS`, `TRAY_POS`, the `dealerProps` field, the `// Dealing shoe and discard tray.` block and the `setMode` method with its comment.
+- [x] **Step 2:** In `SceneRoot.ts` import only `Room` from `./room`; next to `DECK_POS`/`MUCK_POS` add `BJ_DEAL_POS = (0.62, TABLE_Y + 0.03, -0.55)` and `BJ_DISCARD_POS = (-0.62, TABLE_Y + 0.01, -0.55)` with a comment that no shoe or tray is drawn (deviation 8); delete `this.room.setMode(model.kind);` and use the new names for `origin` / `sweepTo`.
+- [x] **Step 3: Verify.** `npm run typecheck` clean; `npm test --workspace=@poker-blackjack/frontend` green; `git grep -n -E "SHOE_POS|TRAY_POS|dealerProps|setMode\(model" -- packages/frontend/src` no matches.
+- [x] **Step 4: Commit** `feat(3d): remove the dealing shoe and discard tray (Gate 1 decision)`.
+
+Task 6 Step 5's anchor changes accordingly: add the felt-print block in `apply` right after the `const sweepTo = ...` line (the `setMode` call it used to follow is gone).
+n---
+
 ### Task 6: Printed felt
 
 **Files:**
@@ -2185,7 +2202,7 @@ In `packages/frontend/src/three/engine/room.ts`:
 In `packages/frontend/src/three/engine/SceneRoot.ts`:
 - Change the model import to `import { TABLE_Y, feltPrintKey, type SceneModel } from '../sceneModel';`.
 - Add a field `private feltKey = '';`.
-- In `apply`, right after `this.room.setMode(model.kind);`, add:
+- In `apply`, right after the `const sweepTo = ...` line, add (the `setMode` call it used to follow was removed in Task 5b):
   ```ts
     const feltKey = feltPrintKey(model.felt);
     if (feltKey !== this.feltKey) {

@@ -2,9 +2,6 @@ import * as THREE from 'three';
 import { TABLE_A, TABLE_B, TABLE_Y } from '../sceneModel';
 import { feltTexture, plankTexture, rng, softDotTexture, woodTexture } from './textures';
 
-export const SHOE_POS = new THREE.Vector3(0.62, TABLE_Y + 0.03, -0.55);
-export const TRAY_POS = new THREE.Vector3(-0.62, TABLE_Y + 0.01, -0.55);
-
 const LAMP_POS = new THREE.Vector3(0, 2.3, -0.05);
 
 function ellipseShape(a: number, b: number): THREE.Shape {
@@ -21,7 +18,6 @@ export class Room {
   private dust: THREE.Points;
   private dustSeeds: Float32Array;
   private baseSpot = 22;
-  private dealerProps = new THREE.Group();
 
   constructor() {
     const g = this.group;
@@ -158,23 +154,6 @@ export class Room {
     pedestal.position.y = (TABLE_Y - 0.2) / 2;
     g.add(felt, rail, skirt, pedestal);
 
-    // Dealing shoe and discard tray.
-    const shoe = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.08, 0.11),
-      new THREE.MeshStandardMaterial({ color: 0x1a110a, roughness: 0.5 }),
-    );
-    shoe.position.copy(SHOE_POS);
-    shoe.rotation.y = -0.25;
-    shoe.castShadow = true;
-    const tray = new THREE.Mesh(
-      new THREE.BoxGeometry(0.2, 0.02, 0.13),
-      new THREE.MeshStandardMaterial({ color: 0x241a12, roughness: 0.4, metalness: 0.4 }),
-    );
-    tray.position.copy(TRAY_POS);
-    tray.receiveShadow = true;
-    this.dealerProps.add(shoe, tray);
-    g.add(this.dealerProps);
-
     // --- Atmosphere ----------------------------------------------------
     const N = 260;
     const pos = new Float32Array(N * 3);
@@ -203,11 +182,6 @@ export class Room {
       }),
     );
     g.add(this.dust);
-  }
-
-  // The shoe and discard tray belong to Blackjack only.
-  setMode(kind: 'blackjack' | 'holdem'): void {
-    this.dealerProps.visible = kind === 'blackjack';
   }
 
   setQuality(q: 'low' | 'medium' | 'high'): void {
