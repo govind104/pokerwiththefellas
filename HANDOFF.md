@@ -90,35 +90,52 @@ fix re-review approved). Remaining:
    steps 16-17 (share the machine with a friend; tests the "share, don't invite" advice), then
    remove the "Not yet tested" note in `docs/HOSTING.md`, check its free-plan user-limit claim,
    and tick step 6 in the plan.
-2. **3D table readability and look: design done (2026-10-02), implementation next.** It started
-   as "the camera is too low" and grew in brainstorming, with the user comparing renders at each
-   step. Spec: `docs/superpowers/specs/2026-10-02-3d-table-readability-design.md`, on branch
+2. **3D table readability and look: Plan A (3D scene) done 2026-10-02; Plan B (HUD and showdown) next.**
+   It started as "the camera is too low" and grew in brainstorming, with the user comparing renders
+   at each step. Spec: `docs/superpowers/specs/2026-10-02-3d-table-readability-design.md`, on branch
    `feat/3d-table-readability`. The approved look is `.playtest-data/camera-heights/v3-review.html`
    (git-ignored, local-only; the prototype code is copied beside the spec).
    - **Design summary:** a fixed three-quarter camera with computed framing; no figures, props or
      visible lamp; seats spread by rail distance; a centred board; big-index faces; printed felt;
-     a turn light; a 2D HUD; and a showdown highlight.
-   - **Split:** Plan A (3D scene) then Plan B (HUD and showdown).
-   - **Plan A written (2026-10-02):** `docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md`
-     (8 tasks plus Gates 1 and 2). Its "Deviations from the spec"
-     section changes some spec values after a numeric prototype of the A1 property test: hand
-     ellipse 0.76 Hold'em / 0.72 Blackjack, Blackjack seats up to 120° round, crowded fans close
-     up to a 0.06 m step, Hold'em betting line 0.61. One accepted limitation: at 6 Blackjack
-     players a split into 3+-card hands can touch a neighbour's cards.
-   - **Plan A Tasks 1-7 and Gates 1-2 done (2026-10-02)**, commits `5769598`..`becaf82` plus the
-     checkpoint commit after them; 296 frontend tests green, typecheck clean. Both gates were
-     approved by the user with no layout or lighting changes. At Gate 1 the user had the Blackjack
-     shoe and discard tray removed as clutter (Task 5b, deviation 8; cards still deal from and
-     sweep to the same empty points). Gate 2's contrast script didn't work as written; it was
-     measured with cards hidden instead (deviation 9; all shots pass, lowest 2.42). Shots and
-     findings: `.playtest-data/plan-a-gates/gate1|gate2/` (git-ignored).
-   - **Next: Plan A Task 8** (the last task): update this item, then the final whole-branch
-     review on **opus** of `master..feat/3d-table-readability` against spec §5 and the plan, with
-     "no findings" stated as valid. Build its package with the SDD skill's
-     `scripts/review-package $(git merge-base master HEAD) HEAD`. Point the reviewer at the
-     Minor findings in `.superpowers/sdd/progress.md` under "Plan A" to triage. Task 5b was
-     controller-implemented and has had no task review, so name it. Then one sonnet fix
-     subagent for all findings, re-reviewed on opus. Then `superpowers:finishing-a-development-branch`.
+     a turn light; a 2D HUD; and a showdown highlight. Split: Plan A (3D scene), then Plan B.
+   - **Plan A done:** `docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md`, commits
+     `5769598`..`6b2949d` plus the docs commit after them (base `2cd30d4`). Tests: 321 frontend,
+     133 game-engine and 278 server pass, and typecheck is clean.
+     - **Gates:** the user approved both gates with no layout or lighting changes. At Gate 1 the user
+       had the Blackjack shoe and discard tray removed (deviation 8). Gate 2's contrast was measured
+       with cards hidden (deviation 9; lowest 2.42). Shots: `.playtest-data/plan-a-gates/` (git-ignored).
+     - **Settled values (the plan's Deviations 1-10):**
+       - hand ellipse 0.76 Hold'em / 0.72 Blackjack;
+       - Blackjack seats spread up to 120°;
+       - crowded fans close up to a 0.06 m step;
+       - Hold'em betting line at 0.61;
+       - an exponential turn-light glide;
+       - **no turn light on the dealer** (deviation 10: the server never sends a dealer-playing phase).
+     - **Known limitation (deviation 5):** at 6 Blackjack players, a split into hands of 3+ cards can
+       touch a neighbour's cards.
+   - **Final review** (opus, `.superpowers/sdd/planA-final-review.md`, fixes re-reviewed in
+     `planA-final-rereview.md`), fixed in `6b2949d`:
+     - stale name plates;
+     - between hands (no hand, or every round settled) all seated players are laid out, per spec §A1.
+       Before, a broke or newly joined player had no seat until dealt in;
+     - waiting cards lie on the felt;
+     - the Hold'em deck point moved off the pot and bets (`layout.ts` `DECK_SPOT`, property-tested);
+     - the render save-server refuses non-localhost origins.
+   - **Expect at playtest:** a seated player who sits a hand out (not ready, broke, or disconnected at
+     the deal) makes the table re-flow twice a hand. It re-flows at the settle (in Blackjack, while
+     the dealer's cards are still being revealed) and back at the next deal. This follows from the
+     §A1 fix. Revisit it in Plan B if it looks bad.
+   - **Deferred follow-ups (not blocking):**
+     - a `Room.dispose()` that frees the room textures, the ~12 MB printed felt and `feltBase`;
+     - `cameraFit.ts` `frameOutline` hands out mutable cached Vector3s;
+     - give the Hold'em dev-harness steps real pots;
+     - the Blackjack discard point touches the outer-left 6-player seat's cards for a moment when they
+       are swept;
+     - the harness "Dealer reveals" step and one model test still use the `phase: 'dealer'` state,
+       which the server never sends (harmless).
+   - **Next: Plan B** (HUD and showdown, spec §6). Write its plan first (`superpowers:writing-plans`).
+     The HUD is sized to `three/hudZones.ts`. Plan B removes the projected name plates, pot label and
+     outcome labels.
    - Loop used (keep it): the controller extracts briefs (`.superpowers/sdd/planA-task-N-brief.md`),
      implementers don't commit, the controller packages the working tree with `wt-package.sh`, a
      sonnet reviewer reads `.superpowers/sdd/planA-reviewer-instructions.md`, and the binding

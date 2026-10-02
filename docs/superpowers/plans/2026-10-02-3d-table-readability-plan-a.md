@@ -38,6 +38,7 @@ The spec says its tuned values are "starting points, settled at Gate 1". A numer
 7. **Turn light glide is exponential** (time constant 0.12 s, 95% there in ≈ 0.36 s) rather than a fixed 0.4 s tween, so a retarget mid-glide never jumps.
 8. **No dealing shoe or discard tray** (user decision at Gate 1, 2026-10-02): the two Blackjack boxes were clutter. Cards are still dealt from and swept to the same points beside the dealer, with nothing drawn there (Task 5b).
 9. **Gate 2 contrast measured with cards and chips hidden** (2026-10-02). The Gate 2 script's metric returned no value on 4 of 7 shots: the cards cover the whole 0.1 m pool, and lit felt is warm (r > g), so it fails the green-dominance test. Measured instead with the card and chip groups hidden for one unsaved frame, no green test on the pool, surround pixels luminance >= 8. Every turn-light shot passed at the untuned values (turn light 110, exposure 1.05, uplight 3.2): lowest 2.42 (dealer), highest 3.98. Approved by the user.
+10. **No turn light on the dealer** (decided by the user at the final review, 2026-10-02). The server never exposes a dealer-playing phase: the dealer plays and settles in one synchronous step and the full dealer hand is only sent once settled, so spec §A6's "or the dealer's cards" is unreachable. The light fades off the last player while the client reveals the dealer's cards.
 
 ## File map
 
@@ -57,7 +58,7 @@ The spec says its tuned values are "starting points, settled at Gate 1". A numer
 | `packages/frontend/src/three/sceneModel.ts` / `pokerModel.ts` | modify | Use `layout.ts`; `plate`, `turnLight`, `felt` fields; drop angles/bodies/figure fields |
 | `packages/frontend/src/three/sceneModel.test.ts` / `pokerModel.test.ts` / `Poker3D.test.tsx` | modify | Follow the model changes |
 | `packages/frontend/src/three/TableStage.tsx` | modify | Plates only for seats with a `plate` |
-| `packages/frontend/src/three/devHarness.tsx` | modify | Steps for 2/3/6 players, splits, acting seats, the dealer |
+| `packages/frontend/src/three/devHarness.tsx` | modify | Steps for 2/3/6 players, splits, acting seats (the dealer step was dropped with deviation 10) |
 | `packages/frontend/src/three/testCanvas.ts` | create | Recording 2D context for painter tests |
 | `packages/frontend/src/three/engine/cardFace.ts` (+ `.test.ts`) | create | Big-index face painter and glyph check |
 | `packages/frontend/src/three/engine/cards.ts` | modify | `setCard(card)` without the load callback |
@@ -2395,9 +2396,9 @@ Spec §7 gate 2, after A4–A6.
 - Modify: `HANDOFF.md`
 - Modify: this plan (tick the boxes; settled values in "Deviations")
 
-- [ ] **Step 1:** Update `HANDOFF.md` "Next step" item 2: Plan A done (commit range, gate results, settled values, the 6-player split limitation from deviation 5); next is Plan B (HUD and showdown), which sizes its HUD to `three/hudZones.ts` and removes the projected plates, pot and outcome labels.
-- [ ] **Step 2:** Final whole-branch review (model: opus) of `master..feat/3d-table-readability` against the spec §5 and this plan, with "no findings" stated as a valid result. Fix what it finds (sonnet implementer, opus re-review).
-- [ ] **Step 3: Commit (controller, after the user says yes)**
+- [x] **Step 1:** Update `HANDOFF.md` "Next step" item 2: Plan A done (commit range, gate results, settled values, the 6-player split limitation from deviation 5); next is Plan B (HUD and showdown), which sizes its HUD to `three/hudZones.ts` and removes the projected plates, pot and outcome labels.
+- [x] **Step 2:** Final whole-branch review (model: opus) of `master..feat/3d-table-readability` against the spec §5 and this plan, with "no findings" stated as a valid result. Fix what it finds (sonnet implementer, opus re-review).
+- [x] **Step 3: Commit (controller, after the user says yes)**
 
 ```bash
 git add HANDOFF.md docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md
