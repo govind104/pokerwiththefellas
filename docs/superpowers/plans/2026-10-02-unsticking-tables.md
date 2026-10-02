@@ -1710,7 +1710,7 @@ git commit -m "feat(frontend): admin panel can remove a player, act for whoever 
 - Modify: `docs/HOSTING.md` (the "Someone's phone died" troubleshooting entry, around line 141; add an entry)
 - Modify: `HANDOFF.md` ("Next steps" item 1; the audit progress table)
 
-- [ ] **Step 1: Update `docs/HOSTING.md`**
+- [x] **Step 1: Update `docs/HOSTING.md`**
 
 At the end of the "Someone's phone died / they closed the tab and came back later" entry, replace
 `the seat itself is theirs until they explicitly leave.` with:
@@ -1734,7 +1734,7 @@ Add a new entry directly after it:
     yet.
 ```
 
-- [ ] **Step 2: Full verification**
+- [x] **Step 2: Full verification**
 
 Run, from the repo root:
 - `npm test --workspace=@poker-blackjack/server`
@@ -1745,7 +1745,7 @@ Run, from the repo root:
 Expected: all green; record the three test counts (they were 278 server, 321 frontend and 133
 game-engine before this item).
 
-- [ ] **Step 3: Browser check (delegate to a subagent; never from the main thread)**
+- [x] **Step 3: Browser check (delegate to a subagent; never from the main thread)**
 
 On an isolated server (port 3100, `.playtest-data/run/` data dir; see HANDOFF's safe playtest data
 path), with up to four browser tabs (admin, alice, bob, cara), confirm and write the results
@@ -1759,7 +1759,7 @@ to `.playtest-data/run/item6-browser-check.md`:
 4. Admin sets the turn clock to 10 → the player who is up is acted for after about 10 s; set back to 0.
 5. Console clean in every tab.
 
-- [ ] **Step 4: Update `HANDOFF.md`**
+- [x] **Step 4: Update `HANDOFF.md`**
 
 - In "Next steps", mark item 1 done (one line: what shipped, plus the commit range). Item 2,
   Plan B, becomes next. Add to Plan B's "things to check": "show the turn clock countdown
@@ -1769,7 +1769,7 @@ to `.playtest-data/run/item6-browser-check.md`:
 - Under "Decisions worth knowing", add the "chosen without the user" list from this plan's Global
   Constraints.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/HOSTING.md HANDOFF.md docs/superpowers/plans/2026-10-02-unsticking-tables.md

@@ -147,7 +147,18 @@ the host's machine (`packages/server/balances.json`, `game-config.json`,
   auto-checks/auto-folds (Poker) or auto-stands (Blackjack) for them when
   it is their turn and a short grace window (`RECONNECT_GRACE_MS`, 2
   minutes by default) has passed, so the table isn't stuck waiting, but
-  the seat itself is theirs until they explicitly leave.
+  the seat itself is theirs until they leave or the admin removes them (next entry).
+- **The table is waiting on someone who isn't playing** (never clicked Ready, walked away mid-hand,
+  or a seat left behind by a closed browser): open the **Admin panel**.
+  - **Remove from table** frees their seat. Mid-hand, they fold or stand from then on and the seat
+    is freed when the hand ends. They keep their name and balance, and can sit down again by typing
+    their name.
+  - **Act for <name>** folds (or checks, when there is nothing to call) or stands for whoever the
+    table is waiting on, once.
+  - **Turn clock** (seconds, 0 = off) does the same automatically for any player who takes longer
+    than that on a turn. It starts counting from the next turn, so for a player who is already
+    stuck use **Act for <name>** once. It resets to off when the server restarts, and players see
+    no countdown yet.
 - **Upgrading the server while a Blackjack hand is on disk:** the hand log
   format changed when Blackjack moved to one shared shoe. If the server is
   stopped mid-hand on the old version and restarted on the new one, the old

@@ -5,19 +5,24 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 (see "After Plan 6" below). Start here if you're new to this repo; `docs/README.md` says
 which docs are kept current and which are historical records.
 
-## Next steps (updated 2026-10-02, after Plan A merged)
+## Next steps (updated 2026-10-02, after audit item 6)
 
-`master` holds audit items 1-5 (PR #14) and 3D readability Plan A (PR #15, merge `6959bb5`).
-Work on a branch and merge through a PR. This list is the order to work in. The sections below
-hold the detail.
+`master` holds audit items 1-5 (PR #14), 3D readability Plan A (PR #15) and audit item 6
+(unsticking tables, merged from `audit/item6-unsticking-tables`). Work on a branch and merge
+through a PR. This list is the order to work in. The sections below hold the detail.
 
-1. **Audit fix item 6, "unsticking tables" (I6, I11, I10)** on branch `audit/item6-unsticking-tables`.
-   It comes first because I6 is a real-play blocker: one idle, connected player stalls the table
-   forever. **The plan is written and approved (2026-10-02):**
-   `docs/superpowers/plans/2026-10-02-unsticking-tables.md` (7 tasks). Execute it with
-   `superpowers:subagent-driven-development`. Detail and the loop are in "Next step" item 3 below.
-2. **3D readability Plan B (HUD and showdown, spec §6).** Brainstorm the 2D-view decision below
-   first. Detail and things to check at its gate are in "Next step" item 2 below.
+1. ~~Audit fix item 6, "unsticking tables" (I6, I11, I10)~~ **Done 2026-10-02**: admin Remove from
+   table / Act for / turn clock, server-confirmed leave, rejoin after two quick drops. Commits
+   `ec704cf`..the item-6 docs commit; detail in the audit progress table and "Next step" item 3.
+2. **3D readability Plan B (HUD and showdown, spec §6).** Next. Brainstorm the 2D-view decision below
+   first. Detail and things to check at its gate are in "Next step" item 2 below. Also from item 6:
+   - show the turn clock countdown (`turnClockSeconds` is in every state; the server sends no
+     deadline yet);
+   - decide whether Leave shows mid-hand for a player who isn't dealt in (the server allows it
+     since item 6);
+   - the admin panel grew with item 6's forms and, at a short window (800x450), runs off the top of
+     the screen with no way to scroll to it ("Switch to Blackjack" unreachable). Fix the panel's
+     scrolling with the HUD work.
 3. **The rest of the audit, in the report's §8 order:**
    - **I3:** idempotent Hold'em settlement on recovery, together with the MIN-1/MIN-2 lock races.
    - **Short stacks (I8, M1, M3, M24):** the call-for-less offered as an all-in, integer chips,
@@ -62,6 +67,7 @@ Done (each test-first; 530 tests green after the I4/I5/M5 commit, 625 after item
 | (IMP-1 commit) | I1 (review IMP-1, MIN-5) | `SocketContext` keeps `actionPending` true for at least `MIN_ACTION_LOCKOUT_MS` (600 ms) after a click, as well as until a new `actionSeq` arrives, so a double-click whose second click lands after the server reply is still one action. Tests added for a hand start queued on the lock before `retire()` and for the `adminSwitchMode` hand-in-progress re-check |
 | (I4/I5/M5 commit) | I4, I5, M5 | `adminSetBlinds` rejects non-whole blinds and small > big. `JsonGameConfigStore` drops a non-whole stored blind and returns the default blinds if the stored pair is small > big (checked only on returned values, so blinds can still be set one at a time). New `envConfig.ts` reads PORT, RECONNECT_GRACE_MS and the four config defaults strictly; `index.ts` refuses to start on a bad one. `updateConfig` and `adminSetBalance` re-run the ready check. A failed `startHand` restores the dealer button, sets `handStartError` in the table view (cleared when a hand starts) and broadcasts; the frontend shows it in the existing table error slot. AdminPanel has no client-side check for small > big; the server's admin error is shown instead |
 | `d441e73`, `4d7e0a0`, `9b5ed95`, `26722a7`, `2ce54f2`, `3743b85`, `ab7c244`, `ad2d938`, `be44565` | C5, I7, I9, M8, M11 (item 5) | **A name now belongs to one browser.** Names are normalised (`names.ts`: case-insensitive, at most 32 characters, invisible characters removed). `balances.json` is a v2 file (old one copied to `balances.json.v1-backup`): per name a balance plus `sha256(token)`. The first join under a tokenless name is issued a 32-byte token (`identity` event); the client keeps it in localStorage (`poker-blackjack:identity`) and sends it with every `join`. `playerStore.checkToken` runs before any seating, so a wrong token gets `code: 'name-claimed'`. The server sends `mySeatIndex` in each socket's state and the client trusts it instead of matching names (I9). A join with the right token takes over a seat still held by another socket (old one gets `code: 'replaced'` and shows "Play here instead"). The admin's **Release a name** forgets the token and keeps the balance. Admin login: 5 wrong passphrases → 60 s lockout per address; the admin session token is memory-only on the server and in sessionStorage (`poker-blackjack:adminToken`), so admin rights survive a reconnect (M11). The server binds `HOST` (default `127.0.0.1`), checks `Origin` against Host / X-Forwarded-Host / `ALLOWED_ORIGINS` (a missing Origin is allowed), and refuses a passphrase that is unset, `change-me` or under 8 characters (I7). `docs/HOSTING.md` now documents Tailscale Serve; the playtest bots keep their token. Final-review fixes (`be44565`): a browser that blocks storage keeps its token in memory for the tab's life; a socket that drops mid-join no longer kicks the tab holding the seat; the v1 migration and the client's token lookup both use the normalised name |
+| `ec704cf`, `52503dc`, `d7b6c21`, `2819540`, `fb8acbf`, `6aa0748`, plus the final-review fix and docs commits | I6, I10, I11, M30 (item 6) | **Unsticking tables.** `Table.leave` runs inside the table lock; a seat not dealt into the hand may leave mid-hand (a folded player may not: losses settle at the end). `leave` is acknowledged (`LeaveResult`); `unmapSeat` runs inside the lock before the broadcast, so no socket stays mapped to a freed seat (this was the "table stayed on screen after Leave" bug). Admin **Remove from table** (`adminKick`): frees a seat now, or for a player in the hand times them out, defaults every turn and frees the seat after payouts; a rejoin during the hand cancels it; the browser gets `code: 'kicked'`, forgets its last name, keeps its token. **Act for <name>** (`adminForceAct`) applies the default action once, guarded by `actionSeq`. **Turn clock** (`adminSetTurnClock`, 0 or 10-600 s, memory only) applies the default action on every turn; cleared on hand end, retire and when set to 0. Client: `joinInFlightRef` and the pending leave reset on disconnect (I10); the name is dropped only on a confirmed leave. Beyond the plan: a second `leave` while one is pending gets 'Already leaving', and `Table.leave`'s `stillOwnsSeat` re-checks ownership inside the lock (both closed races where a stale seat index freed another player). Tests 317 server, 338 frontend, 133 game-engine. Browser check 5/5 (`.playtest-data/run/item6-browser-check.md`) |
 
 Decisions worth knowing:
 - `recoverFromLog` still **voids** (does not pay) a hand that replays to `settled`. After the C1
@@ -83,6 +89,27 @@ Decisions worth knowing:
   least 8 characters; names at most 32 characters and case-insensitive, a v1 case collision keeps
   the larger balance; a missing Origin is allowed; markup-like names still accepted (escaping was
   verified safe).
+- Item 6, chosen without the user (2026-10-02; they may override):
+  - Remove from table is admin-only, by name; not a ban (the player can sit down again by typing
+    their name, balance kept); mid-hand they are timed out and the seat is freed after payouts.
+  - Act for uses the disconnect grace timer's default action (check if nothing to call, else fold;
+    stand in Blackjack) and carries `actionSeq`.
+  - Turn clock: whole seconds, 0 = off (default) or 10-600, server memory only (a restart turns it
+    off), applies to every turn, no countdown UI yet; it starts counting from the next turn, not
+    the one already running.
+  - Leave is confirmed by a socket.io ack; a `leave` with no ack callback (bots, older pages) still
+    gets an `error` event on failure.
+- Item 6, decided with the user (2026-10-02): a refused leave (`ok: false`) whose latest state
+  already shows the client unseated (a mode switch or removal landed first) counts as left: forget
+  the name, keep the token, show the join screen, no rejoin. Exception: a seat taken over by
+  another tab (`replaced`) keeps the name so "Play here instead" still works.
+- Item 6 deferred Minors (final review `.superpowers/sdd/item6-final-review.md`, ledger
+  `.superpowers/sdd/progress.md` "Item 6", both git-ignored): a removal racing a mode switch
+  reports success but does nothing; a leave ack lost to a disconnect after the unseated state
+  arrived lets the reconnect rejoin; a failed clock default action leaves that turn unclocked;
+  some real-timer tests have thin (30-50 ms) margins; a few untested branches (the Blackjack "Act
+  for" name, the between-hands `handInProgress` guard in AdminPanel); the turn clock field shows no
+  10-600 hint and loses the typed value when the server refuses it.
 - Item 5 known limitations, deferred by the final review with the user's agreement (2026-10-01):
   - **DNS rebinding** passes the Host-matching Origin check. Low risk: the server binds 127.0.0.1,
     so only a browser on the host machine can reach it, and a rebound page gets no token or admin
@@ -100,8 +127,9 @@ Decisions worth knowing:
     socket that disconnected during the write (admin release recovers it).
 - Browser pass (Task 9 step 5, 2026-10-01, `.playtest-data/audit/browser-pass-item5.md`): item 5's
   checklist 11/11 PASS on an isolated server (port 3100), console clean, listens on 127.0.0.1 only.
-  Items 1-4 were covered only by one blackjack hand played to settlement. Not yet investigated:
-  after "Leave table" with the admin panel open, the table stayed on screen until a reload.
+  Items 1-4 were covered only by one blackjack hand played to settlement. "After Leave table the
+  table stayed on screen until a reload" was fixed by item 6 (the leaver's socket is now unmapped
+  before the broadcast) and confirmed in item 6's browser check.
 - One Opus review of `8d7eacd` ran (findings: `.playtest-data/audit/review-8d7eacd.md`). It found
   no deadlock path and no wrongly-stale action, but:
   - IMP-1 (Important, **fixed**): on a LAN the server's reply landed between the two clicks of a
@@ -186,31 +214,24 @@ fix re-review approved). Remaining:
      context. Pages that load images are served with `scripts/render/static-server.cjs`, because the browser
      pane won't load `file://` subresources. Reload the page between runs, since patches
      don't stack.
-3. **Then §8 item 6, "unsticking tables" (I6, I11, I10):** I6 admin kick and force-act plus an
-   optional turn clock (an idle connected player stalls the table forever); I11 leave racing a hand
-   start (the client drops its identity before the server confirms, so the server keeps the seat);
-   I10 `joinInFlightRef` surviving a disconnect (two quick drops leave the player on
-   "Reconnecting…").
-   - **Plan:** `docs/superpowers/plans/2026-10-02-unsticking-tables.md`, approved by the user with
-     no changes. Its Global Constraints list the decisions made without the user: kick semantics,
-     a turn clock (0 = off, else 10-600 s, memory only, no countdown UI), force-act guarded by
-     `actionSeq`, and leave confirmed by an ack. Tasks 1-4 are server, 5-6 client, and 7 is docs,
-     the browser check and this handoff.
-   - **Probable root cause of the "Leave table with the admin panel open" observation:** the
-     server's `leave` handler broadcasts (from inside `table.leave`) *before* it deletes the socket's
-     seat mapping, so the leaver's last state has `mySeatIndex` pointing at the now-empty seat and
-     the client stays `at-table`. It came in with item 5's I9, and the admin panel is incidental.
-     Plan Task 2's first test should fail on current code to confirm it.
-   - **Models (suggested):** Sonnet implementers for Tasks 1-4, the server concurrency and timer
-     work. Haiku can implement Tasks 5-6, whose briefs carry complete code; use Sonnet if a brief
-     needs judgement. Sonnet per-task reviewers, escalating to Opus at a 2nd review round. Opus for
-     the final whole-branch review. Task 7's browser check goes to a subagent with a findings file
-     (`.playtest-data/run/item6-browser-check.md`).
-   - **Loop:** the same as Plan A (below): briefs in `.superpowers/sdd/item6-task-N-brief.md`,
-     reports in `item6-task-N-report.md`, and review packages from
-     `bash .superpowers/sdd/wt-package.sh .superpowers/sdd/item6-review-task-N.diff`. Write the
-     reviewers' constraints file `item6-global-constraints.md` from the plan's Global Constraints.
-     Commit after each clean review without asking. Don't push or open a PR without asking.
+3. **§8 item 6, "unsticking tables" (I6, I11, I10): done 2026-10-02.** What shipped is in the audit
+   progress table; decisions are under "Decisions worth knowing".
+   - **Plan:** `docs/superpowers/plans/2026-10-02-unsticking-tables.md` (all 7 tasks ticked).
+   - **Confirmed root cause of "the table stayed on screen after Leave":** the server's `leave`
+     handler broadcast before it deleted the socket's seat mapping, so the leaver's last state
+     pointed at the now-empty seat. Task 2's first test failed on the old code, as expected.
+   - **Reviews:** per-task Sonnet reviews (Task 5 escalated to Opus at round 2; it took two fix
+     rounds), Opus final review `.superpowers/sdd/item6-final-review.md` ("with fixes": M-A replaced
+     leave ack, M-C folded-player test; both fixed and re-reviewed "ready to merge").
+   - **Browser check:** `.playtest-data/run/item6-browser-check.md`, 5/5 PASS plus rejoin, on the
+     `play-item6` launch config (port 3100, data in `.playtest-data/run/item6/`). Tip from it: tabs
+     on one origin share the localStorage identity, so a third player needs its `lastName` reset in
+     storage (the pane blocked a third origin).
+   - **Loop used** (same as Plan A, keep it): briefs `.superpowers/sdd/item6-task-N-brief.md`,
+     reports `item6-task-N-report.md`, packages from `wt-package.sh`, and one shared reviewer
+     instructions file `item6-reviewer-instructions.md`, so each reviewer dispatch only names paths
+     and risks. Haiku was fine for transcribing a complete-code brief but not for a fix round that
+     needed judgement; use Sonnet for fixes.
 
 - How this session ran the loop (keep it for item 6): implementers are told **not** to
   `git add`/commit; the controller builds the review package from the working tree with
@@ -226,7 +247,7 @@ fix re-review approved). Remaining:
   a literal escape with Edit/Bash. Build the backslash with `String.fromCharCode(92)` in a script
   and check bytes with `od -c`, not by reading the file back.
 
-Still open after item 5: MIN-1 to MIN-4 above, and the item-5 known limitations above. Ask before committing; don't push or merge without asking.
+Still open after item 6: MIN-1 to MIN-4 above, the item-5 known limitations and the item-6 deferred Minors above. In SDD, commit after a clean review without asking; ask before pushing, opening a PR or merging unless the user has said to.
 
 ## Where things stand
 
