@@ -1237,7 +1237,7 @@ git commit -m "feat(server): admin force-act and an optional turn clock (audit I
 - Produces: `leave()` keeps its signature. It now waits for the ack, and a second call while one is
   pending does nothing (this also fixes M30's double-click).
 
-- [ ] **Step 1: Update the two existing leave tests for the ack**
+- [x] **Step 1: Update the two existing leave tests for the ack**
 
 In `SocketContext.test.tsx`, add `import type { LeaveResult } from '@poker-blackjack/server/src/protocol';`
 and this helper after `storedIdentity()`:
@@ -1264,7 +1264,7 @@ In `'leave() while no hand is in progress emits leave and clears the session'`, 
 In `'leave forgets the last name and keeps the token'` (identity block), add
 `answerLeave({ ok: true });` after the `leave` click.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Add inside `describe('SocketProvider', …)`:
 
@@ -1345,13 +1345,13 @@ Add inside `describe('SocketProvider', …)`:
   });
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `npx vitest run src/socket/SocketContext.test.tsx --root packages/frontend`
 Expected: the new tests FAIL (no join on the second reconnect; the leave payload is not a function;
 the kicked message is cleared by the next state), and the two edited tests FAIL on the ack.
 
-- [ ] **Step 4: Implement in `SocketContext.tsx`**
+- [x] **Step 4: Implement in `SocketContext.tsx`**
 
 Add `LeaveResult` to the `@poker-blackjack/server/src/protocol` type import.
 
@@ -1442,7 +1442,7 @@ Replace `leave()` with:
   }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npm test --workspace=@poker-blackjack/frontend` then `npm run typecheck`
 Expected: all PASS, typecheck clean. The integration tests in `src/integration/` run against a real
