@@ -44,7 +44,7 @@ export class Room {
     g.add(this.fill);
 
     // Low warm bounce off the felt. It was tuned to light the seated figures' faces, which are gone;
-    // Gate 2 retunes it with the turn light on screen (spec §A3, §A6).
+    // the value was settled at Gate 2 with the turn light on screen (spec §A3, §A6).
     this.uplight = new THREE.PointLight(0xffb060, 3.2, 5.5, 1.5);
     this.uplight.position.set(0, TABLE_Y + 0.22, -0.1);
     g.add(this.uplight);

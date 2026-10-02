@@ -100,13 +100,6 @@ const STEPS: Step[] = [
   { label: '6 players, edna acts', count: 6, inProgress: true, active: 4, rounds: allRounds(6, MINE, 'playing', null) },
   { label: 'Split, your turn', count: 4, inProgress: true, active: 0, rounds: allRounds(4, SPLIT, 'playing', null) },
   { label: 'Split, 4-card hands', count: 4, inProgress: true, active: 0, rounds: allRounds(4, SPLIT_LONG, 'playing', null) },
-  {
-    label: '6 players, dealer plays',
-    count: 6,
-    inProgress: true,
-    active: null,
-    rounds: allRounds(6, MINE_HIT, 'dealer', [c('K', 'spades'), c('7', 'hearts')]),
-  },
 ];
 
 type P = HoldemView['players'][number];

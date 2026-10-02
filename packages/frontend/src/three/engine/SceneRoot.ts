@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { TABLE_Y, feltPrintKey, type SceneModel, type Vec2 } from '../sceneModel';
+import { DECK_SPOT } from '../layout';
 import { fitCamera } from '../cameraFit';
 import { CardObject } from './cards';
 import { ChipStackObject } from './chips';
@@ -63,14 +64,19 @@ const GradeShader = {
 
 // Where cards are dealt from and swept to. Nothing is drawn at these points: the Blackjack shoe and
 // discard tray were removed as clutter at Gate 1 (plan A deviation 8), so Blackjack cards come from
-// beside the dealer's right hand and go to the left. Hold'em deals from the middle and mucks far side.
-const BJ_DEAL_POS = new THREE.Vector3(0.62, TABLE_Y + 0.03, -0.55);
+// beside the dealer's right hand and go to the left. Hold'em deals from DECK_POS and mucks far side.
+// Cards wait at the deal points until their turn, so those lie on the felt (just above its
+// surface, to avoid z-fighting) rather than hovering over bare table where the shoe used to be.
+// DECK_POS (layout.ts DECK_SPOT) is off-axis on the dealer side, clear of the pot, the board and every
+// bet spot (the far-centre seat's bets sit on the z axis at 2, 4 and 6 players), so waiting cards never
+// pass through chips; the layout property test checks it for 2 to 6 players.
+const BJ_DEAL_POS = new THREE.Vector3(0.62, TABLE_Y + 0.01, -0.55);
 const BJ_DISCARD_POS = new THREE.Vector3(-0.62, TABLE_Y + 0.01, -0.55);
-const DECK_POS = new THREE.Vector3(0, TABLE_Y + 0.03, -0.3);
+const DECK_POS = new THREE.Vector3(DECK_SPOT.x, TABLE_Y + 0.01, DECK_SPOT.z);
 const MUCK_POS = new THREE.Vector3(0, TABLE_Y + 0.01, -0.62);
 
 // One shadowless spot on the acting seat, including your own (spec §A6), replacing the camera lean.
-// 5x the lamp (room.ts baseSpot 22) from the prototype's Hold'em frame; Gate 2 settles it.
+// 5x the lamp (room.ts baseSpot 22) from the prototype's Hold'em frame; settled at Gate 2.
 export const TURN_LIGHT_INTENSITY = 110;
 const TURN_LIGHT_HEIGHT = 2.0;
 
@@ -251,7 +257,7 @@ export class SceneRoot {
         obj = created;
         created.setCard(slot.card);
         created.setFaceUpImmediate(false);
-        created.placeAt({ x: origin.x, y: origin.y + 0.03, z: origin.z, rotY: 0.6 });
+        created.placeAt({ x: origin.x, y: origin.y, z: origin.z, rotY: 0.6 });
         this.scene.add(created.group);
         this.cards.set(slot.key, created);
         const delay = this.nextDealAt - now;
@@ -284,7 +290,7 @@ export class SceneRoot {
         if (moved) obj.moveTo(target, { duration: 0.35, delay: 0, arc: 0.03 });
       }
     }
-    // Cards no longer in play get swept to the discard tray.
+    // Cards no longer in play get swept to the discard point.
     for (const [key, obj] of this.cards) {
       if (keep.has(key)) continue;
       this.cards.delete(key);

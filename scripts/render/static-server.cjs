@@ -1,4 +1,4 @@
-// Scratch helper: serves one folder (default file hud-sketch.html) on 127.0.0.1:3198 so the in-app browser can load its images.
+// Dev-only render helper for the visual gates (see HANDOFF): serves one folder (default file hud-sketch.html) on 127.0.0.1:3198 so the in-app browser can load its images.
 // Usage: node scripts/render/static-server.cjs <folder>
 const http=require('http'),fs=require('fs'),path=require('path');const root=process.argv[2];
 const types={'.html':'text/html; charset=utf-8','.png':'image/png','.md':'text/plain; charset=utf-8','.svg':'image/svg+xml','.js':'text/javascript; charset=utf-8'};

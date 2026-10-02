@@ -131,7 +131,12 @@ export function TableStage({
     scene.onFrame = (project) => {
       for (const [key, el] of plateEls.current) {
         const a = anchors.current.get(key);
-        if (!a) continue;
+        if (!a) {
+          // No anchor means the seat has no place on the table right now: hide the plate, or it
+          // would stay frozen at its last position.
+          el.style.visibility = 'hidden';
+          continue;
+        }
         const p = project(a.x, a.y, a.z);
         // Keep plates on screen even when their seat is around the edge of the view.
         const x = Math.min(Math.max(p.x, 70), Math.max(70, wrap.clientWidth - 70));

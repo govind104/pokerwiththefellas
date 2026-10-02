@@ -91,8 +91,8 @@ export interface SceneModel {
   outcomes: OutcomeLabel[];
   hasRound: boolean;
   myTurn: boolean;
-  // Where the turn light points (spec §A6): the acting player's cards, or the dealer's while the
-  // dealer plays. Null when nobody is acting.
+  // Where the turn light points (spec §A6): the acting player's cards. Null when nobody is acting;
+  // there is no dealer case because the server never exposes a dealer-playing phase (deviation 10).
   turnLight: Vec2 | null;
   felt: FeltPrint;
 }
@@ -176,11 +176,15 @@ export function buildSceneModel(input: SceneInput): SceneModel {
   const seated = seats.filter((s) => s.displayName).sort((a, b) => a.seatIndex - b.seatIndex);
   const n = Math.max(seats.length, 1);
 
-  // Seats are laid out from the players dealt into the current hand (everyone seated between
-  // hands), so the table never reshuffles mid-hand (spec §A1). The local player takes the
-  // bottom-centre slot and the rest follow in seat order relative to them, so the table looks the
-  // same from every chair; a spectator's first player takes the bottom centre.
-  const dealtIn = blackjackRounds ? seated.filter((s) => blackjackRounds[s.seatIndex]) : seated;
+  // Seats are laid out from the players dealt into the current hand, so the table never reshuffles
+  // mid-hand (spec §A1). Between hands every seated player is laid out: that is before the first
+  // deal (no rounds) and also once every round has settled, because the server keeps sending the
+  // last settled hand until the next deal. Seats with no round then get no hands; settled hands
+  // keep their cards on the table. The local player takes the bottom-centre slot and the rest
+  // follow in seat order relative to them, so the table looks the same from every chair; a
+  // spectator's first player takes the bottom centre.
+  const betweenHands = !blackjackRounds || Object.values(blackjackRounds).every((r) => r.phase === 'settled');
+  const dealtIn = betweenHands ? seated : seated.filter((s) => blackjackRounds[s.seatIndex]);
   const layout = layoutSeats(
     'blackjack',
     orderSeated(dealtIn, mySeatIndex, n).map((s) => ({
@@ -205,7 +209,7 @@ export function buildSceneModel(input: SceneInput): SceneModel {
       cards.push({ key, card: dealerHand[i], x: p.x, y: TABLE_Y + 0.004 + i * 0.002, z: p.z, rotY: jitter(key, 0.05), order: i });
     });
   }
-  let turnLight = firstRound?.phase === 'dealer' ? centreOf(cards) : null;
+  let turnLight: Vec2 | null = null;
 
   for (const seat of seated) {
     const place = placeOf.get(seat.seatIndex);

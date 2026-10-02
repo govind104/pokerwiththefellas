@@ -74,6 +74,20 @@ describe('buildPokerModel', () => {
     expect(buildPokerModel({ seats: seats(['a']), mySeatIndex: 0, holdem: null }).turnLight).toBeNull();
   });
 
+  it('lays out every seated player once the hand has settled; a joiner gets a place but no cards', () => {
+    // The server keeps sending the last settled hand until the next deal, so a settled hand is "between hands".
+    const h = hand({ street: 'settled', actingPlayerId: null });
+    const m = buildPokerModel({ seats: seats(['a', 'b', 'c', 'late']), mySeatIndex: 0, holdem: h });
+    expect(m.seats[3].plate).not.toBeNull();
+    expect(m.cards.some((k) => k.key.startsWith('h:3:'))).toBe(false);
+    expect(m.cards.filter((k) => k.key.startsWith('h:1:'))).toHaveLength(2);
+  });
+
+  it('keeps a joiner unplaced while the hand is live', () => {
+    const m = buildPokerModel({ seats: seats(['a', 'b', 'c', 'late']), mySeatIndex: 0, holdem: hand({ street: 'turn' }) });
+    expect(m.seats[3].plate).toBeNull();
+  });
+
   it('shows my hole cards face-up and everyone else\'s face-down, with stable keys', () => {
     const m = buildPokerModel({ seats: seats(['a', 'b', 'c']), mySeatIndex: 0, holdem: hand() });
     const hole = (seat: number) => m.cards.filter((k) => k.key.startsWith(`h:${seat}:`));

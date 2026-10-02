@@ -78,9 +78,10 @@ export function buildPokerModel({ seats, mySeatIndex, holdem }: PokerInput): Sce
   const settled = holdem?.street === 'settled';
   const playerOf = (s: SeatView) => holdem?.players.find((p) => p.playerId === s.displayName) ?? null;
 
-  // Laid out from the players dealt into the hand (everyone seated between hands), evenly round
-  // the whole table: see buildSceneModel.
-  const dealtIn = holdem ? seated.filter((s) => playerOf(s)) : seated;
+  // Laid out from the players dealt into the hand, evenly round the whole table. Between hands
+  // (no hand yet, or the last one fully settled: the server keeps sending it until the next deal)
+  // every seated player is laid out, those not in the hand with no cards. See buildSceneModel.
+  const dealtIn = holdem && !settled ? seated.filter((s) => playerOf(s)) : seated;
   const layout = layoutSeats(
     'holdem',
     orderSeated(dealtIn, mySeatIndex, n).map((s) => {

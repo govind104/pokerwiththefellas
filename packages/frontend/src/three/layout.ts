@@ -39,6 +39,10 @@ const FACING = 0.35;
 export const BOARD_STEP = 0.19;
 export const BOARD_Z = 0;
 export const POT_SPOT = { x: 0, z: -0.25 } as const;
+// Where Hold'em cards wait before their turn to be dealt (SceneRoot spawns them here, on the felt).
+// Off-axis on the dealer side so it is clear of the pot, the board, every bet spot (the far-centre
+// seat's bet spot is on the z axis at 2, 4 and 6 players) and every hole card for 2 to 6 players.
+export const DECK_SPOT = { x: 0.25, z: -0.32 } as const;
 export const DEALER_STEP = 0.155;
 export const DEALER_Z = -TABLE_B * 0.62;
 

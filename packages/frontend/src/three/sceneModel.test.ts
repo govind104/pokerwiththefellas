@@ -67,22 +67,32 @@ describe('buildSceneModel', () => {
     expect(between.seats[2].plate).not.toBeNull();
   });
 
-  it("points the turn light at the acting hand, at the dealer's cards while the dealer plays, else nowhere", () => {
+  it('lays out every seated player once the hand has settled, keeping settled hands on the table', () => {
+    // The server keeps sending the last settled hand until the next deal, so a settled round is "between hands".
+    const settled = round({ phase: 'settled', dealerCards: [c('K', 'spades'), c('7', 'hearts')], results: [{ outcome: 'win', payout: 25 }] });
+    const rounds = { 0: settled, 1: settled };
+    const input = { seats: seats(['a', 'b', 'c']), activeSeatIndex: null, mySeatIndex: 0 };
+    const m = buildSceneModel({ ...input, blackjackRounds: rounds });
+    expect(m.seats[2].plate).not.toBeNull();
+    expect(m.felt.rings).toHaveLength(3);
+    expect(m.cards.some((k) => k.key.startsWith('s2:'))).toBe(false);
+    expect(m.cards.filter((k) => k.key.startsWith('s0:'))).toHaveLength(2);
+    expect(m.cards.filter((k) => k.key.startsWith('s1:'))).toHaveLength(2);
+  });
+
+  it('keeps a joiner unplaced while any round is still live', () => {
+    const settled = round({ phase: 'settled', dealerCards: [c('K', 'spades'), c('7', 'hearts')], results: [{ outcome: 'win', payout: 25 }] });
+    const m = buildSceneModel({ seats: seats(['a', 'b', 'c']), activeSeatIndex: 0, mySeatIndex: 0, blackjackRounds: { 0: round(), 1: settled } });
+    expect(m.seats[2].plate).toBeNull();
+    expect(m.felt.rings).toHaveLength(2);
+  });
+
+  it('points the turn light at the acting hand, else nowhere', () => {
     const rounds = { 0: round(), 1: round() };
     const acting = buildSceneModel({ seats: seats(['a', 'b']), activeSeatIndex: 1, mySeatIndex: 0, blackjackRounds: rounds });
     const theirs = acting.cards.filter((k) => k.key.startsWith('s1:'));
     expect(acting.turnLight?.x).toBeCloseTo((theirs[0].x + theirs[1].x) / 2, 6);
     expect(acting.turnLight?.z).toBeCloseTo((theirs[0].z + theirs[1].z) / 2, 6);
-
-    const dealer = buildSceneModel({
-      seats: seats(['a']),
-      activeSeatIndex: null,
-      mySeatIndex: 0,
-      blackjackRounds: { 0: round({ phase: 'dealer', dealerCards: [c('K', 'spades'), c('7', 'hearts')] }) },
-    });
-    const d = dealer.cards.filter((k) => k.key.startsWith('d:'));
-    expect(dealer.turnLight?.x).toBeCloseTo((d[0].x + d[1].x) / 2, 6);
-    expect(dealer.turnLight?.z).toBeCloseTo(d[0].z, 6);
 
     const idle = buildSceneModel({ seats: seats(['a']), activeSeatIndex: null, mySeatIndex: 0, blackjackRounds: null });
     expect(idle.turnLight).toBeNull();
@@ -121,7 +131,6 @@ describe('buildSceneModel', () => {
     const dealerAfter = after.cards.filter((k) => k.key.startsWith('d:'));
     expect(dealerAfter.map((k) => k.key)).toEqual(['d:0', 'd:1', 'd:2']);
     expect(dealerAfter[1].card).toEqual(c('7', 'hearts'));
-    expect(after.turnLight).not.toBeNull();
   });
 
   it('keeps existing card keys when a hit adds a card (so it animates as a deal, not a rebuild)', () => {
