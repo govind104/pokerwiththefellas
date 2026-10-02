@@ -99,9 +99,16 @@ fix re-review approved). Remaining:
      visible lamp; seats spread by rail distance; a centred board; big-index faces; printed felt;
      a turn light; a 2D HUD; and a showdown highlight.
    - **Split:** Plan A (3D scene) then Plan B (HUD and showdown).
-   - **Next:** write Plan A with `superpowers:writing-plans`, then run it with
-     `superpowers:subagent-driven-development`, using the same loop as item 5 (below). The
-     spec's §7 defines three screenshot gates that the user approves.
+   - **Plan A written (2026-10-02):** `docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md`
+     (8 tasks plus Gates 1 and 2; nothing implemented yet). Its "Deviations from the spec"
+     section changes some spec values after a numeric prototype of the A1 property test: hand
+     ellipse 0.76 Hold'em / 0.72 Blackjack, Blackjack seats up to 120° round, crowded fans close
+     up to a 0.06 m step, Hold'em betting line 0.61. One accepted limitation: at 6 Blackjack
+     players a split into 3+-card hands can touch a neighbour's cards.
+   - **Next:** execute Plan A from Task 1 with `superpowers:subagent-driven-development`, using
+     the same loop as item 5 (below): ask the user before each commit; Gates 1 and 2 are
+     screenshot passes the user approves. Task briefs and reports go in `.superpowers/sdd/`
+     (prefix `planA-`).
    - **Render method** (for the gates): a subagent drives `/dev3d.html` in the in-app browser and
      patches or inspects the scene through `window.__bj3d`. It waits about 4.5 s after each load
      for textures, because `advance()` can't wait for async loads. It captures with
