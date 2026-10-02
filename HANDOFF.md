@@ -90,14 +90,25 @@ fix re-review approved). Remaining:
    steps 16-17 (share the machine with a friend; tests the "share, don't invite" advice), then
    remove the "Not yet tested" note in `docs/HOSTING.md`, check its free-plan user-limit claim,
    and tick step 6 in the plan.
-2. **Next session (user's choice, 2026-10-01): the 3D camera is too low.** The eye sits 0.29 m above the felt
-   (`BASE_CAM` y 1.05 vs `TABLE_Y` 0.76 in `packages/frontend/src/three/engine/SceneRoot.ts:67`
-   and `sceneModel.ts:14`; `LEAN_CAM` is lower still, 0.16 m). Your own cards are hard to read in
-   both games, the river is hard to see in Hold'em, and opponents' revealed cards can't be read at
-   showdown (fine for Blackjack, not for Poker). The user's first idea: a normal seated head
-   height, roughly double the current height above the table; other solutions are open. Needs a
-   design pass (`superpowers:brainstorming`) comparing heights and options with screenshots
-   before any code. Gameplay over Tailscale was smooth.
+2. **3D table readability and look: design done (2026-10-02), implementation next.** It started
+   as "the camera is too low" and grew in brainstorming, with the user comparing renders at each
+   step. Spec: `docs/superpowers/specs/2026-10-02-3d-table-readability-design.md`, on branch
+   `feat/3d-table-readability`. The approved look is `.playtest-data/camera-heights/v3-review.html`
+   (git-ignored, local-only; the prototype code is copied beside the spec).
+   - **Design summary:** a fixed three-quarter camera with computed framing; no figures, props or
+     visible lamp; seats spread by rail distance; a centred board; big-index faces; printed felt;
+     a turn light; a 2D HUD; and a showdown highlight.
+   - **Split:** Plan A (3D scene) then Plan B (HUD and showdown).
+   - **Next:** write Plan A with `superpowers:writing-plans`, then run it with
+     `superpowers:subagent-driven-development`, using the same loop as item 5 (below). The
+     spec's §7 defines three screenshot gates that the user approves.
+   - **Render method** (for the gates): a subagent drives `/dev3d.html` in the in-app browser and
+     patches or inspects the scene through `window.__bj3d`. It waits about 4.5 s after each load
+     for textures, because `advance()` can't wait for async loads. It captures with
+     `canvas.toDataURL` and POSTs to `scripts/render/save-server.cjs`, so images don't pass through model
+     context. Pages that load images are served with `scripts/render/static-server.cjs`, because the browser
+     pane won't load `file://` subresources. Reload the page between runs, since patches
+     don't stack.
 3. **Then §8 item 6, "unsticking tables" (I6, I11, I10):** I6 admin kick and force-act plus an
    optional turn clock (an idle connected player stalls the table forever); I11 leave racing a hand
    start (the client drops its identity before the server confirms, so the server keeps the seat);
