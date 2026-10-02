@@ -1022,7 +1022,7 @@ git commit -m "feat(3d): fixed fitted camera; remove figures, props, lamp meshes
   - `centreOf(points: readonly { x: number; z: number }[]): Vec2 | null`
   - Removed exports: `DEALER_SLOT`, `MY_SLOT`, `OTHER_SLOTS`, `HAND_FACTOR`, `RAIL_FACTOR`, `BODY_FACTOR`, `CARD_STEP`, `HAND_GAP`, `slotPoint`, `tangent`, `assignSlots`, `POKER_OTHER_SLOTS`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `packages/frontend/src/three/sceneModel.test.ts`, change the import line to:
 ```ts
@@ -1145,12 +1145,12 @@ In `packages/frontend/src/three/pokerModel.test.ts`:
 
 In `packages/frontend/src/three/Poker3D.test.tsx` replace `expect(model.dealerFigure).toBe(false);` with `expect(model.felt).toEqual({ kind: 'holdem', rings: [] });`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run src/three/sceneModel.test.ts src/three/pokerModel.test.ts src/three/Poker3D.test.tsx --root packages/frontend`
 Expected: FAIL (`feltPrintKey` is not exported; `plate`, `felt` and `turnLight` are undefined).
 
-- [ ] **Step 3: Rewrite `sceneModel.ts`**
+- [x] **Step 3: Rewrite `sceneModel.ts`**
 
 Replace the whole of `packages/frontend/src/three/sceneModel.ts` with:
 
@@ -1428,7 +1428,7 @@ export function buildSceneModel(input: SceneInput): SceneModel {
 
 Note `turnLight` starts from `centreOf(cards)` while only the dealer's cards are in `cards`.
 
-- [ ] **Step 4: Rewrite `buildPokerModel` and its imports in `pokerModel.ts`**
+- [x] **Step 4: Rewrite `buildPokerModel` and its imports in `pokerModel.ts`**
 
 Replace the import block and the `POKER_OTHER_SLOTS` / `COMMUNITY_STEP` / `COMMUNITY_Z` / `POT_Z` constants at the top of `packages/frontend/src/three/pokerModel.ts` with:
 
@@ -1549,7 +1549,7 @@ export function buildPokerModel({ seats, mySeatIndex, holdem }: PokerInput): Sce
 }
 ```
 
-- [ ] **Step 5: TableStage plates**
+- [x] **Step 5: TableStage plates**
 
 In `packages/frontend/src/three/TableStage.tsx` replace
 ```ts
@@ -1562,12 +1562,12 @@ with
 ```
 (A plate element without an anchor stays `visibility: hidden`, which the projection loop already handles.)
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `npx vitest run src/three --root packages/frontend`
 Expected: PASS. Then `npm run typecheck`: clean (any leftover use of a removed export is a compile error: fix the caller, don't re-add the export).
 
-- [ ] **Step 7: Dev harness steps**
+- [x] **Step 7: Dev harness steps**
 
 In `packages/frontend/src/three/devHarness.tsx`:
 
@@ -1635,11 +1635,11 @@ Resulting step indices (used by the gates): Blackjack 0 Waiting · 1 Deal (4 pla
 
 Run `npm run typecheck`: clean.
 
-- [ ] **Step 8: Full suite**
+- [x] **Step 8: Full suite**
 
 Run: `npm test` and `npm run typecheck` → both green.
 
-- [ ] **Step 9: Commit (controller, after the user says yes)**
+- [x] **Step 9: Commit (controller, after the user says yes)**
 
 ```bash
 git add packages/frontend/src/three docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md

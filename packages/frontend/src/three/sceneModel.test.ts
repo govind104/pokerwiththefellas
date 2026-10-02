@@ -1,6 +1,6 @@
 import type { BlackjackRoundView, SeatView } from '@poker-blackjack/server/src/table';
 import type { Card, PlayerHand } from '@poker-blackjack/game-engine';
-import { MY_SLOT, OTHER_SLOTS, buildSceneModel, chipsFor, pickDealerRound } from './sceneModel';
+import { buildSceneModel, chipsFor, feltPrintKey, pickDealerRound } from './sceneModel';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 const hand = (cards: Card[], bet = 25): PlayerHand => ({ cards, bet, doubled: false, done: false });
@@ -27,22 +27,24 @@ function round(over: Partial<BlackjackRoundView> = {}): BlackjackRoundView {
 }
 
 describe('buildSceneModel', () => {
-  it('puts the local player in the near slot and everyone else on the far arc, relative to them', () => {
+  it('puts the local player at the bottom centre and the rest in seat order, left first', () => {
     const model = buildSceneModel({
       seats: seats(['a', 'b', 'c', 'd']),
       activeSeatIndex: null,
       mySeatIndex: 2,
       blackjackRounds: null,
     });
-    const angle = (name: string) => model.seats.find((s) => s.name === name)?.angle;
-    expect(angle('c')).toBe(MY_SLOT);
-    // Relative order from seat 2: d(3), a(0), b(1)
-    expect(angle('d')).toBe(OTHER_SLOTS[0]);
-    expect(angle('a')).toBe(OTHER_SLOTS[1]);
-    expect(angle('b')).toBe(OTHER_SLOTS[2]);
+    const plate = (name: string) => model.seats.find((s) => s.name === name)?.plate;
+    expect(plate('c')?.x).toBeCloseTo(0, 6);
+    expect(plate('c')?.z).toBeGreaterThan(0);
+    // Order from seat 2 is d(3), a(0), b(1): two slots on the left (centre outward), one on the right.
+    expect(plate('d')?.x).toBeLessThan(0);
+    expect(plate('a')?.x).toBeLessThan(0);
+    expect(plate('a')?.z).toBeLessThan(plate('d')?.z ?? 0);
+    expect(plate('b')?.x).toBeGreaterThan(0);
   });
 
-  it('gives a spectator no avatar of their own but seats the first player in the near slot', () => {
+  it('gives a spectator no seat of their own but puts the first player at the bottom centre', () => {
     const model = buildSceneModel({
       seats: seats(['a', 'b']),
       activeSeatIndex: null,
@@ -50,8 +52,52 @@ describe('buildSceneModel', () => {
       blackjackRounds: null,
     });
     expect(model.seats.map((s) => s.isMe)).toEqual([false, false]);
-    expect(model.seats[0].angle).toBe(MY_SLOT);
-    expect(model.seats[1].angle).toBe(OTHER_SLOTS[0]);
+    expect(model.seats[0].plate?.x).toBeCloseTo(0, 6);
+    expect(model.seats[1].plate?.x).toBeLessThan(0);
+  });
+
+  it('lays out only the seats dealt into a hand: a mid-hand joiner has no place until the next deal', () => {
+    const rounds = { 0: round(), 1: round() };
+    const mid = buildSceneModel({ seats: seats(['a', 'b', 'c']), activeSeatIndex: 0, mySeatIndex: 0, blackjackRounds: rounds });
+    const two = buildSceneModel({ seats: seats(['a', 'b']), activeSeatIndex: 0, mySeatIndex: 0, blackjackRounds: rounds });
+    expect(mid.seats[2].plate).toBeNull();
+    expect(mid.cards.some((k) => k.key.startsWith('s2:'))).toBe(false);
+    expect(mid.seats[1].plate).toEqual(two.seats[1].plate);
+    const between = buildSceneModel({ seats: seats(['a', 'b', 'c']), activeSeatIndex: null, mySeatIndex: 0, blackjackRounds: null });
+    expect(between.seats[2].plate).not.toBeNull();
+  });
+
+  it("points the turn light at the acting hand, at the dealer's cards while the dealer plays, else nowhere", () => {
+    const rounds = { 0: round(), 1: round() };
+    const acting = buildSceneModel({ seats: seats(['a', 'b']), activeSeatIndex: 1, mySeatIndex: 0, blackjackRounds: rounds });
+    const theirs = acting.cards.filter((k) => k.key.startsWith('s1:'));
+    expect(acting.turnLight?.x).toBeCloseTo((theirs[0].x + theirs[1].x) / 2, 6);
+    expect(acting.turnLight?.z).toBeCloseTo((theirs[0].z + theirs[1].z) / 2, 6);
+
+    const dealer = buildSceneModel({
+      seats: seats(['a']),
+      activeSeatIndex: null,
+      mySeatIndex: 0,
+      blackjackRounds: { 0: round({ phase: 'dealer', dealerCards: [c('K', 'spades'), c('7', 'hearts')] }) },
+    });
+    const d = dealer.cards.filter((k) => k.key.startsWith('d:'));
+    expect(dealer.turnLight?.x).toBeCloseTo((d[0].x + d[1].x) / 2, 6);
+    expect(dealer.turnLight?.z).toBeCloseTo(d[0].z, 6);
+
+    const idle = buildSceneModel({ seats: seats(['a']), activeSeatIndex: null, mySeatIndex: 0, blackjackRounds: null });
+    expect(idle.turnLight).toBeNull();
+  });
+
+  it('prints one betting ring per placed seat, unchanged as cards are dealt', () => {
+    const base = { seats: seats(['a', 'b', 'c']), activeSeatIndex: 0, mySeatIndex: 0 };
+    const deal = buildSceneModel({ ...base, blackjackRounds: { 0: round(), 1: round(), 2: round() } });
+    const hit = buildSceneModel({
+      ...base,
+      blackjackRounds: { 0: round({ playerHands: [hand([c('7', 'diamonds'), c('4', 'clubs'), c('9', 'spades')])] }), 1: round(), 2: round() },
+    });
+    expect(deal.felt.kind).toBe('blackjack');
+    expect(deal.felt.rings).toHaveLength(3);
+    expect(feltPrintKey(hit.felt)).toBe(feltPrintKey(deal.felt));
   });
 
   it('shows the dealer hole card face-down until the dealer hand is revealed, with stable keys', () => {
@@ -75,7 +121,7 @@ describe('buildSceneModel', () => {
     const dealerAfter = after.cards.filter((k) => k.key.startsWith('d:'));
     expect(dealerAfter.map((k) => k.key)).toEqual(['d:0', 'd:1', 'd:2']);
     expect(dealerAfter[1].card).toEqual(c('7', 'hearts'));
-    expect(after.dealerActive).toBe(true);
+    expect(after.turnLight).not.toBeNull();
   });
 
   it('keeps existing card keys when a hit adds a card (so it animates as a deal, not a rebuild)', () => {

@@ -1,45 +1,19 @@
 import type { SeatView, BlackjackRoundView } from '@poker-blackjack/server/src/table';
 import type { Card, Outcome } from '@poker-blackjack/game-engine';
+import { TABLE_Y, dealerCards, layoutSeats, type CardPlacement } from './layout';
 
 // Pure translation of a server snapshot into a declarative description of the
 // 3D scene. Nothing here touches WebGL, so it is unit-testable and the
 // animation reconciler in engine/SceneRoot can stay idempotent: the server
 // only ever sends full snapshots (no "card dealt" events), so what happened is
 // derived by diffing this model against the previous one, keyed by stable ids.
+// Where things sit on the felt comes from layout.ts.
 
-// Table is an ellipse: A = half-width (x), B = half-depth (z). The dealer sits
-// at the far end (-z), the local player at the near end (+z, where the camera is).
-export const TABLE_A = 1.2;
-export const TABLE_B = 0.85;
-export const TABLE_Y = 0.76;
-export const CARD_W = 0.15;
-export const CARD_H = 0.21;
-export const CARD_STEP = 0.115;
-export const HAND_GAP = 0.5;
-
-// Angles in degrees, 0 = far (dealer), 90 = right, 180 = near (camera), 270 = left.
-export const DEALER_SLOT = 0;
-export const MY_SLOT = 180;
-export const OTHER_SLOTS = [295, 65, 330, 30, 250];
-
-export const HAND_FACTOR = 0.55;
-export const RAIL_FACTOR = 1.02;
-export const BODY_FACTOR = 1.3;
+export { TABLE_A, TABLE_B, TABLE_Y, CARD_W, CARD_H } from './layout';
 
 export interface Vec2 {
   x: number;
   z: number;
-}
-
-export function slotPoint(angleDeg: number, factor: number): Vec2 {
-  const r = (angleDeg * Math.PI) / 180;
-  return { x: TABLE_A * factor * Math.sin(r), z: -TABLE_B * factor * Math.cos(r) };
-}
-
-// Direction along which cards in a hand fan out for a given slot.
-export function tangent(angleDeg: number): Vec2 {
-  const r = (angleDeg * Math.PI) / 180;
-  return { x: -Math.cos(r), z: -Math.sin(r) };
 }
 
 // Small deterministic wobble so dealt cards don't look machine-aligned.
@@ -77,12 +51,9 @@ export interface SeatModel {
   isActive: boolean;
   connected: boolean;
   status: string;
-  angle: number;
-  // Where the seated figure stands, and where its brass name plate sits.
-  bodyX: number;
-  bodyZ: number;
-  plateX: number;
-  plateZ: number;
+  // Where the projected name plate sits on the rail. Null for a player who sat down mid-hand:
+  // seats are laid out only between hands, so they get a place at the next deal.
+  plate: Vec2 | null;
 }
 
 export interface OutcomeLabel {
@@ -100,10 +71,19 @@ export interface PotModel {
   z: number;
 }
 
+// What is printed on the felt (spec §A5). It changes only when the seat layout does, which is
+// between hands.
+export interface FeltPrint {
+  kind: 'blackjack' | 'holdem';
+  rings: Vec2[];
+}
+
+export function feltPrintKey(p: FeltPrint): string {
+  return `${p.kind}|${p.rings.map((r) => `${r.x.toFixed(3)},${r.z.toFixed(3)}`).join(';')}`;
+}
+
 export interface SceneModel {
   kind: 'blackjack' | 'holdem';
-  // Blackjack has a standing dealer with a shoe; Hold'em is players only.
-  dealerFigure: boolean;
   pot: PotModel | null;
   cards: CardSlot[];
   chips: ChipStackModel[];
@@ -111,7 +91,10 @@ export interface SceneModel {
   outcomes: OutcomeLabel[];
   hasRound: boolean;
   myTurn: boolean;
-  dealerActive: boolean;
+  // Where the turn light points (spec §A6): the acting player's cards, or the dealer's while the
+  // dealer plays. Null when nobody is acting.
+  turnLight: Vec2 | null;
+  felt: FeltPrint;
 }
 
 const OUTCOME_LABELS: Record<Outcome, string> = {
@@ -144,6 +127,14 @@ export function chipsFor(amount: number): number[] {
     }
   }
   return out;
+}
+
+export function centreOf(points: readonly { x: number; z: number }[]): Vec2 | null {
+  if (points.length === 0) return null;
+  return {
+    x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+    z: points.reduce((sum, p) => sum + p.z, 0) / points.length,
+  };
 }
 
 export interface SceneInput {
@@ -180,30 +171,24 @@ export function orderSeated<T extends { seatIndex: number }>(seated: T[], mySeat
   return [...seated].sort((a, b) => rel(a) - rel(b));
 }
 
-export function assignSlots(
-  ordered: { seatIndex: number }[],
-  mySeatIndex: number | null,
-  others: number[],
-): Map<number, number> {
-  const slotOf = new Map<number, number>();
-  // A spectator has no chair of their own, so the near slot is free for the first player.
-  const free = mySeatIndex === null ? [MY_SLOT, ...others] : [...others];
-  for (const s of ordered) {
-    if (s.seatIndex === mySeatIndex) slotOf.set(s.seatIndex, MY_SLOT);
-    else slotOf.set(s.seatIndex, free.shift() ?? MY_SLOT);
-  }
-  return slotOf;
-}
-
 export function buildSceneModel(input: SceneInput): SceneModel {
   const { seats, activeSeatIndex, mySeatIndex, blackjackRounds } = input;
   const seated = seats.filter((s) => s.displayName).sort((a, b) => a.seatIndex - b.seatIndex);
   const n = Math.max(seats.length, 1);
 
-  // Local player is always the near slot; the rest are placed in seat order
-  // relative to them so the table looks the same from every chair.
-  const ordered = orderSeated(seated, mySeatIndex, n);
-  const slotOf = assignSlots(ordered, mySeatIndex, OTHER_SLOTS);
+  // Seats are laid out from the players dealt into the current hand (everyone seated between
+  // hands), so the table never reshuffles mid-hand (spec §A1). The local player takes the
+  // bottom-centre slot and the rest follow in seat order relative to them, so the table looks the
+  // same from every chair; a spectator's first player takes the bottom centre.
+  const dealtIn = blackjackRounds ? seated.filter((s) => blackjackRounds[s.seatIndex]) : seated;
+  const layout = layoutSeats(
+    'blackjack',
+    orderSeated(dealtIn, mySeatIndex, n).map((s) => ({
+      seatIndex: s.seatIndex,
+      hands: blackjackRounds?.[s.seatIndex]?.playerHands.map((h) => h.cards.length) ?? [],
+    })),
+  );
+  const placeOf = new Map(layout.map((l) => [l.seatIndex, l]));
 
   const cards: CardSlot[] = [];
   const chips: ChipStackModel[] = [];
@@ -214,31 +199,21 @@ export function buildSceneModel(input: SceneInput): SceneModel {
 
   if (firstRound) {
     // Dealer: upcard + face-down hole card until the dealer's full hand is revealed.
-    const dealerCards: (Card | null)[] = firstRound.dealerCards ?? [firstRound.dealerUpcard, null];
-    const c = slotPoint(DEALER_SLOT, 0.52);
-    dealerCards.forEach((card, i) => {
+    const dealerHand: (Card | null)[] = firstRound.dealerCards ?? [firstRound.dealerUpcard, null];
+    dealerCards(dealerHand.length).forEach((p, i) => {
       const key = `d:${i}`;
-      cards.push({
-        key,
-        card,
-        x: c.x + (i - (dealerCards.length - 1) / 2) * CARD_STEP,
-        y: TABLE_Y + 0.004 + i * 0.002,
-        z: c.z,
-        rotY: jitter(key, 0.05),
-        order: i,
-      });
+      cards.push({ key, card: dealerHand[i], x: p.x, y: TABLE_Y + 0.004 + i * 0.002, z: p.z, rotY: jitter(key, 0.05), order: i });
     });
   }
+  let turnLight = firstRound?.phase === 'dealer' ? centreOf(cards) : null;
 
   for (const seat of seated) {
-    const angle = slotOf.get(seat.seatIndex) ?? MY_SLOT;
+    const place = placeOf.get(seat.seatIndex);
     const isMe = seat.seatIndex === mySeatIndex;
     const round = blackjackRounds?.[seat.seatIndex];
     // A seat whose round has settled is done, even if the server still names it as active.
     const isActive = seat.seatIndex === activeSeatIndex && round?.phase !== 'settled';
 
-    const body = slotPoint(angle, BODY_FACTOR);
-    const plate = slotPoint(angle, RAIL_FACTOR + 0.03);
     seatModels.push({
       seatIndex: seat.seatIndex,
       name: seat.displayName as string,
@@ -248,63 +223,39 @@ export function buildSceneModel(input: SceneInput): SceneModel {
       isActive,
       connected: seat.connected,
       status: seatStatus(seat, round, isActive, isMe),
-      angle,
-      bodyX: body.x,
-      bodyZ: body.z,
-      plateX: plate.x,
-      plateZ: plate.z,
+      plate: place ? { x: place.plate.x, z: place.plate.z } : null,
     });
 
-    if (!round) continue;
-    const centre = slotPoint(angle, HAND_FACTOR);
-    const t = tangent(angle);
-    const toOwner = { x: Math.sin((angle * Math.PI) / 180), z: -Math.cos((angle * Math.PI) / 180) };
-    const handCount = round.playerHands.length;
-    // Cards are turned partly toward their owner, but only partly, so every
-    // hand stays legible from the camera.
-    const facing = ((180 - angle) * Math.PI) / 180 * 0.35;
-
+    if (!round || !place) continue;
+    const seatCards: CardPlacement[] = [];
     round.playerHands.forEach((hand, h) => {
-      const handOff = (h - (handCount - 1) / 2) * (HAND_GAP + hand.cards.length * 0.02);
-      const hx = centre.x + t.x * handOff;
-      const hz = centre.z + t.z * handOff;
+      const spots = place.hands[h];
       hand.cards.forEach((card, i) => {
         const key = `s${seat.seatIndex}:h${h}:c${i}`;
-        const off = (i - (hand.cards.length - 1) / 2) * CARD_STEP;
-        cards.push({
-          key,
-          card,
-          x: hx + t.x * off,
-          y: TABLE_Y + 0.004 + i * 0.002,
-          z: hz + t.z * off,
-          rotY: facing + jitter(key, 0.06),
-          order: i,
-        });
+        const p = spots[i];
+        seatCards.push(p);
+        cards.push({ key, card, x: p.x, y: TABLE_Y + 0.004 + i * 0.002, z: p.z, rotY: p.rotY + jitter(key, 0.06), order: i });
       });
-      // Bet stack sits between the hand and its owner, a little to one side.
-      chips.push({
-        key: `bet:${seat.seatIndex}:h${h}`,
-        amount: hand.bet,
-        x: hx + toOwner.x * 0.2 - t.x * 0.14,
-        z: hz + toOwner.z * 0.2 - t.z * 0.14,
-      });
+      const bet = place.bets[h];
+      chips.push({ key: `bet:${seat.seatIndex}:h${h}`, amount: hand.bet, x: bet.x, z: bet.z });
       if (round.phase === 'settled' && round.results?.[h]) {
         const outcome = round.results[h].outcome;
+        const at = centreOf(spots) ?? place.anchor;
         outcomes.push({
           key: `res:${seat.seatIndex}:h${h}`,
           seatIndex: seat.seatIndex,
           text: OUTCOME_LABELS[outcome],
           polarity: OUTCOME_POLARITY[outcome],
-          x: hx + toOwner.x * 0.3,
-          z: hz + toOwner.z * 0.3,
+          x: at.x,
+          z: at.z,
         });
       }
     });
+    if (isActive) turnLight = centreOf(seatCards) ?? { x: place.anchor.x, z: place.anchor.z };
   }
 
   return {
     kind: 'blackjack',
-    dealerFigure: true,
     pot: null,
     cards,
     chips,
@@ -312,6 +263,7 @@ export function buildSceneModel(input: SceneInput): SceneModel {
     outcomes,
     hasRound: !!firstRound,
     myTurn: mySeatIndex !== null && mySeatIndex === activeSeatIndex && blackjackRounds?.[mySeatIndex]?.phase !== 'settled',
-    dealerActive: firstRound?.phase === 'dealer',
+    turnLight,
+    felt: { kind: 'blackjack', rings: layout.map((l) => ({ x: l.betSpot.x, z: l.betSpot.z })) },
   };
 }

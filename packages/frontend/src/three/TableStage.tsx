@@ -98,7 +98,8 @@ export function TableStage({
   useEffect(() => {
     const a = anchors.current;
     a.clear();
-    for (const s of model.seats) if (!s.isMe) a.set(`plate:${s.seatIndex}`, { x: s.plateX, y: TABLE_Y + 0.07, z: s.plateZ });
+    // A player who sat down mid-hand has no place on the table until the next deal.
+    for (const s of model.seats) if (!s.isMe && s.plate) a.set(`plate:${s.seatIndex}`, { x: s.plate.x, y: TABLE_Y + 0.07, z: s.plate.z });
     for (const o of model.outcomes) a.set(o.key, { x: o.x, y: TABLE_Y + 0.1, z: o.z });
     if (model.pot) a.set('pot', { x: model.pot.x, y: TABLE_Y + 0.13, z: model.pot.z });
   }, [model]);
