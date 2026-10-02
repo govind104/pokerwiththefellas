@@ -100,15 +100,30 @@ fix re-review approved). Remaining:
      a turn light; a 2D HUD; and a showdown highlight.
    - **Split:** Plan A (3D scene) then Plan B (HUD and showdown).
    - **Plan A written (2026-10-02):** `docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md`
-     (8 tasks plus Gates 1 and 2; nothing implemented yet). Its "Deviations from the spec"
+     (8 tasks plus Gates 1 and 2). Its "Deviations from the spec"
      section changes some spec values after a numeric prototype of the A1 property test: hand
      ellipse 0.76 Hold'em / 0.72 Blackjack, Blackjack seats up to 120° round, crowded fans close
      up to a 0.06 m step, Hold'em betting line 0.61. One accepted limitation: at 6 Blackjack
      players a split into 3+-card hands can touch a neighbour's cards.
-   - **Next:** execute Plan A from Task 1 with `superpowers:subagent-driven-development`, using
-     the same loop as item 5 (below): ask the user before each commit; Gates 1 and 2 are
-     screenshot passes the user approves. Task briefs and reports go in `.superpowers/sdd/`
-     (prefix `planA-`).
+   - **Plan A Tasks 1-7 and Gates 1-2 done (2026-10-02)**, commits `5769598`..`becaf82` plus the
+     checkpoint commit after them; 296 frontend tests green, typecheck clean. Both gates were
+     approved by the user with no layout or lighting changes. At Gate 1 the user had the Blackjack
+     shoe and discard tray removed as clutter (Task 5b, deviation 8; cards still deal from and
+     sweep to the same empty points). Gate 2's contrast script didn't work as written; it was
+     measured with cards hidden instead (deviation 9; all shots pass, lowest 2.42). Shots and
+     findings: `.playtest-data/plan-a-gates/gate1|gate2/` (git-ignored).
+   - **Next: Plan A Task 8** (the last task): update this item, then the final whole-branch
+     review on **opus** of `master..feat/3d-table-readability` against spec §5 and the plan, with
+     "no findings" stated as valid. Build its package with the SDD skill's
+     `scripts/review-package $(git merge-base master HEAD) HEAD`. Point the reviewer at the
+     Minor findings in `.superpowers/sdd/progress.md` under "Plan A" to triage. Task 5b was
+     controller-implemented and has had no task review, so name it. Then one sonnet fix
+     subagent for all findings, re-reviewed on opus. Then `superpowers:finishing-a-development-branch`.
+   - Loop used (keep it): the controller extracts briefs (`.superpowers/sdd/planA-task-N-brief.md`),
+     implementers don't commit, the controller packages the working tree with `wt-package.sh`, a
+     sonnet reviewer reads `.superpowers/sdd/planA-reviewer-instructions.md`, and the binding
+     constraints are in `planA-global-constraints.md`. **The user waived per-task commit approval:
+     commit after a clean review; still stop at user gates and before push/PR/merge.**
    - **Render method** (for the gates): a subagent drives `/dev3d.html` in the in-app browser and
      patches or inspects the scene through `window.__bj3d`. It waits about 4.5 s after each load
      for textures, because `advance()` can't wait for async loads. It captures with

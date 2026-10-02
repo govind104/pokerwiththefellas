@@ -37,6 +37,7 @@ The spec says its tuned values are "starting points, settled at Gate 1". A numer
 6. **Hold'em betting line at 0.61 of the felt (spec ~0.68).** At 0.68 it would run under the hole cards now that hands sit at 0.76.
 7. **Turn light glide is exponential** (time constant 0.12 s, 95% there in ≈ 0.36 s) rather than a fixed 0.4 s tween, so a retarget mid-glide never jumps.
 8. **No dealing shoe or discard tray** (user decision at Gate 1, 2026-10-02): the two Blackjack boxes were clutter. Cards are still dealt from and swept to the same points beside the dealer, with nothing drawn there (Task 5b).
+9. **Gate 2 contrast measured with cards and chips hidden** (2026-10-02). The Gate 2 script's metric returned no value on 4 of 7 shots: the cards cover the whole 0.1 m pool, and lit felt is warm (r > g), so it fails the green-dominance test. Measured instead with the card and chip groups hidden for one unsaved frame, no green test on the pool, surround pixels luminance >= 8. Every turn-light shot passed at the untuned values (turn light 110, exposure 1.05, uplight 3.2): lowest 2.42 (dealer), highest 3.98. Approved by the user.
 
 ## File map
 
@@ -2369,7 +2370,7 @@ git commit -m "feat(3d): turn light glides to the acting seat (spec A6)"
 
 Spec §7 gate 2, after A4–A6.
 
-- [ ] **Step 1: Dispatch the render subagent** (model: sonnet) with the Gate 1 brief's steps 1–4 (output folder `.playtest-data/plan-a-gates/gate2`, no HUD rectangles drawn), and these shots: `bj-turn-opponent` (step 4), `bj-turn-you` (step 1), `bj-turn-dealer` (step 5), `bj-6-dealer` (step 14), `he-turn-you` (poker step 2), `he-turn-opponent` (poker step 3), `he-6` (poker step 8), plus a close-up `faces` (step 2, then crop the canvas copy to the region around the local player's cards before saving). For each turn-light shot, measure contrast in the page before saving:
+- [x] **Step 1: Dispatch the render subagent** (model: sonnet) with the Gate 1 brief's steps 1–4 (output folder `.playtest-data/plan-a-gates/gate2`, no HUD rectangles drawn), and these shots: `bj-turn-opponent` (step 4), `bj-turn-you` (step 1), `bj-turn-dealer` (step 5), `bj-6-dealer` (step 14), `he-turn-you` (poker step 2), `he-turn-opponent` (poker step 3), `he-6` (poker step 8), plus a close-up `faces` (step 2, then crop the canvas copy to the region around the local player's cards before saving). For each turn-light shot, measure contrast in the page before saving:
   ```js
   // Pool = felt pixels within 0.1 m of the turn target; surround = felt pixels 0.35-0.5 m away.
   // Felt pixels are green-dominant (g >= r && g >= b), which excludes cards and chips.
@@ -2383,8 +2384,8 @@ Spec §7 gate 2, after A4–A6.
   const contrast = ring(0, 0.1) / ring(0.35, 0.5);
   ```
   Spec rule: contrast ≥ about 1.6 in every turn-light shot. If any is below, try (in this order, live, re-measuring each time) `s.turnLightLevel` up to 2× its value, then `s.renderer.toneMappingExposure` down by 0.05 steps (no lower than 0.85), then `s.room.uplight.intensity` down to half; record the values that pass in every shot. Also report whether any glyph rendered as a box or a letter (Windows coverage, spec §8) and whether the felt print is legible and clear of the cards.
-- [ ] **Step 2:** If tuning was needed, an implementer task sets the settled values (`TURN_LIGHT_INTENSITY` in `SceneRoot.ts`, `toneMappingExposure` in the `SceneRoot` constructor, the uplight intensity in `room.ts`) with a comment citing Gate 2. Re-render the turn-light shots.
-- [ ] **Step 3: Show the user** the PNGs and the contrast table; ask for approval.
+- [x] **Step 2:** If tuning was needed, an implementer task sets the settled values (`TURN_LIGHT_INTENSITY` in `SceneRoot.ts`, `toneMappingExposure` in the `SceneRoot` constructor, the uplight intensity in `room.ts`) with a comment citing Gate 2. Re-render the turn-light shots.
+- [x] **Step 3: Show the user** the PNGs and the contrast table; ask for approval.
 
 ---
 
