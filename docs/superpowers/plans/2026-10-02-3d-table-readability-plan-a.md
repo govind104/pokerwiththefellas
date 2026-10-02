@@ -86,7 +86,7 @@ The spec says its tuned values are "starting points, settled at Gate 1". A numer
   - `boardCards(count: number): CardPlacement[]`, `dealerCards(count: number): CardPlacement[]`
   - `cardExtent(rotY, dx, dz): number`, `cardsOverlap(a, b, pad = 0): boolean`, `cardCorners(c): [number, number][]`, `chipTouchesCard(chip: { x: number; z: number }, c): boolean`, `insideFelt(x, z, factor): boolean`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/frontend/src/three/layout.test.ts`:
 
@@ -244,12 +244,12 @@ describe('cardsOverlap', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run src/three/layout.test.ts --root packages/frontend`
 Expected: FAIL, "Failed to resolve import './layout'".
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `packages/frontend/src/three/layout.ts`:
 
@@ -556,12 +556,12 @@ import { TABLE_Y, chipsFor } from '../sceneModel';
 ```
 and delete the line `const CHIP_R = 0.024;`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run src/three/layout.test.ts --root packages/frontend`
 Expected: PASS (all tests). Then `npm run typecheck`: clean.
 
-- [ ] **Step 5: Commit (controller, after the user says yes)**
+- [x] **Step 5: Commit (controller, after the user says yes)**
 
 ```bash
 git add packages/frontend/src/three/layout.ts packages/frontend/src/three/layout.test.ts packages/frontend/src/three/engine/chips.ts docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md
