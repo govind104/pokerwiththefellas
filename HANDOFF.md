@@ -5,13 +5,49 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 (see "After Plan 6" below). Start here if you're new to this repo; `docs/README.md` says
 which docs are kept current and which are historical records.
 
-## Current work: fixing the 2026-10-01 audit findings (in progress)
+## Next steps (updated 2026-10-02, after Plan A merged)
 
-**Branch** `audit/2026-10-01-full-audit` (off `master`; items 1-5 pushed and opened as a PR to `master` on 2026-10-01). **Findings:**
-`docs/superpowers/playtests/2026-10-01-full-audit-and-playtest.md` (5 Critical, 15 Important,
-30 Minor). Its section 8 is the agreed fix order. Raw audit inputs and repros are in
-`.playtest-data/audit/` (git-ignored, not recoverable: never run `rm -rf .playtest-data`, which
-`scripts/playtest/README.md:15` still says to do).
+`master` holds audit items 1-5 (PR #14) and 3D readability Plan A (PR #15, merge `6959bb5`).
+Work on a branch and merge through a PR. This list is the order to work in. The sections below
+hold the detail.
+
+1. **Audit fix item 6, "unsticking tables" (I6, I11, I10)** on branch `audit/item6-unsticking-tables`.
+   It comes first because I6 is a real-play blocker: one idle, connected player stalls the table
+   forever. Write the plan first (`superpowers:writing-plans`); detail is in "Next step" item 3 below.
+2. **3D readability Plan B (HUD and showdown, spec §6).** Brainstorm the 2D-view decision below
+   first. Detail and things to check at its gate are in "Next step" item 2 below.
+3. **The rest of the audit, in the report's §8 order:**
+   - **I3:** idempotent Hold'em settlement on recovery, together with the MIN-1/MIN-2 lock races.
+   - **Short stacks (I8, M1, M3, M24):** the call-for-less offered as an all-in, integer chips,
+     the heads-up short big blind, and side pots plus an "All in" label.
+   - **2D fixes (I12, I13's 2D half, M25's 2D nits):** skip these if the 2D view is retired.
+   - **3D polish (I14, I15, M16-M18, M25-M26):** first check which ones Plan A already fixed, e.g.
+     M26's `dealerActive` and M25's "seats shift sides" and "own plate detached". Then fix the rest.
+   - **The remaining Minors** in the report's §6 table.
+4. **Finish the live Tailscale test:** steps 16-17, then remove the `docs/HOSTING.md` "Not yet
+   tested" note and check its free-plan claim ("Next step" item 1 below).
+5. **Low-priority leftovers** (no plan yet):
+   - the item-5 known limitations, e.g. the DNS-rebinding Host allowlist and join errors not
+     tagged `scope: 'join'`;
+   - MIN-3 and MIN-4;
+   - Plan A's deferred follow-ups ("Next step" item 2 below).
+
+**Open decision: retire the 2D view?** The user is considering scrapping it as too primitive
+(2026-10-02). It is not just an alternative look, though: `App.tsx:29` picks 2D whenever the window
+is narrower than 900 px, so **2D is the phone view**. A phone played a full hand over Tailscale on
+2026-10-01. Recommendation: settle this in Plan B's brainstorm, not before.
+- Plan B's HUD is the React overlay a phone UI needs anyway. If the 3D view plus the HUD can work
+  on a phone (portrait camera framing, the HUD reflowing below 900 px, WebGL performance on a
+  mid-range phone), the 2D table becomes redundant and can be deleted.
+- If not, keep 2D as the phone-only view.
+- Until then, freeze the 2D view: no 2D-only fixes.
+
+## Audit fix progress (the 2026-10-01 audit)
+
+**Findings:** `docs/superpowers/playtests/2026-10-01-full-audit-and-playtest.md` (5 Critical,
+15 Important, 30 Minor). Its section 8 is the agreed fix order. Items 1-5 were merged in PR #14.
+Raw audit inputs and repros are in `.playtest-data/audit/`. They are git-ignored and can't be
+recovered, so never delete `.playtest-data` itself; playtest runs use `.playtest-data/run/`.
 
 Done (each test-first; 530 tests green after the I4/I5/M5 commit, 625 after item 5's final-review fixes: frontend 214, game-engine 133, server 278; `npm run typecheck` clean):
 
@@ -77,7 +113,7 @@ Decisions worth knowing:
   - MIN-5 (**fixed**): the two missing tests are added; each was checked to fail with the code it
     guards removed.
 
-**Next step:** item 5 (§8, identity and exposure) is done: Tasks 1-9 step 5 committed
+**Next step (detail for the list at the top):** item 5 (§8, identity and exposure) is done: Tasks 1-9 step 5 committed
 (`be44565` holds the final-review fixes; Opus final review `.superpowers/sdd/item5-final-review.md`,
 fix re-review approved). Remaining:
 1. **Finish the live Tailscale test** (Task 9 step 6, guide `docs/TAILSCALE-LIVE-TEST.md`).
@@ -93,7 +129,7 @@ fix re-review approved). Remaining:
 2. **3D table readability and look: Plan A (3D scene) done 2026-10-02; Plan B (HUD and showdown) next.**
    It started as "the camera is too low" and grew in brainstorming, with the user comparing renders
    at each step. Spec: `docs/superpowers/specs/2026-10-02-3d-table-readability-design.md`, on branch
-   `feat/3d-table-readability`. The approved look is `.playtest-data/camera-heights/v3-review.html`
+   `feat/3d-table-readability` (merged in PR #15). The approved look is `.playtest-data/camera-heights/v3-review.html`
    (git-ignored, local-only; the prototype code is copied beside the spec).
    - **Design summary:** a fixed three-quarter camera with computed framing; no figures, props or
      visible lamp; seats spread by rail distance; a centred board; big-index faces; printed felt;
