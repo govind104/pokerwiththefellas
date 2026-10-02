@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { TABLE_A, TABLE_B, TABLE_Y } from '../sceneModel';
-import { feltTexture, plankTexture, rng, smokeTexture, softDotTexture, woodTexture } from './textures';
+import { feltTexture, plankTexture, rng, softDotTexture, woodTexture } from './textures';
 
 export const SHOE_POS = new THREE.Vector3(0.62, TABLE_Y + 0.03, -0.55);
 export const TRAY_POS = new THREE.Vector3(-0.62, TABLE_Y + 0.01, -0.55);
@@ -18,12 +18,8 @@ export class Room {
   readonly spot: THREE.SpotLight;
   readonly fill: THREE.PointLight;
   readonly uplight: THREE.PointLight;
-  private bulb: THREE.Mesh;
-  private halo: THREE.Sprite;
   private dust: THREE.Points;
   private dustSeeds: Float32Array;
-  private smoke: THREE.Sprite[] = [];
-  private ember: THREE.Mesh;
   private baseSpot = 22;
   private dealerProps = new THREE.Group();
 
@@ -48,8 +44,8 @@ export class Room {
     this.fill.position.set(0, 1.85, 0);
     g.add(this.fill);
 
-    // Low warm bounce off the felt: this is what lights the figures' faces and
-    // hat undersides from below.
+    // Low warm bounce off the felt. It was tuned to light the seated figures' faces, which are gone;
+    // Gate 2 retunes it with the turn light on screen (spec §A3, §A6).
     this.uplight = new THREE.PointLight(0xffb060, 3.2, 5.5, 1.5);
     this.uplight.position.set(0, TABLE_Y + 0.22, -0.1);
     g.add(this.uplight);
@@ -179,84 +175,6 @@ export class Room {
     this.dealerProps.add(shoe, tray);
     g.add(this.dealerProps);
 
-    // Whiskey glass and a cigar in a saucer, near the local player's hand.
-    const glassProfile = [
-      new THREE.Vector2(0.0, 0),
-      new THREE.Vector2(0.026, 0),
-      new THREE.Vector2(0.032, 0.01),
-      new THREE.Vector2(0.038, 0.085),
-      new THREE.Vector2(0.036, 0.086),
-      new THREE.Vector2(0.029, 0.02),
-      new THREE.Vector2(0.0, 0.016),
-    ];
-    const glass = new THREE.Mesh(
-      new THREE.LatheGeometry(glassProfile, 24),
-      new THREE.MeshStandardMaterial({
-        color: 0xd8c8a0,
-        transparent: true,
-        opacity: 0.35,
-        roughness: 0.08,
-        metalness: 0.1,
-      }),
-    );
-    const whiskey = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.03, 0.026, 0.045, 18),
-      new THREE.MeshStandardMaterial({ color: 0x9a5a14, emissive: 0x3a1c04, roughness: 0.2 }),
-    );
-    whiskey.position.y = 0.032;
-    const glassGroup = new THREE.Group();
-    glassGroup.add(glass, whiskey);
-    glassGroup.position.set(0.78, TABLE_Y + 0.001, 0.62);
-    g.add(glassGroup);
-
-    const saucer = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.05, 0.012, 20),
-      new THREE.MeshStandardMaterial({ color: 0x2b2018, roughness: 0.4, metalness: 0.5 }),
-    );
-    saucer.position.set(-0.85, TABLE_Y + 0.006, 0.55);
-    const cigar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.009, 0.009, 0.13, 10),
-      new THREE.MeshStandardMaterial({ color: 0x4a2c16, roughness: 0.9 }),
-    );
-    cigar.rotation.z = Math.PI / 2 - 0.15;
-    cigar.position.set(-0.85, TABLE_Y + 0.02, 0.55);
-    this.ember = new THREE.Mesh(
-      new THREE.SphereGeometry(0.0085, 8, 8),
-      new THREE.MeshBasicMaterial({ color: 0xff6a1e }),
-    );
-    this.ember.position.set(-0.85 + 0.065, TABLE_Y + 0.0235, 0.55 + 0.004);
-    g.add(saucer, cigar, this.ember);
-
-    // --- Hanging lamp --------------------------------------------------
-    const cord = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.006, 0.006, 3.4 - LAMP_POS.y, 6),
-      new THREE.MeshStandardMaterial({ color: 0x0a0806 }),
-    );
-    cord.position.set(0, (3.4 + LAMP_POS.y) / 2, -0.05);
-    const shade = new THREE.Mesh(
-      new THREE.ConeGeometry(0.34, 0.24, 28, 1, true),
-      new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 0.5, metalness: 0.6, side: THREE.DoubleSide }),
-    );
-    shade.position.set(0, LAMP_POS.y + 0.1, -0.05);
-    this.bulb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.055, 16, 12),
-      new THREE.MeshBasicMaterial({ color: 0xffd9a0 }),
-    );
-    this.bulb.position.set(0, LAMP_POS.y - 0.04, -0.05);
-    this.halo = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: softDotTexture(),
-        color: 0xffb060,
-        transparent: true,
-        opacity: 0.85,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    );
-    this.halo.scale.set(0.9, 0.9, 1);
-    this.halo.position.copy(this.bulb.position);
-    g.add(cord, shade, this.bulb, this.halo);
-
     // --- Atmosphere ----------------------------------------------------
     const N = 260;
     const pos = new Float32Array(N * 3);
@@ -285,16 +203,6 @@ export class Room {
       }),
     );
     g.add(this.dust);
-
-    const smokeTex = smokeTexture();
-    for (let i = 0; i < 7; i++) {
-      const s = new THREE.Sprite(
-        new THREE.SpriteMaterial({ map: smokeTex, transparent: true, opacity: 0, depthWrite: false, color: 0xd8c8b0 }),
-      );
-      s.userData.t0 = i / 7;
-      g.add(s);
-      this.smoke.push(s);
-    }
   }
 
   // The shoe and discard tray belong to Blackjack only.
@@ -308,7 +216,6 @@ export class Room {
     this.spot.shadow.map?.dispose();
     this.spot.shadow.map = null;
     this.dust.visible = q !== 'low';
-    this.smoke.forEach((s) => (s.visible = q !== 'low'));
   }
 
   update(t: number, still: boolean): void {
@@ -317,8 +224,6 @@ export class Room {
       : 1 + Math.sin(t * 13.1) * 0.025 + Math.sin(t * 7.7 + 1.3) * 0.03 + Math.sin(t * 29) * 0.012;
     this.spot.intensity = this.baseSpot * flick;
     this.fill.intensity = 2.4 * flick;
-    (this.halo.material as THREE.SpriteMaterial).opacity = 0.75 * flick;
-    this.ember.scale.setScalar(0.8 + 0.4 * (0.5 + 0.5 * Math.sin(t * 2.2)));
 
     if (!still) {
       const arr = this.dust.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -334,14 +239,6 @@ export class Room {
         arr.setY(i, y);
       }
       arr.needsUpdate = true;
-    }
-
-    for (const s of this.smoke) {
-      const k = (((t * 0.06 + (s.userData.t0 as number)) % 1) + 1) % 1;
-      s.position.set(-0.78 + Math.sin(k * 6 + (s.userData.t0 as number) * 9) * 0.1 * k, TABLE_Y + 0.05 + k * 1.0, 0.55);
-      const size = 0.12 + k * 0.55;
-      s.scale.set(size, size, 1);
-      (s.material as THREE.SpriteMaterial).opacity = still ? 0.05 : Math.sin(Math.PI * k) * 0.22;
     }
   }
 }

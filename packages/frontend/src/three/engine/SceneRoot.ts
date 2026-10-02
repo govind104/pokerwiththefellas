@@ -4,11 +4,11 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { TABLE_Y, slotPoint, type SceneModel } from '../sceneModel';
+import { TABLE_Y, type SceneModel } from '../sceneModel';
+import { fitCamera } from '../cameraFit';
 import { CardObject } from './cards';
 import { ChipStackObject } from './chips';
 import { Room, SHOE_POS, TRAY_POS } from './room';
-import { Silhouette, silhouetteFor } from './silhouette';
 import { SoundStage } from './audio';
 import { Tweens, easeInOutCubic } from './tween';
 
@@ -64,11 +64,6 @@ const GradeShader = {
 const DECK_POS = new THREE.Vector3(0, TABLE_Y + 0.03, -0.3);
 const MUCK_POS = new THREE.Vector3(0, TABLE_Y + 0.01, -0.62);
 
-const BASE_CAM = new THREE.Vector3(0, 1.05, 1.3);
-const BASE_LOOK = new THREE.Vector3(0, 0.52, -0.2);
-const LEAN_CAM = new THREE.Vector3(0, 0.92, 1.02);
-const LEAN_LOOK = new THREE.Vector3(0, 0.6, 0.18);
-
 export class SceneRoot {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -82,25 +77,18 @@ export class SceneRoot {
   private cards = new Map<string, CardObject>();
   private sweeping = new Set<CardObject>();
   private chips = new Map<string, ChipStackObject>();
-  private figures = new Map<string, Silhouette>();
   private raf = 0;
   private disposed = false;
   private width = 1;
   private height = 1;
   private nextDealAt = 0;
-  private lean = 0;
-  private leanTarget = 0;
-  private pointer = new THREE.Vector2();
-  private pointerSmooth = new THREE.Vector2();
   private tmp = new THREE.Vector3();
   private quality: Quality;
   private reducedMotion: boolean;
   private sound: SoundStage;
-  private canvas: HTMLCanvasElement;
   onFrame: ((project: (x: number, y: number, z: number) => ScreenPoint) => void) | null = null;
 
   constructor(opts: SceneRootOptions) {
-    this.canvas = opts.canvas;
     this.quality = opts.quality;
     this.reducedMotion = opts.reducedMotion;
     this.sound = opts.sound;
@@ -119,29 +107,22 @@ export class SceneRoot {
     this.scene.background = new THREE.Color(0x060403);
     this.scene.fog = new THREE.FogExp2(0x0a0604, 0.055);
     this.scene.add(this.room.group);
-    this.camera.position.copy(BASE_CAM);
 
-    opts.canvas.addEventListener('pointermove', this.onPointer);
     this.applyQuality(opts.quality);
     this.raf = requestAnimationFrame(this.loop);
   }
-
-  private onPointer = (e: PointerEvent) => {
-    const r = this.canvas.getBoundingClientRect();
-    this.pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, ((e.clientY - r.top) / r.height) * 2 - 1);
-  };
 
   setSize(w: number, h: number): void {
     this.width = Math.max(1, w);
     this.height = Math.max(1, h);
     const aspect = this.width / this.height;
-    // Landscape wants the wide view (side seats in frame); a portrait phone gets a
-    // tighter one so the cards stay a usable size.
-    const t = Math.min(1, Math.max(0, (aspect - 0.6) / 0.8));
-    const hfov = (58 + (84 - 58) * t) * (Math.PI / 180);
-    const vfov = (2 * Math.atan(Math.tan(hfov / 2) / aspect) * 180) / Math.PI;
-    this.camera.fov = Math.min(72, Math.max(38, vfov));
+    // A fixed three-quarter view framed to fill the screen evenly (spec §A2). The camera never
+    // moves after this: no lean, sway or pointer parallax.
+    const fit = fitCamera(aspect);
+    this.camera.fov = fit.fov;
     this.camera.aspect = aspect;
+    this.camera.position.copy(fit.position);
+    this.camera.lookAt(fit.look);
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height, false);
     this.composer?.setSize(this.width, this.height);
@@ -205,8 +186,8 @@ export class SceneRoot {
     }));
   }
 
-  getStats(): { cards: number; chips: number; figures: number } {
-    return { cards: this.cards.size, chips: this.chips.size, figures: this.figures.size };
+  getStats(): { cards: number; chips: number } {
+    return { cards: this.cards.size, chips: this.chips.size };
   }
 
   // Reconcile the scene against a snapshot-derived model. Idempotent: calling it
@@ -215,47 +196,10 @@ export class SceneRoot {
   apply(model: SceneModel): void {
     const now = this.time;
     if (this.nextDealAt < now) this.nextDealAt = now;
-    this.leanTarget = model.myTurn ? 1 : 0;
 
     this.room.setMode(model.kind);
     const origin = model.kind === 'blackjack' ? SHOE_POS : DECK_POS;
     const sweepTo = model.kind === 'blackjack' ? TRAY_POS : MUCK_POS;
-
-    // Seated figures (never the local player: that's the camera).
-    const wanted = new Set<string>();
-    if (model.dealerFigure) {
-      wanted.add('dealer');
-      if (!this.figures.has('dealer')) {
-        const dealerFig = new Silhouette({ hat: 'flat', hatColor: 0x1b1512, coatColor: 0x241a14, dealer: true });
-        const dp = slotPoint(0, 1.34);
-        dealerFig.group.position.set(dp.x, -0.12, dp.z);
-        dealerFig.faceToward(0, 0);
-        this.scene.add(dealerFig.group);
-        this.figures.set('dealer', dealerFig);
-      }
-    }
-    for (const seat of model.seats) {
-      if (seat.isMe) continue;
-      const id = `seat:${seat.seatIndex}`;
-      wanted.add(id);
-      let fig = this.figures.get(id);
-      if (!fig) {
-        fig = new Silhouette(silhouetteFor(seat.seatIndex));
-        fig.group.position.set(seat.bodyX, 0, seat.bodyZ);
-        fig.faceToward(0, 0);
-        this.scene.add(fig.group);
-        this.figures.set(id, fig);
-      }
-      fig.setActive(seat.isActive);
-    }
-    this.figures.get('dealer')?.setActive(model.dealerActive);
-    for (const [id, fig] of this.figures) {
-      if (!wanted.has(id)) {
-        this.scene.remove(fig.group);
-        fig.dispose();
-        this.figures.delete(id);
-      }
-    }
 
     // Cards.
     const keep = new Set<string>();
@@ -394,19 +338,6 @@ export class SceneRoot {
 
     this.tweens.update(dt);
     this.room.update(t, still);
-    for (const f of this.figures.values()) f.update(t, dt, still);
-
-    this.lean += (this.leanTarget - this.lean) * Math.min(1, dt * 2.5);
-    const k = easeInOutCubic(this.lean);
-    this.pointerSmooth.lerp(this.pointer, Math.min(1, dt * 3));
-    const sway = still ? 0 : 1;
-    this.camera.position.lerpVectors(BASE_CAM, LEAN_CAM, k);
-    this.camera.position.x += (Math.sin(t * 0.37) * 0.006 + this.pointerSmooth.x * 0.04) * sway;
-    this.camera.position.y += (Math.sin(t * 0.83) * 0.003 - this.pointerSmooth.y * 0.015) * sway;
-    this.tmp.lerpVectors(BASE_LOOK, LEAN_LOOK, k);
-    this.tmp.x += this.pointerSmooth.x * 0.16 * sway;
-    this.tmp.y += -this.pointerSmooth.y * 0.07 * sway;
-    this.camera.lookAt(this.tmp);
 
     if (!draw) return;
     if (this.grade) this.grade.uniforms.time.value = t;
@@ -419,10 +350,8 @@ export class SceneRoot {
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
-    this.canvas.removeEventListener('pointermove', this.onPointer);
     this.tweens.clear();
     this.composer?.dispose();
-    for (const f of this.figures.values()) f.dispose();
     for (const c of this.cards.values()) c.dispose();
     for (const c of this.sweeping) c.dispose();
     this.sweeping.clear();

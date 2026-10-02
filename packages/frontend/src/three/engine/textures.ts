@@ -338,19 +338,3 @@ export function softDotTexture(inner = 'rgba(255,220,160,1)'): THREE.CanvasTextu
   ctx.fillRect(0, 0, 64, 64);
   return tex(c);
 }
-
-export function smokeTexture(seed = 5): THREE.CanvasTexture {
-  const [c, ctx] = canvas(128, 128);
-  const r = rng(seed);
-  for (let i = 0; i < 26; i++) {
-    const x = 28 + r() * 72;
-    const y = 28 + r() * 72;
-    const rad = 14 + r() * 26;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
-    g.addColorStop(0, 'rgba(255,240,215,0.16)');
-    g.addColorStop(1, 'rgba(255,240,215,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-  return tex(c);
-}

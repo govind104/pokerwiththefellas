@@ -885,7 +885,7 @@ git commit -m "feat(3d): fitted camera, HUD-safe zones and the layout property t
 
 There is no unit test for this task: `SceneRoot` and `Room` need WebGL, and the component tests mock `SceneRoot`. It is checked by typecheck, the full suite, the greps in Step 4, and Gate 1.
 
-- [ ] **Step 1: SceneRoot: imports and constants**
+- [x] **Step 1: SceneRoot: imports and constants**
 
 In `packages/frontend/src/three/engine/SceneRoot.ts`:
 
@@ -909,7 +909,7 @@ const LEAN_CAM = new THREE.Vector3(0, 0.92, 1.02);
 const LEAN_LOOK = new THREE.Vector3(0, 0.6, 0.18);
 ```
 
-- [ ] **Step 2: SceneRoot: fields, constructor, setSize, apply, tick, dispose**
+- [x] **Step 2: SceneRoot: fields, constructor, setSize, apply, tick, dispose**
 
 Delete the fields `figures`, `lean`, `leanTarget`, `pointer`, `pointerSmooth` (keep `tmp`, which `project` uses).
 
@@ -964,7 +964,7 @@ In `tick`, delete `for (const f of this.figures.values()) f.update(t, dt, still)
 
 In `dispose`, delete `this.canvas.removeEventListener('pointermove', this.onPointer);` and `for (const f of this.figures.values()) f.dispose();`.
 
-- [ ] **Step 3: Room and textures: remove the props, lamp meshes and smoke**
+- [x] **Step 3: Room and textures: remove the props, lamp meshes and smoke**
 
 In `packages/frontend/src/three/engine/room.ts`:
 
@@ -985,13 +985,13 @@ In `packages/frontend/src/three/engine/textures.ts` delete `smokeTexture` (its o
 
 Delete `packages/frontend/src/three/engine/silhouette.ts`.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `npm run typecheck` → clean.
 Run: `npm test --workspace=@poker-blackjack/frontend` → all pass.
 Run: `git grep -n -E "silhouette|Silhouette|this\.figures|LEAN_|onPointer|pointermove|smokeTexture|this\.ember|this\.halo|this\.bulb|this\.smoke" -- packages/frontend/src` → no matches.
 
-- [ ] **Step 5: Commit (controller, after the user says yes)**
+- [x] **Step 5: Commit (controller, after the user says yes)**
 
 ```bash
 git add -A packages/frontend/src/three/engine docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md
