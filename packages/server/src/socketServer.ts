@@ -19,6 +19,7 @@ import type {
   StartGamePayload,
   ReleaseNamePayload,
   LeaveResult,
+  KickPayload,
 } from './protocol';
 
 export interface StaticTableConfig {
@@ -391,13 +392,19 @@ export async function createServer(
       }
       leavingSocketIds.add(socket.id);
       try {
-        await leavingTable.leave(seatIndex, () => {
-          // A mode switch while we waited for the lock cleared the map; the same index may
-          // now belong to someone at the new table.
-          if (table === leavingTable) {
-            unmapSeat(seatIndex);
-          }
-        });
+        await leavingTable.leave(
+          seatIndex,
+          () => {
+            // A mode switch while we waited for the lock cleared the map; the same index may
+            // now belong to someone at the new table.
+            if (table === leavingTable) {
+              unmapSeat(seatIndex);
+            }
+          },
+          // Checked inside the lock: an admin removal that ran while we waited unmapped this
+          // socket and freed the seat, and someone else may have sat there since (audit I6).
+          () => table === leavingTable && seatBySocketId.get(socket.id) === seatIndex
+        );
         reply?.({ ok: true });
       } catch (err) {
         fail((err as Error).message);
@@ -569,6 +576,43 @@ export async function createServer(
       socket.emit('adminNotice', {
         message: `Released "${displayName}": the next person to join under that name gets it, with its balance.`,
       });
+    }));
+
+    // Unsticks a table held up by an idle or vanished player (audit I6). The kicked browser is
+    // told before the broadcast that shows it unseated, so it doesn't auto-rejoin.
+    socket.on('adminKick', adminHandler(async (payload: KickPayload) => {
+      if (!isAdmin()) return;
+      const displayName = normaliseDisplayName(payload?.displayName);
+      if (!displayName) {
+        rejectAdmin('Invalid display name');
+        return;
+      }
+      const kickTable = table;
+      if (!kickTable) {
+        rejectAdmin(`No player named "${displayName}" is currently seated`);
+        return;
+      }
+      let outcome: 'now' | 'after-hand';
+      try {
+        outcome = await kickTable.kick(displayName, (seatIndex) => {
+          if (table !== kickTable) return;
+          for (const socketId of unmapSeat(seatIndex)) {
+            io.sockets.sockets
+              .get(socketId)
+              ?.emit('error', { message: 'The admin removed you from the table.', code: 'kicked' });
+          }
+        });
+      } catch (err) {
+        rejectAdmin((err as Error).message);
+        return;
+      }
+      socket.emit('adminNotice', {
+        message:
+          outcome === 'now'
+            ? `Removed "${displayName}" from the table.`
+            : `Removed "${displayName}": they fold or stand from now on and leave when this hand ends.`,
+      });
+      broadcast();
     }));
 
     socket.on('adminSetBlinds', adminHandler(async (payload) => {

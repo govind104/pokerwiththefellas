@@ -123,6 +123,9 @@ export class Table {
   private handStartError: string | null = null;
   private disconnectTimers: Map<number, NodeJS.Timeout> = new Map();
   private timedOutSeats: Set<number> = new Set();
+  // Seats the admin removed while they were in the hand: they are acted for from then on, and the
+  // seat is freed when the hand ends (audit I6).
+  private leavingAfterHand: Set<number> = new Set();
   private holdemSettled = false;
   private lastSettledHoldemHand: HoldemHand | null = null;
   private lastSettledBlackjackRounds: Map<number, BlackjackRound> | null = null;
@@ -252,10 +255,15 @@ export class Table {
    * free a seat the new hand is about to deal to (audit I11). A seat that is not in the current
    * hand (broke, or sat down after the deal) may leave mid-hand; a seat in it may not. `onLeft`
    * runs after the seat is freed and before the change is broadcast: the socket server unmaps
-   * the player's sockets there, so no state ever points them at an empty seat.
+   * the player's sockets there, so no state ever points them at an empty seat. `stillOwnsSeat` is
+   * checked first, inside the lock: the caller read `seatIndex` before waiting for the lock, and an
+   * admin removal that ran in between may have freed the seat for someone else (audit I6).
    */
-  async leave(seatIndex: number, onLeft?: () => void): Promise<void> {
+  async leave(seatIndex: number, onLeft?: () => void, stillOwnsSeat?: () => boolean): Promise<void> {
     await this.runExclusive(async () => {
+      if (stillOwnsSeat && !stillOwnsSeat()) {
+        throw new Error('Not seated');
+      }
       if (!this.seats[seatIndex]) {
         throw new Error('Seat is empty');
       }
@@ -272,6 +280,50 @@ export class Table {
     });
   }
 
+  /**
+   * The admin's "Remove from table" (audit I6). Between hands, or for a seat not in the hand, the
+   * seat is freed now. A player in the hand is treated as gone: marked disconnected and timed out,
+   * so every turn of theirs gets the default action, and the seat is freed when the hand ends
+   * (after payouts). `onRemoved` runs inside the lock before the broadcast; the socket server
+   * unmaps and tells the player's sockets there.
+   */
+  async kick(displayName: string, onRemoved?: (seatIndex: number) => void): Promise<'now' | 'after-hand'> {
+    const outcome = await this.runExclusive(async () => {
+      const seat = this.seats.find((s) => sameName(s?.displayName, displayName));
+      if (!seat) {
+        throw new Error(`No player named "${displayName}" is currently seated`);
+      }
+      const { seatIndex } = seat;
+      if (!this.handInProgress || !this.isDealtIn(seatIndex)) {
+        this.freeSeat(seatIndex);
+        onRemoved?.(seatIndex);
+        this.deps.onStateChange();
+        return 'now' as const;
+      }
+      seat.connected = false;
+      this.timedOutSeats.add(seatIndex);
+      this.leavingAfterHand.add(seatIndex);
+      onRemoved?.(seatIndex);
+      this.deps.onStateChange();
+      await this.autoActIfSeatIsUpAndTimedOut(seatIndex);
+      return 'after-hand' as const;
+    });
+    // Removing the one seat that never clicked Ready can be what lets the others start.
+    this.startHandIfEveryoneReady().catch((err) => {
+      console.error('Table: error starting hand after a seat was removed:', err);
+    });
+    return outcome;
+  }
+
+  private releaseSeatsLeavingAfterHand(): void {
+    for (const seatIndex of this.leavingAfterHand) {
+      if (this.seats[seatIndex]) {
+        this.freeSeat(seatIndex);
+      }
+    }
+    this.leavingAfterHand.clear();
+  }
+
   // Everything a seat leaves behind goes with it, so a new occupant of the same index starts clean.
   // No broadcast: callers do that.
   private freeSeat(seatIndex: number): void {
@@ -281,6 +333,7 @@ export class Table {
       this.disconnectTimers.delete(seatIndex);
     }
     this.timedOutSeats.delete(seatIndex);
+    this.leavingAfterHand.delete(seatIndex);
     this.seats[seatIndex] = null;
   }
 
@@ -384,6 +437,8 @@ export class Table {
       this.disconnectTimers.delete(seat.seatIndex);
     }
     this.timedOutSeats.delete(seat.seatIndex);
+    // Coming back during the hand they were removed from cancels the removal (audit I6).
+    this.leavingAfterHand.delete(seat.seatIndex);
     seat.connected = true;
     this.deps.onStateChange();
 
@@ -415,32 +470,38 @@ export class Table {
     await this.runExclusive(() => this.autoActIfSeatIsUpAndTimedOut(seatIndex));
   }
 
+  // Whose turn it is, as a seat index; null when no hand is in progress or nobody can act.
+  private actingSeatIndex(): number | null {
+    if (!this.handInProgress) {
+      return null;
+    }
+    if (this.config.gameMode === 'holdem') {
+      const acting = this.holdemHand?.actingPlayerId;
+      return acting ? (this.seats.find((s) => s?.displayName === acting)?.seatIndex ?? null) : null;
+    }
+    return this.activeSeatIndex;
+  }
+
+  // The safe default the grace timer has always used: check when there is nothing to call,
+  // otherwise fold; stand in Blackjack. Shared by the turn clock and the admin's force-act (audit
+  // I6). Caller must hold the table lock.
+  private async applyDefaultAction(seatIndex: number, expectedSeq?: number): Promise<void> {
+    let action: PlayerAction | HoldemAction = 'stand';
+    if (this.config.gameMode === 'holdem') {
+      const context = this.holdemHand?.getBettingContext();
+      action = context && context.toCall === 0 ? 'check' : 'fold';
+    }
+    await this.applyAction(seatIndex, action, undefined, expectedSeq);
+  }
+
   // Called with the table lock held (from the grace timer above, or from the end of
   // applyAction), so it calls applyAction directly: going through submitAction would wait
   // on the lock it already holds.
-
   private async autoActIfSeatIsUpAndTimedOut(seatIndex: number): Promise<void> {
-    if (!this.handInProgress || !this.timedOutSeats.has(seatIndex)) {
+    if (!this.timedOutSeats.has(seatIndex) || this.actingSeatIndex() !== seatIndex) {
       return;
     }
-    const seat = this.seats[seatIndex];
-    if (!seat) {
-      return;
-    }
-
-    if (this.config.gameMode === 'holdem') {
-      if (this.holdemHand?.actingPlayerId !== seat.displayName) {
-        return;
-      }
-      const context = this.holdemHand.getBettingContext();
-      const action: HoldemAction = context && context.toCall === 0 ? 'check' : 'fold';
-      await this.applyAction(seatIndex, action);
-    } else {
-      if (this.activeSeatIndex !== seatIndex) {
-        return;
-      }
-      await this.applyAction(seatIndex, 'stand');
-    }
+    await this.applyDefaultAction(seatIndex);
   }
 
   private buildShuffledDeck(deckCount: number): Card[] {
@@ -613,11 +674,8 @@ export class Table {
     this.deps.onStateChange();
 
     if (this.handInProgress) {
-      const nextSeatIndex =
-        this.config.gameMode === 'holdem'
-          ? this.seats.find((s) => s?.displayName === this.holdemHand?.actingPlayerId)?.seatIndex
-          : this.activeSeatIndex;
-      if (nextSeatIndex !== undefined && nextSeatIndex !== null) {
+      const nextSeatIndex = this.actingSeatIndex();
+      if (nextSeatIndex !== null) {
         await this.autoActIfSeatIsUpAndTimedOut(nextSeatIndex);
       }
     }
@@ -698,6 +756,7 @@ export class Table {
         if (seat) seat.ready = false;
       }
       this.timedOutSeats.clear();
+      this.releaseSeatsLeavingAfterHand();
     }
     await this.deps.handLog.clear();
   }
@@ -792,6 +851,7 @@ export class Table {
       if (seat) seat.ready = false;
     }
     this.timedOutSeats.clear();
+    this.releaseSeatsLeavingAfterHand();
     try {
       await this.deps.handLog.clear();
     } catch (clearErr) {
@@ -809,6 +869,7 @@ export class Table {
       if (seat) seat.ready = false;
     }
     this.timedOutSeats.clear();
+    this.releaseSeatsLeavingAfterHand();
     await this.deps.handLog.clear();
   }
 

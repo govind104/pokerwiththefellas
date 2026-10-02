@@ -449,6 +449,99 @@ describe('socketServer', () => {
   });
 
 
+  describe('adminKick (audit I6)', () => {
+    async function seat(name: string) {
+      const socket = connect();
+      const seated = waitForSeated(socket, name);
+      await joinAndGetToken(socket, name);
+      await seated;
+      return socket;
+    }
+
+    it('removes an idle player between hands, tells them, and lets the ready players start', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = await seat('alice');
+      const bob = await seat('bob');
+      const cara = await seat('cara');
+      alice.emit('ready');
+      await waitForReady(alice, 'alice');
+      bob.emit('ready');
+      await waitForReady(bob, 'bob');
+
+      const kicked = waitForEvent<ErrorPayload>(cara, 'error');
+      const caraUnseated = waitForState(cara, (s) => s.table?.seats[2]?.displayName === null);
+      const started = waitForState(alice, (s) => s.table?.handInProgress === true);
+      const notice = waitForEvent<{ message: string }>(admin, 'adminNotice');
+      admin.emit('adminKick', { displayName: 'cara' });
+
+      expect(await kicked).toEqual({ message: 'The admin removed you from the table.', code: 'kicked' });
+      expect((await caraUnseated).mySeatIndex).toBeNull();
+      await started;
+      expect((await notice).message).toBe('Removed "cara" from the table.');
+    });
+
+    it('mid-hand, folds for the player on their turn and frees the seat when the hand ends', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = await seat('alice');
+      const bob = await seat('bob');
+      alice.emit('ready');
+      await waitForReady(alice, 'alice');
+      const started = waitForState(bob, (s) => s.table?.handInProgress === true);
+      bob.emit('ready');
+      await started;
+
+      const handOver = waitForState(bob, (s) => s.table?.handInProgress === false && s.table.seats[0]?.displayName === null);
+      admin.emit('adminKick', { displayName: 'alice' }); // alice is up first, heads-up
+      await handOver;
+    });
+
+    it('rejects a player who is not seated, and a non-admin', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const adminError = waitForEvent<ErrorPayload>(admin, 'error');
+      admin.emit('adminKick', { displayName: 'ghost' });
+      expect(await adminError).toEqual({ message: 'No player named "ghost" is currently seated', scope: 'admin' });
+
+      const alice = await seat('alice');
+      const aliceError = waitForEvent<ErrorPayload>(alice, 'error');
+      alice.emit('adminKick', { displayName: 'alice' });
+      expect(await aliceError).toEqual({ message: 'Admin only', scope: 'admin' });
+    });
+
+    it('a leave queued before the kick ran does not free whoever took the seat afterwards', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      await seat('alice');
+      await seat('bob');
+      const cara = await seat('cara');
+      const table = server.getTable()!;
+      // Test-only access to the table lock, to line up: [held, kick, held again, cara's leave].
+      const lock = (fn: () => Promise<void>) =>
+        (table as unknown as { runExclusive: (f: () => Promise<void>) => Promise<void> }).runExclusive(fn);
+      const pause = () => new Promise((r) => setTimeout(r, 100));
+      let release1!: () => void;
+      let release2!: () => void;
+      void lock(() => new Promise<void>((r) => (release1 = r)));
+      admin.emit('adminKick', { displayName: 'cara' });
+      await pause();
+      void lock(() => new Promise<void>((r) => (release2 = r)));
+      // Cara has not been unmapped yet (the kick is still queued), so this leave reads seat 2.
+      const leaveResult = cara.emitWithAck('leave');
+      await pause();
+
+      release1(); // the kick runs, freeing seat 2; the second hold keeps cara's leave waiting
+      const dave = await seat('dave');
+      expect(table.seats[2]?.displayName).toBe('dave');
+      release2(); // now cara's stale leave runs
+
+      expect(await leaveResult).toEqual({ ok: false, message: 'Not seated' });
+      expect(table.seats[2]?.displayName).toBe('dave');
+      expect(dave.connected).toBe(true);
+    });
+  });
+
   describe('admin payload validation', () => {
     // Each of these used to be accepted and written straight through to a
     // file that survives a restart (game-config.json / balances.json), or --

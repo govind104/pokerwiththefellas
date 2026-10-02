@@ -13,7 +13,7 @@ export interface IdentityPayload {
 }
 
 // Lets the client tell a name conflict and a takeover apart from other join errors (audit C5).
-export type ErrorCode = 'name-claimed' | 'replaced';
+export type ErrorCode = 'name-claimed' | 'replaced' | 'kicked';
 
 export interface ActionPayload {
   action: PlayerAction | HoldemAction;
@@ -60,6 +60,10 @@ export interface ReleaseNamePayload {
   displayName: string;
 }
 
+export interface KickPayload {
+  displayName: string;
+}
+
 export interface AdminNoticePayload {
   message: string;
 }
@@ -91,6 +95,7 @@ export interface ClientToServerEvents {
   adminSwitchMode: (payload: StartGamePayload) => void;
   adminAdjustBalance: (payload: AdjustBalancePayload) => void;
   adminReleaseName: (payload: ReleaseNamePayload) => void;
+  adminKick: (payload: KickPayload) => void;
   adminSetBlinds: (payload: SetBlindsPayload) => void;
   adminSetDefaultBet: (payload: SetDefaultBetPayload) => void;
   adminSetStartingBalance: (payload: SetStartingBalancePayload) => void;

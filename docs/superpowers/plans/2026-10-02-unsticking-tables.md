@@ -489,7 +489,7 @@ git commit -m "fix(server): acknowledge leave and unmap the seat before broadcas
   - `protocol.ts`: `ErrorCode` gains `'kicked'`; `export interface KickPayload { displayName: string }`;
     `adminKick: (payload: KickPayload) => void;` in `ClientToServerEvents`.
 
-- [ ] **Step 1: Write the failing Table tests**
+- [x] **Step 1: Write the failing Table tests**
 
 Append to `packages/server/src/table.test.ts`:
 
@@ -585,12 +585,12 @@ describe('Table.kick (audit I6)', () => {
 });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `npx vitest run src/table.test.ts --root packages/server -t "Table.kick"`
 Expected: FAIL with "table.kick is not a function".
 
-- [ ] **Step 3: Implement in `table.ts`**
+- [x] **Step 3: Implement in `table.ts`**
 
 Add a field next to `timedOutSeats`:
 
@@ -714,13 +714,13 @@ And at the end of `applyAction`, replace the `nextSeatIndex` block with:
     }
 ```
 
-- [ ] **Step 4: Run the Table tests**
+- [x] **Step 4: Run the Table tests**
 
 Run: `npx vitest run src/table.test.ts --root packages/server`
 Expected: all PASS, including the existing disconnect/auto-act tests, which now go through the
 refactored helpers.
 
-- [ ] **Step 5: Write the failing socket tests**
+- [x] **Step 5: Write the failing socket tests**
 
 In `packages/server/src/protocol.ts`:
 - change `ErrorCode` to `export type ErrorCode = 'name-claimed' | 'replaced' | 'kicked';`;
@@ -792,12 +792,12 @@ Then add to `packages/server/src/socketServer.test.ts`, inside `describe('socket
   });
 ```
 
-- [ ] **Step 6: Run them to verify they fail**
+- [x] **Step 6: Run them to verify they fail**
 
 Run: `npx vitest run src/socketServer.test.ts --root packages/server -t "adminKick"`
 Expected: FAIL (timeouts: no handler).
 
-- [ ] **Step 7: Implement the handler**
+- [x] **Step 7: Implement the handler**
 
 In `packages/server/src/socketServer.ts`, add `KickPayload` to the `./protocol` type import, and add
 after the `adminReleaseName` handler:
@@ -841,7 +841,7 @@ after the `adminReleaseName` handler:
     }));
 ```
 
-- [ ] **Step 8: Run all server tests and typecheck**
+- [x] **Step 8: Run all server tests and typecheck**
 
 Run: `npm test --workspace=@poker-blackjack/server` then `npm run typecheck`
 Expected: all PASS, typecheck clean.

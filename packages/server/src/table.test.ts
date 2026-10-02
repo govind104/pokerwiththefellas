@@ -2374,3 +2374,104 @@ describe('Table.leave mid-hand and under the lock (audit I11)', () => {
     expect(calls).toEqual(['onLeft:freed', 'broadcast']);
   });
 });
+
+describe('Table.kick (audit I6)', () => {
+  it('between hands frees the seat, and that can be what lets the ready players start', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('cara'); // connected, never clicks Ready
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(false);
+
+    const removed: number[] = [];
+    await expect(table.kick('CARA', (i) => removed.push(i))).resolves.toBe('now');
+    expect(removed).toEqual([2]);
+    expect(table.seats[2]).toBeNull();
+    await vi.waitFor(() => expect(table.handInProgress).toBe(true));
+  });
+
+  it('rejects a name that is not seated', async () => {
+    const { table } = makeTable();
+    await expect(table.kick('nobody')).rejects.toThrow('No player named "nobody" is currently seated');
+  });
+
+  it("mid-hand acts for the player when they are up, and frees the seat once the hand ends (Hold'em)", async () => {
+    const { table, playerStore } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.holdemHand!.actingPlayerId).toBe('alice'); // heads-up: the button acts first
+
+    await expect(table.kick('alice')).resolves.toBe('after-hand');
+    // Facing the big blind, the default is a fold, which ends the hand.
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats[0]).toBeNull();
+    await expect(playerStore.getBalance('alice')).resolves.toBe(995); // paid before the seat went
+  });
+
+  it("mid-hand, a player who is not up yet keeps the seat until the hand ends and is paid first (Hold'em)", async () => {
+    const { table, playerStore } = makeTable();
+    await table.join('alice'); // button
+    await table.join('bob'); // small blind
+    await table.join('carol'); // big blind
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.setReady(2);
+    expect(table.holdemHand!.actingPlayerId).toBe('alice');
+
+    await table.kick('carol');
+    expect(table.seats[2]?.connected).toBe(false);
+    await table.submitAction(0, 'fold');
+    await table.submitAction(1, 'fold');
+    // Everyone else folded, so carol wins the blinds without acting.
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats[2]).toBeNull();
+    await expect(playerStore.getBalance('carol')).resolves.toBe(1005);
+  });
+
+  it('mid-hand, the kicked player rejoining before the hand ends cancels the removal', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.setReady(2);
+
+    await table.kick('carol');
+    expect(table.reconnect('carol')).toBe(2);
+    await table.submitAction(0, 'fold');
+    await table.submitAction(1, 'fold');
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats[2]?.displayName).toBe('carol');
+  });
+
+  it('mid-hand in Blackjack stands for the player on their turn and frees the seat after settlement', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.activeSeatIndex).toBe(0); // seed 2: no naturals
+
+    await expect(table.kick('bob')).resolves.toBe('after-hand');
+    expect(table.seats[1]).not.toBeNull();
+    await table.submitAction(0, 'stand'); // bob is up next and is stood for; the dealer plays
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats[1]).toBeNull();
+  });
+});
+
+describe('Table.leave precondition (audit I11, with kick)', () => {
+  it('a leave whose precondition no longer holds is refused and frees nothing', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    const onLeft = vi.fn();
+    await expect(table.leave(0, onLeft, () => false)).rejects.toThrow('Not seated');
+    expect(onLeft).not.toHaveBeenCalled();
+    expect(table.seats[0]?.displayName).toBe('alice');
+  });
+});
