@@ -257,13 +257,13 @@ describe('Table seats', () => {
   it('leave clears the seat', async () => {
     const { table } = makeTable();
     await table.join('alice');
-    table.leave(0);
+    await table.leave(0);
     expect(table.seats[0]).toBeNull();
   });
 
   it('leave throws on an already-empty seat', async () => {
     const { table } = makeTable();
-    expect(() => table.leave(0)).toThrow('empty');
+    await expect(table.leave(0)).rejects.toThrow('empty');
   });
 
   it('leave throws while a hand is in progress', async () => {
@@ -272,14 +272,14 @@ describe('Table seats', () => {
     await table.join('bob');
     await table.setReady(0);
     await table.setReady(1);
-    expect(() => table.leave(0)).toThrow('in progress');
+    await expect(table.leave(0)).rejects.toThrow('in progress');
   });
 
   it('calls onStateChange on join and leave', async () => {
     const { table, getStateChangeCount } = makeTable();
     await table.join('alice');
     expect(getStateChangeCount()).toBe(1);
-    table.leave(0);
+    await table.leave(0);
     expect(getStateChangeCount()).toBe(2);
   });
 });
@@ -452,7 +452,7 @@ describe('Table: a Hold\'em hand that is already over when it is dealt (audit C1
 
   it('leaves the table usable: players can leave afterwards', async () => {
     const { table } = await dealShortStackedHand();
-    expect(() => table.leave(0)).not.toThrow();
+    await expect(table.leave(0)).resolves.toBeUndefined();
   });
 
   it('shows the finished hand (full board, both hands) to everyone', async () => {
@@ -1007,7 +1007,7 @@ describe('Table disconnect/reconnect', () => {
     table.disconnect(1); // alice disconnects before any hand starts
     await wait(100); // past the grace window -- alice (seat 1) is now in timedOutSeats
 
-    table.leave(1); // alice leaves; handInProgress is false, so this is allowed
+    await table.leave(1); // alice leaves; handInProgress is false, so this is allowed
     expect(table.seats[1]).toBeNull();
 
     await table.join('dave'); // recycles seat 1, the lowest empty index
@@ -1125,7 +1125,7 @@ describe('Table hand eligibility (C1/C2)', () => {
     expect(table.handInProgress).toBe(false);
     expect(table.holdemHand).toBeNull();
     // And the table is not bricked: with no hand in progress, leave() works.
-    expect(() => table.leave(0)).not.toThrow();
+    await expect(table.leave(0)).resolves.toBeUndefined();
   });
 
   it('excludes a Blackjack seat that cannot cover the default bet', async () => {
@@ -2292,5 +2292,419 @@ describe('Table concurrency (audit C3, I1, I2)', () => {
 
     expect(table.handInProgress).toBe(false);
     expect(handLog.entries).toHaveLength(0);
+  });
+});
+
+describe('Table.leave mid-hand and under the lock (audit I11)', () => {
+  it('a seat that was not dealt in can leave while a hand is in progress', async () => {
+    const { table, playerStore } = makeTable();
+    await playerStore.setBalance('carol', 0); // broke: not dealt into Hold'em
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(true);
+
+    await table.leave(2);
+    expect(table.seats[2]).toBeNull();
+    expect(table.handInProgress).toBe(true);
+  });
+
+  it('a seat in the hand still cannot leave, and keeps its seat', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    await expect(table.leave(0)).rejects.toThrow('Cannot leave while a hand you are in is in progress');
+    expect(table.seats[0]?.displayName).toBe('alice');
+  });
+
+  it("a Hold'em player who folded mid-hand still cannot leave, keeps the seat, and the loss is settled", async () => {
+    const { table, playerStore } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.setReady(2);
+    expect(table.handInProgress).toBe(true);
+    const seatOf = (name: string) => table.seats.findIndex((s) => s?.displayName === name);
+
+    // Three-handed: the first player to act calls, the small blind folds (5 chips already in),
+    // and the hand carries on between the other two.
+    await table.submitAction(seatOf(table.holdemHand!.actingPlayerId!), 'call');
+    const folder = table.holdemHand!.actingPlayerId!;
+    const folderSeat = seatOf(folder);
+    await table.submitAction(folderSeat, 'fold');
+    expect(table.handInProgress).toBe(true);
+
+    await expect(table.leave(folderSeat)).rejects.toThrow('Cannot leave while a hand you are in is in progress');
+    expect(table.seats[folderSeat]?.displayName).toBe(folder);
+
+    // Finish the hand: the folder's chips are lost at settlement, which needs their seat.
+    await table.submitAction(seatOf(table.holdemHand!.actingPlayerId!), 'fold');
+    expect(table.handInProgress).toBe(false);
+    await expect(playerStore.getBalance(folder)).resolves.toBe(995);
+    await expect(table.leave(folderSeat)).resolves.toBeUndefined();
+  });
+
+  it('a leave sent while a hand start is mid-write waits for it, then sees the player is in the hand', async () => {
+    const handLog = new ControllableHandLog();
+    const config: TableConfig = {
+      gameMode: 'holdem',
+      seatCount: 8,
+      smallBlind: 5,
+      bigBlind: 10,
+      blackjackDefaultBet: 25,
+      defaultStartingBalance: 1000,
+      reconnectGraceMs: 50,
+      random: makeDeterministicRandom(2),
+    };
+    const table = new Table(config, { playerStore: new FakePlayerStore(1000), handLog, onStateChange: () => {} });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+
+    handLog.holdAppends = true;
+    const ready = table.setReady(1);
+    // The hand start has set handInProgress but has not built the hand yet: nobody is dealt in.
+    await vi.waitFor(() => expect(handLog.entries).toHaveLength(1));
+    const leave = table.leave(0);
+
+    handLog.releaseNextAppend();
+    await ready;
+    await expect(leave).rejects.toThrow('in progress');
+    expect(table.seats[0]?.displayName).toBe('alice');
+    expect(table.holdemHand!.players.map((p) => p.playerId)).toContain('alice');
+  });
+
+  it('runs onLeft after the seat is freed and before the state change is broadcast', async () => {
+    const calls: string[] = [];
+    const playerStore = new FakePlayerStore(1000);
+    const table = new Table(
+      {
+        gameMode: 'holdem',
+        seatCount: 8,
+        smallBlind: 5,
+        bigBlind: 10,
+        blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000,
+        reconnectGraceMs: 50,
+        random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog: new FakeHandLog(), onStateChange: () => calls.push('broadcast') }
+    );
+    await table.join('alice');
+    calls.length = 0;
+    await table.leave(0, () => calls.push(table.seats[0] === null ? 'onLeft:freed' : 'onLeft:still-seated'));
+    expect(calls).toEqual(['onLeft:freed', 'broadcast']);
+  });
+});
+
+describe('Table.kick (audit I6)', () => {
+  it('between hands frees the seat, and that can be what lets the ready players start', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('cara'); // connected, never clicks Ready
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(false);
+
+    const removed: number[] = [];
+    await expect(table.kick('CARA', (i) => removed.push(i))).resolves.toBe('now');
+    expect(removed).toEqual([2]);
+    expect(table.seats[2]).toBeNull();
+    await vi.waitFor(() => expect(table.handInProgress).toBe(true));
+  });
+
+  it('rejects a name that is not seated', async () => {
+    const { table } = makeTable();
+    await expect(table.kick('nobody')).rejects.toThrow('No player named "nobody" is currently seated');
+  });
+
+  it("mid-hand acts for the player when they are up, and frees the seat once the hand ends (Hold'em)", async () => {
+    const { table, playerStore } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.holdemHand!.actingPlayerId).toBe('alice'); // heads-up: the button acts first
+
+    await expect(table.kick('alice')).resolves.toBe('after-hand');
+    // Facing the big blind, the default is a fold, which ends the hand.
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats[0]).toBeNull();
+    await expect(playerStore.getBalance('alice')).resolves.toBe(995); // paid before the seat went
+  });
+
+  it("mid-hand, a player who is not up yet keeps the seat until the hand ends and is paid first (Hold'em)", async () => {
+    const { table, playerStore } = makeTable();
+    await table.join('alice'); // button
+    await table.join('bob'); // small blind
+    await table.join('carol'); // big blind
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.setReady(2);
+    expect(table.holdemHand!.actingPlayerId).toBe('alice');
+
+    await table.kick('carol');
+    expect(table.seats[2]?.connected).toBe(false);
+    await table.submitAction(0, 'fold');
+    await table.submitAction(1, 'fold');
+    // Everyone else folded, so carol wins the blinds without acting.
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats[2]).toBeNull();
+    await expect(playerStore.getBalance('carol')).resolves.toBe(1005);
+  });
+
+  it('mid-hand, the kicked player rejoining before the hand ends cancels the removal', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.setReady(2);
+
+    await table.kick('carol');
+    expect(table.reconnect('carol')).toBe(2);
+    await table.submitAction(0, 'fold');
+    await table.submitAction(1, 'fold');
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats[2]?.displayName).toBe('carol');
+  });
+
+  it('mid-hand in Blackjack stands for the player on their turn and frees the seat after settlement', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.activeSeatIndex).toBe(0); // seed 2: no naturals
+
+    await expect(table.kick('bob')).resolves.toBe('after-hand');
+    expect(table.seats[1]).not.toBeNull();
+    await table.submitAction(0, 'stand'); // bob is up next and is stood for; the dealer plays
+    expect(table.handInProgress).toBe(false);
+    expect(table.seats[1]).toBeNull();
+  });
+});
+
+describe('Table.leave precondition (audit I11, with kick)', () => {
+  it('a leave whose precondition no longer holds is refused and frees nothing', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    const onLeft = vi.fn();
+    await expect(table.leave(0, onLeft, () => false)).rejects.toThrow('Not seated');
+    expect(onLeft).not.toHaveBeenCalled();
+    expect(table.seats[0]?.displayName).toBe('alice');
+  });
+});
+
+describe('Table.forceDefaultAction (audit I6)', () => {
+  it("acts once for whoever is up and returns their name (Hold'em fold facing a bet)", async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await expect(table.forceDefaultAction(table.actionSeq)).resolves.toBe('alice');
+    expect(table.handInProgress).toBe(false);
+  });
+
+  it('a stale sequence number does nothing (a double-click must not act for the next player too)', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const seq = table.actionSeq;
+    await table.forceDefaultAction(seq); // stands for alice
+    await expect(table.forceDefaultAction(seq)).rejects.toThrow('already been handled');
+    expect(table.activeSeatIndex).toBe(1); // bob is still up
+  });
+
+  it('rejects when no hand is in progress', async () => {
+    const { table } = makeTable();
+    await expect(table.forceDefaultAction()).rejects.toThrow('No hand in progress');
+  });
+});
+
+describe('Table turn clock (audit I6)', () => {
+  it('acts for a connected player who lets the clock run out', async () => {
+    const { table } = makeTable({ turnClockMs: 40 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(true);
+    await wait(120);
+    expect(table.handInProgress).toBe(false); // alice was folded for, facing the big blind
+  });
+
+  it('an action restarts the clock for the next player', async () => {
+    const { table } = makeTable({ turnClockMs: 100 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'call');
+    const hand = table.holdemHand!;
+    await wait(50);
+    expect(hand.street).toBe('preflop');
+    expect(hand.actingPlayerId).toBe('bob');
+    await wait(100); // bob's clock (started at the call) has run out: checked for, on to the flop
+    expect(hand.street).not.toBe('preflop');
+  });
+
+  it('is off by default', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await wait(100);
+    expect(table.holdemHand!.actingPlayerId).toBe('alice');
+  });
+
+  it('can be switched on between hands with updateConfig', async () => {
+    const { table } = makeTable();
+    table.updateConfig({ turnClockMs: 40 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await wait(120);
+    expect(table.handInProgress).toBe(false);
+  });
+
+  it('a retired table never acts on its clock', async () => {
+    const { table } = makeTable({ turnClockMs: 40 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    table.retire();
+    await wait(120);
+    expect(table.handInProgress).toBe(true);
+  });
+
+  it('a hand that ends leaves no live clock to act on the next hand', async () => {
+    const { table } = makeTable({ turnClockMs: 80 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect((table as any).turnClockTimer).not.toBeNull();
+    await table.submitAction(0, 'fold'); // hand over well inside alice's clock
+    expect(table.handInProgress).toBe(false);
+    expect((table as any).turnClockTimer).toBeNull(); // cleared, not just guarded
+    await wait(150);
+    expect(table.handInProgress).toBe(false);
+  });
+
+  it('retire() clears the live timer', async () => {
+    const { table } = makeTable({ turnClockMs: 60 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect((table as any).turnClockTimer).not.toBeNull();
+    table.retire();
+    expect((table as any).turnClockTimer).toBeNull();
+  });
+
+  it('setting the clock to 0 mid-turn cancels the running clock at once', async () => {
+    const { table } = makeTable({ turnClockMs: 60 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'call'); // re-arms for bob
+    expect((table as any).turnClockTimer).not.toBeNull();
+    table.updateConfig({ turnClockMs: 0 });
+    expect((table as any).turnClockTimer).toBeNull();
+    const hand = table.holdemHand!;
+    await wait(150);
+    expect(hand.street).toBe('preflop'); // bob was never acted for
+    expect(hand.actingPlayerId).toBe('bob');
+  });
+
+  it('a manual action before the clock fires means the old clock does not act for the next player', async () => {
+    const { table } = makeTable({ turnClockMs: 80 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await wait(50);
+    await table.submitAction(0, 'call'); // alice acts at ~50ms; bob's clock restarts
+    await wait(50); // ~100ms: alice's original clock would have fired by now
+    expect(table.holdemHand!.street).toBe('preflop');
+    expect(table.holdemHand!.actingPlayerId).toBe('bob');
+  });
+});
+
+describe('Table turn clock vs a queued action (audit I6)', () => {
+  it('a clock that fires while the player\'s own action holds the lock does not act for the next player', async () => {
+    const handLog = new ControllableHandLog();
+    const playerStore = new FakePlayerStore(1000);
+    const table = new Table(
+      {
+        gameMode: 'holdem', seatCount: 8, smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000, reconnectGraceMs: 50, turnClockMs: 60,
+        random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog, onStateChange: () => {} }
+    );
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    handLog.holdAppends = true;
+    const call = table.submitAction(0, 'call'); // suspended inside the lock, at the log write
+    await wait(100); // alice's clock fires now and queues behind the lock
+    handLog.holdAppends = false;
+    handLog.releaseNextAppend();
+    await call;
+    await wait(20); // the queued clock callback has run; bob's own clock (60ms) has not
+    expect(table.holdemHand!.street).toBe('preflop');
+    expect(table.holdemHand!.actingPlayerId).toBe('bob');
+  });
+});
+
+describe('Table turn clock switched off while queued (audit I6)', () => {
+  it('a clock callback queued behind a busy lock does not act once the clock was set to 0', async () => {
+    const handLog = new ControllableHandLog();
+    const playerStore = new FakePlayerStore(1000);
+    const table = new Table(
+      {
+        gameMode: 'holdem', seatCount: 8, smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000, reconnectGraceMs: 50, turnClockMs: 60,
+        random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog, onStateChange: () => {} }
+    );
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    // Hold the table lock directly, so the fired clock callback has to queue behind it.
+    let release!: () => void;
+    const held = (table as unknown as { runExclusive: (f: () => Promise<void>) => Promise<void> }).runExclusive(
+      () => new Promise<void>((r) => (release = r))
+    );
+    await wait(100); // alice's clock fires and queues behind the held lock
+    table.updateConfig({ turnClockMs: 0 }); // too late to clear the timer: it already fired
+    release();
+    await held;
+    await wait(20);
+    expect(table.holdemHand!.street).toBe('preflop');
+    expect(table.holdemHand!.actingPlayerId).toBe('alice'); // nobody was acted for
   });
 });

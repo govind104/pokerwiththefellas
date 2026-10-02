@@ -12,15 +12,16 @@ built frontend. From the repo root (bash; on PowerShell set the variables with `
 ```bash
 export PLAYTEST_PASSPHRASE=$(node -e "console.log(require('crypto').randomBytes(9).toString('hex'))")
 export PLAYTEST_PORT=3100
-rm -rf .playtest-data && mkdir .playtest-data
+rm -rf .playtest-data/run && mkdir -p .playtest-data/run
 npm run build --workspace=@poker-blackjack/frontend
 ADMIN_PASSPHRASE=$PLAYTEST_PASSPHRASE PORT=$PLAYTEST_PORT STATIC_DIR=../frontend/dist \
-  PLAYER_STORE_PATH=../../.playtest-data/balances.json GAME_CONFIG_PATH=../../.playtest-data/game-config.json \
-  HAND_LOG_PATH=../../.playtest-data/hand.jsonl npm run start --workspace=@poker-blackjack/server
+  PLAYER_STORE_PATH=../../.playtest-data/run/balances.json GAME_CONFIG_PATH=../../.playtest-data/run/game-config.json \
+  HAND_LOG_PATH=../../.playtest-data/run/hand.jsonl npm run start --workspace=@poker-blackjack/server
 ```
 
 (The data paths are relative to `packages/server`, where the workspace script runs; `.playtest-data/`
-is git-ignored.) Delete and recreate `.playtest-data` between runs for a clean table. Restarting the
+is git-ignored.) Delete and recreate `.playtest-data/run` between runs for a clean table. Never delete
+`.playtest-data` itself: it also holds audit repros and render-gate shots that cannot be regenerated. Restarting the
 server does NOT drop browser tabs from a previous run: they silently rejoin, so close stale tabs first.
 
 ## 2. Drive it

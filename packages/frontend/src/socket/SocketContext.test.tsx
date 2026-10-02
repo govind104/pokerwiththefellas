@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { io } from 'socket.io-client';
+import type { LeaveResult } from '@poker-blackjack/server/src/protocol';
 import { useSocket, SocketProvider, ADMIN_TOKEN_STORAGE_KEY } from './SocketContext';
 import { IDENTITY_STORAGE_KEY } from './identityStorage';
 import { makeAppState, makeLobbyState, makeWaitingState, makeHoldemPreflopState, makeSeat } from '../fixtures/tableStateFixtures';
@@ -52,6 +53,9 @@ function TestConsumer() {
     adminAdjustBalance,
     adminNoticeMessage,
     adminReleaseName,
+    adminKick,
+    adminForceAct,
+    adminSetTurnClock,
     takeOver,
   } = useSocket();
   return (
@@ -70,6 +74,9 @@ function TestConsumer() {
       <p data-testid="adminNotice">{adminNoticeMessage ?? 'none'}</p>
       <button onClick={() => takeOver()}>take-over</button>
       <button onClick={() => adminReleaseName('bob')}>admin-release</button>
+      <button onClick={() => adminKick('bob')}>admin-kick</button>
+      <button onClick={() => adminForceAct()}>admin-force</button>
+      <button onClick={() => adminSetTurnClock(30)}>admin-clock</button>
     </div>
   );
 }
@@ -94,6 +101,14 @@ function storeIdentity(lastName: string | null, tokens: Record<string, string>) 
 
 function storedIdentity() {
   return JSON.parse(localStorage.getItem(IDENTITY_STORAGE_KEY) ?? 'null');
+}
+
+function answerLeave(result: LeaveResult) {
+  const sent = emitted.find((e) => e.event === 'leave');
+  if (!sent) throw new Error('no leave was emitted');
+  act(() => {
+    (sent.payload as (r: LeaveResult) => void)(result);
+  });
 }
 
 describe('SocketProvider', () => {
@@ -753,7 +768,9 @@ describe('SocketProvider', () => {
       screen.getByText('leave').click();
     });
 
-    expect(emitted).toContainEqual({ event: 'leave', payload: undefined });
+    expect(emitted.filter((e) => e.event === 'leave')).toHaveLength(1);
+    expect(storedIdentity().lastName).toBe('alice'); // not until the server confirms
+    answerLeave({ ok: true });
     expect(disconnectCalls).toBe(0); // the socket itself stays connected -- we're still in the lobby, not gone
     expect(storedIdentity().lastName).toBeNull();
     expect(screen.getByTestId('name')).toHaveTextContent('none');
@@ -919,6 +936,7 @@ describe('SocketProvider', () => {
       renderProvider();
       push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
       act(() => screen.getByText('leave').click());
+      answerLeave({ ok: true });
       expect(storedIdentity()).toEqual({ lastName: null, tokens: { alice: 'tok-a' } });
     });
 
@@ -946,6 +964,187 @@ describe('SocketProvider', () => {
       act(() => screen.getByText('admin-release').click());
       expect(screen.getByTestId('adminNotice')).toHaveTextContent('none');
       expect(emitted).toContainEqual({ event: 'adminReleaseName', payload: { displayName: 'bob' } });
+    });
+  });
+
+  describe('unsticking (audit I10, I11, I6)', () => {
+    it('sends the admin unsticking events, force-act with the latest actionSeq', () => {
+      renderProvider();
+      push('state', makeAppState(makeHoldemPreflopState({ actionSeq: 7 }), { isAdmin: true }));
+      emitted.length = 0;
+      act(() => screen.getByText('admin-kick').click());
+      act(() => screen.getByText('admin-force').click());
+      act(() => screen.getByText('admin-clock').click());
+      expect(emitted).toEqual([
+        { event: 'adminKick', payload: { displayName: 'bob' } },
+        { event: 'adminForceAct', payload: { seq: 7 } },
+        { event: 'adminSetTurnClock', payload: { seconds: 30 } },
+      ]);
+    });
+
+    it('rejoins after a second drop that lands before the first rejoin was answered (I10)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      expect(screen.getByTestId('status')).toHaveTextContent('at-table');
+
+      push('disconnect');
+      act(() => ioManagerHandlers.get('reconnect')?.()); // first rejoin goes out, then is lost
+      push('disconnect');
+      emitted.length = 0;
+      act(() => ioManagerHandlers.get('reconnect')?.());
+      expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice', token: 'tok-a' } });
+    });
+
+    it('keeps its name when the server refuses the leave because a hand just started (I11)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      push('state', makeAppState(makeHoldemPreflopState(), { mySeatIndex: 0 }));
+      answerLeave({ ok: false, message: 'Cannot leave while a hand you are in is in progress' });
+
+      expect(screen.getByTestId('status')).toHaveTextContent('at-table');
+      expect(screen.getByTestId('name')).toHaveTextContent('alice');
+      expect(screen.getByTestId('error')).toHaveTextContent('Cannot leave while a hand you are in is in progress');
+      expect(storedIdentity().lastName).toBe('alice');
+    });
+
+    it('does not rejoin on the unseated state that arrives before the leave is confirmed (I11)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      emitted.length = 0;
+      push('state', makeAppState(makeWaitingState({ seats: [] }), { mySeatIndex: null }));
+      expect(emitted.filter((e) => e.event === 'join')).toEqual([]);
+    });
+
+    it('lands on the join screen once the leave is confirmed (I11)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      push('state', makeAppState(makeWaitingState({ seats: [] }), { mySeatIndex: null }));
+      answerLeave({ ok: true });
+      expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+      expect(screen.getByTestId('name')).toHaveTextContent('none');
+    });
+
+    it('a second leave click while the first is unanswered sends nothing (M30)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      act(() => screen.getByText('leave').click());
+      expect(emitted.filter((e) => e.event === 'leave')).toHaveLength(1);
+    });
+
+    it('when kicked, shows why on the join screen, forgets the name, keeps the token and does not rejoin (I6)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      push('error', { message: 'The admin removed you from the table.', code: 'kicked' });
+      emitted.length = 0;
+      push('state', makeAppState(makeWaitingState({ seats: [] }), { mySeatIndex: null }));
+
+      expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+      expect(screen.getByTestId('error')).toHaveTextContent('The admin removed you from the table.');
+      expect(screen.getByTestId('name')).toHaveTextContent('none');
+      expect(storedIdentity()).toEqual({ lastName: null, tokens: { alice: 'tok-a' } });
+      expect(emitted.filter((e) => e.event === 'join')).toEqual([]);
+    });
+
+    it('when leave is refused after the server already unseated us, treats it like ok:true (I11 racing mode switch)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      push('state', makeAppState(makeWaitingState({ seats: [] }), { mySeatIndex: null }));
+      answerLeave({ ok: false, message: 'Not seated' });
+      push('state', makeAppState(makeWaitingState({ seats: [] }), { mySeatIndex: null }));
+
+      expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+      expect(screen.getByTestId('name')).toHaveTextContent('none');
+      expect(storedIdentity()).toEqual({ lastName: null, tokens: { alice: 'tok-a' } });
+      expect(emitted.filter((e) => e.event === 'join')).toEqual([]);
+    });
+
+    it('a kick that lands before a refused leave ack keeps its reason on the join screen (I6)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      push('error', { message: 'The admin removed you from the table.', code: 'kicked' });
+      push('state', makeAppState(makeWaitingState({ seats: [] }), { mySeatIndex: null }));
+      answerLeave({ ok: false, message: 'Not seated' });
+
+      expect(screen.getByTestId('error')).toHaveTextContent('The admin removed you from the table.');
+      expect(screen.getByTestId('status')).toHaveTextContent('entering-name');
+      expect(emitted.filter((e) => e.event === 'join')).toEqual([]);
+    });
+
+    it('a leave ack that lands after a takeover keeps the replaced screen and the name, so Play here instead still works (I11, I9)', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      push('error', { message: 'You opened the game in another tab or device.', code: 'replaced' });
+      answerLeave({ ok: false, message: 'Not seated' });
+
+      // The ack itself leaves the replaced message alone (a state broadcast clears it, as before).
+      expect(screen.getByTestId('status')).toHaveTextContent('replaced');
+      expect(screen.getByTestId('error')).toHaveTextContent('You opened the game in another tab or device.');
+      expect(screen.getByTestId('name')).toHaveTextContent('alice');
+      expect(storedIdentity().lastName).toBe('alice');
+      push('state', makeAppState(makeWaitingState({ seats: [] }), { mySeatIndex: null }));
+      expect(screen.getByTestId('status')).toHaveTextContent('replaced');
+      expect(screen.getByTestId('name')).toHaveTextContent('alice');
+
+      emitted.length = 0;
+      act(() => screen.getByText('take-over').click());
+      expect(emitted).toContainEqual({ event: 'join', payload: { displayName: 'alice', token: 'tok-a' } });
+    });
+
+    it('a kicked error message is not overwritten by a later leave ok:false ack', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      push('error', { message: 'The admin removed you from the table.', code: 'kicked' });
+      expect(screen.getByTestId('error')).toHaveTextContent('The admin removed you from the table.');
+      answerLeave({ ok: false, message: 'Not seated' });
+
+      expect(screen.getByTestId('error')).toHaveTextContent('The admin removed you from the table.');
+    });
+
+    it('a leave pending when the connection drops does not block a leave after reconnecting', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+      push('disconnect');
+      act(() => ioManagerHandlers.get('reconnect')?.());
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      act(() => screen.getByText('leave').click());
+
+      expect(emitted.filter((e) => e.event === 'leave')).toHaveLength(2);
+    });
+
+    it('an ordinary error after rejoining following a kick is cleared by the next state, like any other', () => {
+      storeIdentity('alice', { alice: 'tok-a' });
+      renderProvider();
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      push('error', { message: 'The admin removed you from the table.', code: 'kicked' });
+      push('state', makeAppState(makeWaitingState({ seats: [] }), { mySeatIndex: null }));
+      expect(screen.getByTestId('error')).toHaveTextContent('The admin removed you from the table.');
+
+      act(() => screen.getByText('join').click());
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      push('error', { message: 'Not your turn' });
+      expect(screen.getByTestId('error')).toHaveTextContent('Not your turn');
+      push('state', makeAppState(makeWaitingState(), { mySeatIndex: 0 }));
+      expect(screen.getByTestId('error')).toHaveTextContent('none');
     });
   });
 });

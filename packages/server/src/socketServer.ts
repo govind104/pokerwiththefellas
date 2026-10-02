@@ -18,6 +18,10 @@ import type {
   AdminLoginPayload,
   StartGamePayload,
   ReleaseNamePayload,
+  LeaveResult,
+  KickPayload,
+  ForceActPayload,
+  SetTurnClockPayload,
 } from './protocol';
 
 export interface StaticTableConfig {
@@ -132,6 +136,8 @@ export async function createServer(
   });
 
   const seatBySocketId = new Map<string, number>();
+  // Sockets with a `leave` waiting on the table lock (audit I11).
+  const leavingSocketIds = new Set<string>();
   const adminSocketIds = new Set<string>();
   // Admin session tokens, issued on a successful login and sent back by the client in the
   // handshake `auth` on every (re)connect, so a wifi blip no longer logs the admin out (audit
@@ -151,6 +157,8 @@ export async function createServer(
   // discarding the first. A single boolean, not a real mutex -- the handlers
   // it guards are the only writers of `table`/`currentMode`.
   let modeChangeInFlight = false;
+  // The admin's turn clock (audit I6). Memory only, like the admin session: a restart turns it off.
+  let turnClockMs = 0;
 
   async function buildTableConfig(mode: GameMode): Promise<TableConfig> {
     const values = await gameConfigStore.getConfig();
@@ -163,6 +171,7 @@ export async function createServer(
       blackjackDefaultBet: values.blackjackDefaultBet,
       defaultStartingBalance: values.defaultStartingBalance,
       reconnectGraceMs: staticConfig.reconnectGraceMs,
+      turnClockMs,
       random: staticConfig.random,
     };
   }
@@ -177,6 +186,7 @@ export async function createServer(
       bigBlind: currentConfig.bigBlind,
       blackjackDefaultBet: currentConfig.blackjackDefaultBet,
       defaultStartingBalance: currentConfig.defaultStartingBalance,
+      turnClockSeconds: turnClockMs / 1000,
     };
   }
 
@@ -185,6 +195,20 @@ export async function createServer(
       socket.emit('state', buildAppStateView(socketId, seatBySocketId.get(socketId) ?? null));
     }
   };
+
+  // No socket may stay mapped to a seat that is being freed: its next state would point it at an
+  // empty seat (the leaver's table stayed on screen), or at whoever sits down there next. Called
+  // inside the table lock, just before the broadcast that shows the seat empty.
+  function unmapSeat(seatIndex: number): string[] {
+    const unmapped: string[] = [];
+    for (const [socketId, mappedSeat] of seatBySocketId) {
+      if (mappedSeat === seatIndex) {
+        seatBySocketId.delete(socketId);
+        unmapped.push(socketId);
+      }
+    }
+    return unmapped;
+  }
 
   function createTable(config: TableConfig): Table {
     return new Table(config, { playerStore, handLog, onStateChange: broadcast });
@@ -348,17 +372,50 @@ export async function createServer(
       }
     });
 
-    socket.on('leave', () => {
+    socket.on('leave', async (ack?: (result: LeaveResult) => void) => {
+      const reply = typeof ack === 'function' ? ack : undefined;
+      // A client that asked for an answer gets it in the ack only; one that didn't (the playtest
+      // bots, older pages) gets the error event as before.
+      const fail = (message: string) => {
+        if (reply) {
+          reply({ ok: false, message });
+        } else {
+          socket.emit('error', { message });
+        }
+      };
       const seatIndex = seatBySocketId.get(socket.id);
-      if (seatIndex === undefined || !table) {
-        socket.emit('error', { message: 'Not seated' });
+      const leavingTable = table;
+      if (seatIndex === undefined || !leavingTable) {
+        fail('Not seated');
         return;
       }
+      // The seat index above was read before waiting for the table lock. A second leave from this
+      // socket would carry the same index, and by the time it ran someone else could have sat in
+      // that seat and be freed in the leaver's place (audit I11).
+      if (leavingSocketIds.has(socket.id)) {
+        fail('Already leaving');
+        return;
+      }
+      leavingSocketIds.add(socket.id);
       try {
-        table.leave(seatIndex);
-        seatBySocketId.delete(socket.id);
+        await leavingTable.leave(
+          seatIndex,
+          () => {
+            // A mode switch while we waited for the lock cleared the map; the same index may
+            // now belong to someone at the new table.
+            if (table === leavingTable) {
+              unmapSeat(seatIndex);
+            }
+          },
+          // Checked inside the lock: an admin removal that ran while we waited unmapped this
+          // socket and freed the seat, and someone else may have sat there since (audit I6).
+          () => table === leavingTable && seatBySocketId.get(socket.id) === seatIndex
+        );
+        reply?.({ ok: true });
       } catch (err) {
-        socket.emit('error', { message: (err as Error).message });
+        fail((err as Error).message);
+      } finally {
+        leavingSocketIds.delete(socket.id);
       }
     });
 
@@ -525,6 +582,74 @@ export async function createServer(
       socket.emit('adminNotice', {
         message: `Released "${displayName}": the next person to join under that name gets it, with its balance.`,
       });
+    }));
+
+    // Unsticks a table held up by an idle or vanished player (audit I6). The kicked browser is
+    // told before the broadcast that shows it unseated, so it doesn't auto-rejoin.
+    socket.on('adminKick', adminHandler(async (payload: KickPayload) => {
+      if (!isAdmin()) return;
+      const displayName = normaliseDisplayName(payload?.displayName);
+      if (!displayName) {
+        rejectAdmin('Invalid display name');
+        return;
+      }
+      const kickTable = table;
+      if (!kickTable) {
+        rejectAdmin(`No player named "${displayName}" is currently seated`);
+        return;
+      }
+      let outcome: 'now' | 'after-hand';
+      try {
+        outcome = await kickTable.kick(displayName, (seatIndex) => {
+          if (table !== kickTable) return;
+          for (const socketId of unmapSeat(seatIndex)) {
+            io.sockets.sockets
+              .get(socketId)
+              ?.emit('error', { message: 'The admin removed you from the table.', code: 'kicked' });
+          }
+        });
+      } catch (err) {
+        rejectAdmin((err as Error).message);
+        return;
+      }
+      socket.emit('adminNotice', {
+        message:
+          outcome === 'now'
+            ? `Removed "${displayName}" from the table.`
+            : `Removed "${displayName}": they fold or stand from now on and leave when this hand ends.`,
+      });
+      broadcast();
+    }));
+
+    // Acts once, with the default action, for whoever is up (audit I6). The seq stops a double-click
+    // from acting for the next player too.
+    socket.on('adminForceAct', adminHandler(async (payload: ForceActPayload) => {
+      if (!isAdmin()) return;
+      if (!table) {
+        rejectAdmin('No game is active');
+        return;
+      }
+      const seq = typeof payload?.seq === 'number' ? payload.seq : undefined;
+      let name: string;
+      try {
+        name = await table.forceDefaultAction(seq);
+      } catch (err) {
+        rejectAdmin((err as Error).message);
+        return;
+      }
+      socket.emit('adminNotice', { message: `Acted for ${name}.` });
+    }));
+
+    socket.on('adminSetTurnClock', adminHandler(async (payload: SetTurnClockPayload) => {
+      if (!isAdmin()) return;
+      const seconds = payload?.seconds;
+      if (!isNonNegativeNumber(seconds) || !Number.isInteger(seconds) || (seconds !== 0 && (seconds < 10 || seconds > 600))) {
+        rejectAdmin('The turn clock must be 0 (off) or a whole number of seconds from 10 to 600');
+        return;
+      }
+      turnClockMs = seconds * 1000;
+      table?.updateConfig({ turnClockMs });
+      broadcast();
     }));
 
     socket.on('adminSetBlinds', adminHandler(async (payload) => {

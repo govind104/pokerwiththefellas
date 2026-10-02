@@ -25,10 +25,15 @@ export function AdminPanel() {
     adminSetDefaultBet,
     adminSetStartingBalance,
     adminReleaseName,
+    adminKick,
+    adminForceAct,
+    adminSetTurnClock,
   } = useSocket();
   const [open, setOpen] = useState(false);
   const [targetName, setTargetName] = useState('');
   const [releaseName, setReleaseName] = useState('');
+  const [kickName, setKickName] = useState('');
+  const [turnClock, setTurnClock] = useState<FieldValue>(null);
   const [targetBalance, setTargetBalance] = useState<FieldValue>(null);
   const [smallBlind, setSmallBlind] = useState<FieldValue>(null);
   const [bigBlind, setBigBlind] = useState<FieldValue>(null);
@@ -49,6 +54,15 @@ export function AdminPanel() {
   const bigBlindValue = bigBlind ?? String(state.bigBlind);
   const defaultBetValue = defaultBet ?? String(state.blackjackDefaultBet);
   const startingBalanceValue = startingBalance ?? String(state.defaultStartingBalance);
+  const turnClockValue = turnClock ?? String(state.turnClockSeconds);
+  // Who the table is waiting on mid-hand, for "Act for …".
+  const actingName = !table.handInProgress
+    ? null
+    : table.gameMode === 'holdem'
+      ? (table.holdem?.actingPlayerId ?? null)
+      : table.activeSeatIndex !== null
+        ? (table.seats[table.activeSeatIndex]?.displayName ?? null)
+        : null;
 
   // A blank field is "no change", never a zero. Anything else is handed to
   // the server, which does the real range validation and answers a bad value
@@ -113,6 +127,25 @@ export function AdminPanel() {
     }
     adminReleaseName(releaseName);
     setReleaseName('');
+  }
+
+  function handleKick(event: FormEvent) {
+    event.preventDefault();
+    if (kickName === '') {
+      return;
+    }
+    adminKick(kickName);
+    setKickName('');
+  }
+
+  function handleSetTurnClock(event: FormEvent) {
+    event.preventDefault();
+    const seconds = parseField(turnClockValue);
+    if (seconds === null) {
+      return;
+    }
+    adminSetTurnClock(seconds);
+    setTurnClock(null);
   }
 
   const otherMode: GameMode = table.gameMode === 'holdem' ? 'blackjack' : 'holdem';
@@ -239,6 +272,49 @@ export function AdminPanel() {
             />
             <button type="submit" className="rounded bg-emerald-600 px-2 py-1">
               Save starting balance
+            </button>
+          </form>
+
+          {/* Unsticking the table (audit I6): an idle or vanished player can't hold everyone up. */}
+          {actingName && (
+            <button type="button" onClick={() => adminForceAct()} className="rounded bg-amber-600 px-2 py-1">
+              Act for {actingName}
+            </button>
+          )}
+
+          <form onSubmit={handleKick} className="flex flex-col gap-1">
+            <p className="text-xs text-slate-400">
+              Remove a player (mid-hand they fold or stand, then leave when the hand ends)
+            </p>
+            <select
+              value={kickName}
+              onChange={(event) => setKickName(event.target.value)}
+              aria-label="Player to remove"
+              className="rounded border border-slate-600 bg-slate-900 px-2 py-1"
+            >
+              <option value="">Select player</option>
+              {seatedNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="rounded bg-red-700 px-2 py-1">
+              Remove from table
+            </button>
+          </form>
+
+          <form onSubmit={handleSetTurnClock} className="flex flex-col gap-1">
+            <input
+              type="number"
+              value={turnClockValue}
+              onChange={(event) => setTurnClock(event.target.value)}
+              aria-label="Turn clock (seconds, 0 = off)"
+              placeholder="Turn clock (seconds, 0 = off)"
+              className="rounded border border-slate-600 bg-slate-900 px-2 py-1"
+            />
+            <button type="submit" className="rounded bg-emerald-600 px-2 py-1">
+              Save turn clock
             </button>
           </form>
 

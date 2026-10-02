@@ -2,7 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { AdminPanel } from './AdminPanel';
 import { SocketContext, type SocketContextValue } from '../socket/SocketContext';
-import { makeAppState, makeWaitingState, makeLobbyState } from '../fixtures/tableStateFixtures';
+import { makeAppState, makeWaitingState, makeLobbyState, makeHoldemPreflopState } from '../fixtures/tableStateFixtures';
 
 function makeSocketValue(overrides: Partial<SocketContextValue> = {}): SocketContextValue {
   return {
@@ -27,6 +27,9 @@ function makeSocketValue(overrides: Partial<SocketContextValue> = {}): SocketCon
     adminSetDefaultBet: vi.fn(),
     adminSetStartingBalance: vi.fn(),
     adminReleaseName: vi.fn(),
+    adminKick: vi.fn(),
+    adminForceAct: vi.fn(),
+    adminSetTurnClock: vi.fn(),
     takeOver: vi.fn(),
     ...overrides,
   };
@@ -203,6 +206,43 @@ describe('AdminPanel', () => {
       renderWithSocket({ adminNoticeMessage: 'Released "bob": the next person...' });
       fireEvent.click(screen.getByRole('button', { name: /admin panel/i }));
       expect(screen.getByRole('status')).toHaveTextContent('Released "bob"');
+    });
+  });
+
+  describe('unsticking the table (audit I6)', () => {
+    it('removes the selected player', () => {
+      const value = renderWithSocket();
+      fireEvent.click(screen.getByRole('button', { name: /admin panel/i }));
+      fireEvent.change(screen.getByLabelText('Player to remove'), { target: { value: 'bob' } });
+      fireEvent.click(screen.getByRole('button', { name: /remove from table/i }));
+      expect(value.adminKick).toHaveBeenCalledWith('bob');
+    });
+
+    it('offers no "Act for" between hands', () => {
+      renderWithSocket();
+      fireEvent.click(screen.getByRole('button', { name: /admin panel/i }));
+      expect(screen.queryByRole('button', { name: /^act for /i })).not.toBeInTheDocument();
+    });
+
+    it('acts for whoever is up mid-hand', () => {
+      const state = makeAppState(makeHoldemPreflopState(), { isAdmin: true });
+      const acting = state.table!.holdem!.actingPlayerId!;
+      const value = renderWithSocket({ state });
+      fireEvent.click(screen.getByRole('button', { name: /admin panel/i }));
+      fireEvent.click(screen.getByRole('button', { name: `Act for ${acting}` }));
+      expect(value.adminForceAct).toHaveBeenCalled();
+    });
+
+    it('shows the current turn clock and saves a new one', () => {
+      const value = renderWithSocket({
+        state: makeAppState(makeWaitingState(), { isAdmin: true, turnClockSeconds: 45 }),
+      });
+      fireEvent.click(screen.getByRole('button', { name: /admin panel/i }));
+      const input = screen.getByLabelText('Turn clock (seconds, 0 = off)');
+      expect(input).toHaveValue(45);
+      fireEvent.change(input, { target: { value: '0' } });
+      fireEvent.click(screen.getByRole('button', { name: /save turn clock/i }));
+      expect(value.adminSetTurnClock).toHaveBeenCalledWith(0);
     });
   });
 

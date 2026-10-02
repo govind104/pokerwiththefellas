@@ -13,7 +13,7 @@ export interface IdentityPayload {
 }
 
 // Lets the client tell a name conflict and a takeover apart from other join errors (audit C5).
-export type ErrorCode = 'name-claimed' | 'replaced';
+export type ErrorCode = 'name-claimed' | 'replaced' | 'kicked';
 
 export interface ActionPayload {
   action: PlayerAction | HoldemAction;
@@ -60,6 +60,20 @@ export interface ReleaseNamePayload {
   displayName: string;
 }
 
+export interface KickPayload {
+  displayName: string;
+}
+
+export interface ForceActPayload {
+  /** The table's actionSeq as the admin saw it, so a double-click doesn't act for the next player too. */
+  seq?: number;
+}
+
+export interface SetTurnClockPayload {
+  /** Whole seconds: 0 turns the clock off, otherwise 10-600. */
+  seconds: number;
+}
+
 export interface AdminNoticePayload {
   message: string;
 }
@@ -77,16 +91,23 @@ export interface SetStartingBalancePayload {
   defaultStartingBalance: number;
 }
 
+// The answer to `leave` (audit I11): the client forgets its name only once the server has freed
+// the seat, because a hand can start between the click and the server seeing it.
+export type LeaveResult = { ok: true } | { ok: false; message: string };
+
 export interface ClientToServerEvents {
   join: (payload: JoinPayload) => void;
   ready: () => void;
   action: (payload: ActionPayload) => void;
-  leave: () => void;
+  leave: (ack?: (result: LeaveResult) => void) => void;
   adminLogin: (payload: AdminLoginPayload) => void;
   adminStartGame: (payload: StartGamePayload) => void;
   adminSwitchMode: (payload: StartGamePayload) => void;
   adminAdjustBalance: (payload: AdjustBalancePayload) => void;
   adminReleaseName: (payload: ReleaseNamePayload) => void;
+  adminKick: (payload: KickPayload) => void;
+  adminForceAct: (payload: ForceActPayload) => void;
+  adminSetTurnClock: (payload: SetTurnClockPayload) => void;
   adminSetBlinds: (payload: SetBlindsPayload) => void;
   adminSetDefaultBet: (payload: SetDefaultBetPayload) => void;
   adminSetStartingBalance: (payload: SetStartingBalancePayload) => void;

@@ -392,6 +392,255 @@ describe('socketServer', () => {
     expect(err.scope).toBe('admin');
   });
 
+  describe('leave (audit I11)', () => {
+    // Registers the seated-wait before the join: the state that shows the seat can arrive before
+    // the identity event, so waiting for it afterwards could miss it.
+    async function sit(socket: ClientSocket, name: string): Promise<void> {
+      const seated = waitForSeated(socket, name);
+      await joinAndGetToken(socket, name);
+      await seated;
+    }
+
+    it("the leaver's next state no longer has a seat", async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = connect();
+      await sit(alice, 'alice');
+
+      // The first state in which seat 0 is empty must already say we have no seat. It used to be
+      // sent while the socket was still mapped, so it pointed us at the empty seat and the client
+      // kept showing the table.
+      const firstEmpty = waitForState(alice, (s) => s.table?.seats[0]?.displayName === null);
+      const result = await alice.emitWithAck('leave');
+      expect(result).toEqual({ ok: true });
+      expect((await firstEmpty).mySeatIndex).toBeNull();
+    });
+
+    it('refuses with an ack, not an error event, when the player is in the hand, and keeps the seat', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = connect();
+      await sit(alice, 'alice');
+      const bob = connect();
+      await sit(bob, 'bob');
+      alice.emit('ready');
+      await waitForReady(alice, 'alice');
+      const started = waitForState(alice, (s) => s.table?.handInProgress === true);
+      bob.emit('ready');
+      await started;
+
+      const errors: ErrorPayload[] = [];
+      alice.on('error', (e: ErrorPayload) => errors.push(e));
+      const result = await alice.emitWithAck('leave');
+      expect(result).toEqual({ ok: false, message: 'Cannot leave while a hand you are in is in progress' });
+      expect(errors).toEqual([]);
+      expect(server.getTable()!.seats[0]?.displayName).toBe('alice');
+    });
+
+    it('a leave without an ack callback still gets an error event when refused', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const stranger = connect();
+      await waitForState(stranger, (s) => s.mode === 'holdem');
+      const error = waitForEvent<ErrorPayload>(stranger, 'error');
+      stranger.emit('leave');
+      expect((await error).message).toBe('Not seated');
+    });
+  });
+
+
+  describe('adminKick (audit I6)', () => {
+    async function seat(name: string) {
+      const socket = connect();
+      const seated = waitForSeated(socket, name);
+      await joinAndGetToken(socket, name);
+      await seated;
+      return socket;
+    }
+
+    it('removes an idle player between hands, tells them, and lets the ready players start', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = await seat('alice');
+      const bob = await seat('bob');
+      const cara = await seat('cara');
+      alice.emit('ready');
+      await waitForReady(alice, 'alice');
+      bob.emit('ready');
+      await waitForReady(bob, 'bob');
+
+      const kicked = waitForEvent<ErrorPayload>(cara, 'error');
+      const caraUnseated = waitForState(cara, (s) => s.table?.seats[2]?.displayName === null);
+      const started = waitForState(alice, (s) => s.table?.handInProgress === true);
+      const notice = waitForEvent<{ message: string }>(admin, 'adminNotice');
+      admin.emit('adminKick', { displayName: 'cara' });
+
+      expect(await kicked).toEqual({ message: 'The admin removed you from the table.', code: 'kicked' });
+      expect((await caraUnseated).mySeatIndex).toBeNull();
+      await started;
+      expect((await notice).message).toBe('Removed "cara" from the table.');
+    });
+
+    it('mid-hand, folds for the player on their turn and frees the seat when the hand ends', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = await seat('alice');
+      const bob = await seat('bob');
+      alice.emit('ready');
+      await waitForReady(alice, 'alice');
+      const started = waitForState(bob, (s) => s.table?.handInProgress === true);
+      bob.emit('ready');
+      await started;
+
+      const handOver = waitForState(bob, (s) => s.table?.handInProgress === false && s.table.seats[0]?.displayName === null);
+      admin.emit('adminKick', { displayName: 'alice' }); // alice is up first, heads-up
+      await handOver;
+    });
+
+    it('rejects a player who is not seated, and a non-admin', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const adminError = waitForEvent<ErrorPayload>(admin, 'error');
+      admin.emit('adminKick', { displayName: 'ghost' });
+      expect(await adminError).toEqual({ message: 'No player named "ghost" is currently seated', scope: 'admin' });
+
+      const alice = await seat('alice');
+      const aliceError = waitForEvent<ErrorPayload>(alice, 'error');
+      alice.emit('adminKick', { displayName: 'alice' });
+      expect(await aliceError).toEqual({ message: 'Admin only', scope: 'admin' });
+    });
+
+    it('a leave queued before the kick ran does not free whoever took the seat afterwards', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      await seat('alice');
+      await seat('bob');
+      const cara = await seat('cara');
+      const table = server.getTable()!;
+      // Test-only access to the table lock, to line up: [held, kick, held again, cara's leave].
+      const lock = (fn: () => Promise<void>) =>
+        (table as unknown as { runExclusive: (f: () => Promise<void>) => Promise<void> }).runExclusive(fn);
+      const pause = () => new Promise((r) => setTimeout(r, 100));
+      let release1!: () => void;
+      let release2!: () => void;
+      void lock(() => new Promise<void>((r) => (release1 = r)));
+      admin.emit('adminKick', { displayName: 'cara' });
+      await pause();
+      void lock(() => new Promise<void>((r) => (release2 = r)));
+      // Cara has not been unmapped yet (the kick is still queued), so this leave reads seat 2.
+      const leaveResult = cara.emitWithAck('leave');
+      await pause();
+
+      release1(); // the kick runs, freeing seat 2; the second hold keeps cara's leave waiting
+      const dave = await seat('dave');
+      expect(table.seats[2]?.displayName).toBe('dave');
+      release2(); // now cara's stale leave runs
+
+      expect(await leaveResult).toEqual({ ok: false, message: 'Not seated' });
+      expect(table.seats[2]?.displayName).toBe('dave');
+      expect(dave.connected).toBe(true);
+    });
+  });
+
+  describe('adminForceAct and adminSetTurnClock (audit I6)', () => {
+    // waitForSeated is registered before the join: the seated state can arrive before the
+    // identity event, so waiting after the join can hang.
+    async function sit(name: string) {
+      const socket = connect();
+      const seated = waitForSeated(socket, name);
+      await joinAndGetToken(socket, name);
+      await seated;
+      return socket;
+    }
+
+    it('acts for whoever is up and says who', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = await sit('alice');
+      const bob = await sit('bob');
+      alice.emit('ready');
+      await waitForReady(alice, 'alice');
+      const started = waitForState(admin, (s) => s.table?.handInProgress === true);
+      bob.emit('ready');
+      const seq = (await started).table!.actionSeq;
+
+      const notice = waitForEvent<{ message: string }>(admin, 'adminNotice');
+      const over = waitForState(admin, (s) => s.table?.handInProgress === false);
+      admin.emit('adminForceAct', { seq });
+      expect((await notice).message).toBe('Acted for alice.');
+      await over;
+    });
+
+    it('rejects a stale sequence number, nobody up, and a non-admin', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const noHand = waitForEvent<ErrorPayload>(admin, 'error');
+      admin.emit('adminForceAct', {});
+      expect(await noHand).toEqual({ message: 'No hand in progress', scope: 'admin' });
+
+      const alice = await sit('alice');
+      const bob = await sit('bob');
+      alice.emit('ready');
+      await waitForReady(alice, 'alice');
+      const started = waitForState(admin, (s) => s.table?.handInProgress === true);
+      bob.emit('ready');
+      const seq = (await started).table!.actionSeq;
+
+      const stale = waitForEvent<ErrorPayload>(admin, 'error');
+      admin.emit('adminForceAct', { seq: seq - 1 });
+      expect((await stale).message).toContain('already been handled');
+
+      const denied = waitForEvent<ErrorPayload>(alice, 'error');
+      alice.emit('adminForceAct', { seq });
+      expect(await denied).toEqual({ message: 'Admin only', scope: 'admin' });
+    });
+
+    it('sets the turn clock, shows it in every state, and rejects values out of range', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const set = waitForState(admin, (s) => s.turnClockSeconds === 30);
+      admin.emit('adminSetTurnClock', { seconds: 30 });
+      await set;
+
+      for (const seconds of [5, 601, 12.5, -1]) {
+        const error = waitForEvent<ErrorPayload>(admin, 'error');
+        admin.emit('adminSetTurnClock', { seconds });
+        expect(await error).toEqual({
+          message: 'The turn clock must be 0 (off) or a whole number of seconds from 10 to 600',
+          scope: 'admin',
+        });
+      }
+
+      const off = waitForState(admin, (s) => s.turnClockSeconds === 0);
+      admin.emit('adminSetTurnClock', { seconds: 0 });
+      await off;
+    });
+
+    it('a non-admin cannot set the turn clock', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = await sit('alice');
+      const denied = waitForEvent<ErrorPayload>(alice, 'error');
+      alice.emit('adminSetTurnClock', { seconds: 30 });
+      expect(await denied).toEqual({ message: 'Admin only', scope: 'admin' });
+    });
+
+    it('a new table after a mode switch keeps the turn clock', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const set = waitForState(admin, (s) => s.turnClockSeconds === 20);
+      admin.emit('adminSetTurnClock', { seconds: 20 });
+      await set;
+      const switched = waitForState(admin, (s) => s.mode === 'blackjack');
+      admin.emit('adminSwitchMode', { mode: 'blackjack' });
+      expect((await switched).turnClockSeconds).toBe(20);
+      // The view's number comes from a module variable; what matters is that the NEW table was
+      // built with the clock, or it would never fire. Test-only access to its (private) config.
+      const newTable = server.getTable() as unknown as { config: { turnClockMs?: number } };
+      expect(newTable.config.turnClockMs).toBe(20000);
+    });
+  });
+
   describe('admin payload validation', () => {
     // Each of these used to be accepted and written straight through to a
     // file that survives a restart (game-config.json / balances.json), or --
@@ -612,6 +861,8 @@ class ControllablePlayerStore implements PlayerStore, IdentityStore {
   private tokens = new Map<string, string>();
   holdGetBalance = false;
   holdCheckToken = false;
+  holdSetBalance = false;
+  private pendingSetBalances: Array<() => void> = [];
   private pendingResolvers: Array<() => void> = [];
   private pendingTokenChecks: Array<() => void> = [];
   constructor(private defaultBalance: number) {}
@@ -624,7 +875,22 @@ class ControllablePlayerStore implements PlayerStore, IdentityStore {
     return this.balances.get(displayName) ?? this.defaultBalance;
   }
   async setBalance(displayName: string, balance: number): Promise<void> {
+    if (this.holdSetBalance) {
+      await new Promise<void>((resolve) => {
+        this.pendingSetBalances.push(resolve);
+      });
+    }
     this.balances.set(displayName, balance);
+  }
+  get pendingSetBalanceCount(): number {
+    return this.pendingSetBalances.length;
+  }
+  releaseNextSetBalance(): void {
+    const resolve = this.pendingSetBalances.shift();
+    if (!resolve) {
+      throw new Error('ControllablePlayerStore: no pending setBalance to release');
+    }
+    resolve();
   }
   setDefaultStartingBalance(balance: number): void {
     this.defaultBalance = balance;
@@ -830,6 +1096,58 @@ describe('socketServer join-handler seat-orphan race', () => {
     alice.emit('ready');
     await new Promise((r) => setTimeout(r, 50));
     expect(server.getTable()!.seats.find((s) => s?.displayName === 'bob')?.ready).toBe(false);
+  });
+
+  it('a second leave from the same socket while the first waits for the table lock does not free the next occupant of the seat (audit I11)', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+    const sit = async (socket: ClientSocket, name: string) => {
+      const seated = waitForSeated(socket, name);
+      await joinAndGetToken(socket, name);
+      await seated;
+    };
+    const alice = connect();
+    await sit(alice, 'alice');
+    const bob = connect();
+    await sit(bob, 'bob');
+    const carol = connect();
+    await sit(carol, 'carol');
+
+    // Two balance writes hold the table lock, one before and one between carol's two leaves, so
+    // dave's join (which does not take the lock) can land in carol's seat after the first leave
+    // frees it and before the second runs.
+    playerStore.holdSetBalance = true;
+    admin.emit('adminAdjustBalance', { displayName: 'alice', balance: 900 });
+    await vi.waitFor(() => expect(playerStore.pendingSetBalanceCount).toBe(1));
+    const firstLeave = carol.emitWithAck('leave');
+    admin.emit('adminAdjustBalance', { displayName: 'bob', balance: 900 });
+    // The admin handler awaits before it reaches the table, so give bob's adjustment time to
+    // queue behind the first leave; the second leave must queue behind it.
+    await new Promise((r) => setTimeout(r, 50));
+    const secondLeave = carol.emitWithAck('leave');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(playerStore.pendingSetBalanceCount).toBe(1);
+
+    playerStore.releaseNextSetBalance(); // alice's write ends; carol's first leave frees seat 2
+    await vi.waitFor(() => expect(playerStore.pendingSetBalanceCount).toBe(1)); // bob's write now holds the lock
+    const dave = connect();
+    await sit(dave, 'dave');
+    expect(server.getTable()!.seats[2]?.displayName).toBe('dave');
+    playerStore.holdSetBalance = false;
+    playerStore.releaseNextSetBalance();
+
+    expect(await firstLeave).toEqual({ ok: true });
+    expect(await secondLeave).toEqual({ ok: false, message: 'Already leaving' });
+    expect(server.getTable()!.seats.map((s) => s?.displayName ?? null).slice(0, 4)).toEqual([
+      'alice',
+      'bob',
+      'dave',
+      null,
+    ]);
+    // dave is still mapped to his seat: the stale second leave did not unmap it either.
+    const next = waitForState(dave, () => true);
+    admin.emit('adminSetBlinds', { smallBlind: 5, bigBlind: 10 }); // any broadcast
+    expect((await next).mySeatIndex).toBe(2);
   });
 
   it('a second join from the same still-connected socket disconnects the first seat instead of orphaning it', async () => {

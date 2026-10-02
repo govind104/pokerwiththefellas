@@ -7,6 +7,7 @@ import type {
   AdminLoginResultPayload,
   IdentityPayload,
   AdminNoticePayload,
+  LeaveResult,
 } from '@poker-blackjack/server/src/protocol';
 import type { AppStateView, GameMode } from '@poker-blackjack/server/src/table';
 import type { PlayerAction, HoldemAction } from '@poker-blackjack/game-engine';
@@ -71,6 +72,11 @@ export interface SocketContextValue {
   adminSetStartingBalance: (defaultStartingBalance: number) => void;
   // Frees a name that another player's token holds, so its owner can rejoin without it (audit C5).
   adminReleaseName: (displayName: string) => void;
+  // Unsticking a table (audit I6): free an idle player's seat, act once for whoever is up, and
+  // set the turn clock (seconds, 0 = off).
+  adminKick: (displayName: string) => void;
+  adminForceAct: () => void;
+  adminSetTurnClock: (seconds: number) => void;
   // From the 'replaced' screen: join again with our token, which moves the seat back to this tab.
   takeOver: () => void;
 }
@@ -127,6 +133,13 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   // Set when another tab or device took our seat with the same token. Blocks every automatic
   // rejoin: otherwise two tabs would take the seat back from each other forever (audit C5).
   const replacedRef = useRef(false);
+  // True from sending `leave` until the server answers it. While it is set, an unseated state is
+  // our own leave landing, not a reason to rejoin; the name is forgotten only on a confirmed leave,
+  // because a hand can start between the click and the server seeing it (audit I11).
+  const leavePendingRef = useRef(false);
+  // Set when the admin removed us (audit I6): the reason stays on the join screen until the player
+  // joins again, instead of being cleared by the next broadcast like an in-game error.
+  const keepErrorRef = useRef(false);
   // The table's actionSeq as of the latest 'state' event, and the one we last sent an
   // action against. Refs, not state: sendAction must see the value at click time.
   const latestActionSeqRef = useRef<number | null>(null);
@@ -176,7 +189,9 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     socket.on('state', (nextState: AppStateView) => {
       hasEverReceivedStateRef.current = true;
       setState(nextState);
-      setErrorMessage(null);
+      if (!keepErrorRef.current) {
+        setErrorMessage(null);
+      }
       const actionSeq = nextState.table?.actionSeq ?? null;
       latestActionSeqRef.current = actionSeq;
       if (actionSeq === null || actionSeq !== sentActionSeqRef.current) {
@@ -216,6 +231,8 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
         setStatus('lobby');
       } else if (replacedRef.current) {
         setStatus('replaced');
+      } else if (leavePendingRef.current) {
+        // Our own leave landing before its ack: wait for the ack (leave() below) to decide.
       } else if (joinInFlightRef.current) {
         // Our own auto-rejoin below is already awaiting the server's
         // response -- this broadcast is some OTHER change (another player's
@@ -315,6 +332,19 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
         setStatus('replaced');
         return;
       }
+      if (payload.code === 'kicked') {
+        // Like a confirmed leave, but the reason is shown. The token is kept, so typing the name
+        // again sits back down with the same balance (audit I6).
+        forgetLastName();
+        displayNameRef.current = null;
+        setDisplayName(null);
+        joinedRef.current = false;
+        joinInFlightRef.current = false;
+        keepErrorRef.current = true;
+        setErrorMessage(payload.message);
+        setStatus('entering-name');
+        return;
+      }
       const wasJoining = joinInFlightRef.current;
       joinInFlightRef.current = false;
       setErrorMessage(payload.message);
@@ -353,6 +383,11 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
       // the same actionSeq we sent, which would otherwise leave the buttons disabled.
       sentActionSeqRef.current = null;
       setActionPending(false);
+      // A join or leave sent before the drop may never be answered. Left set, joinInFlightRef
+      // blocked the rejoin after a second quick drop and the player sat on "Reconnecting…"
+      // (audit I10). A leave lost this way is retried by hand: we rejoin with the name we kept.
+      joinInFlightRef.current = false;
+      leavePendingRef.current = false;
       if (statusRef.current === 'at-table') {
         setStatus('reconnecting');
       }
@@ -396,6 +431,7 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     displayNameRef.current = name;
     setDisplayName(name);
     setErrorMessage(null);
+    keepErrorRef.current = false;
     replacedRef.current = false;
     joinedRef.current = true;
     joinInFlightRef.current = true;
@@ -425,24 +461,44 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   }
 
   function leave() {
-    // Defense in depth alongside GameTable's own !handInProgress button gate:
-    // the server rejects `leave` mid-hand and this function has no way to
-    // await that rejection (no ack protocol) before it has already cleared
-    // local session state -- so refuse locally whenever we already know a
-    // hand is in progress.
-    if (state?.table?.handInProgress) {
+    // GameTable hides Leave mid-hand; this guard is the same rule for any other caller. The
+    // pending check makes a double-click one leave (audit M30).
+    if (state?.table?.handInProgress || leavePendingRef.current || !socketRef.current) {
       return;
     }
-    socketRef.current?.emit('leave');
-    forgetLastName();
-    displayNameRef.current = null;
-    joinedRef.current = false;
-    setDisplayName(null);
-    setErrorMessage(null);
-    // The socket itself stays connected -- leaving a table returns to the
-    // lobby/join screen, it does not disconnect from the server. The next
-    // 'state' broadcast (triggered by the server's own leave handling) sets
-    // status to 'lobby' or 'entering-name' as appropriate.
+    leavePendingRef.current = true;
+    socketRef.current.emit('leave', (result: LeaveResult) => {
+      leavePendingRef.current = false;
+      // Another tab took the seat while this leave was queued: the replaced screen owns the
+      // session now. The ack (a refusal, since this socket no longer holds the seat) must not
+      // forget the name or clear the replaced message, or "Play here instead" (takeOver) has
+      // nothing to rejoin with (audit I11, I9). replacedRef resets on a seated state, join or
+      // takeOver.
+      if (replacedRef.current) {
+        return;
+      }
+      // A refusal while the latest state still shows us seated (a hand just started): stay, and
+      // say why. A kicked reason is never overwritten by the leave refusal (audit I6).
+      if (!result.ok && wasSeatedRef.current) {
+        if (!keepErrorRef.current) {
+          setErrorMessage(result.message);
+        }
+        return;
+      }
+      // Confirmed, or refused after the server already showed us unseated (a mode switch or kick
+      // landed first). That unseated state was held back by leavePendingRef, and the server has
+      // no seat to hold, so dropping the name is safe (audit I11).
+      forgetLastName();
+      displayNameRef.current = null;
+      joinedRef.current = false;
+      setDisplayName(null);
+      if (!keepErrorRef.current) {
+        setErrorMessage(null);
+      }
+      if (statusRef.current === 'at-table') {
+        setStatus('entering-name');
+      }
+    });
   }
 
   function adminLogin(passphrase: string) {
@@ -497,6 +553,25 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     socketRef.current?.emit('adminReleaseName', { displayName: name });
   }
 
+  function adminKick(name: string) {
+    setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
+    socketRef.current?.emit('adminKick', { displayName: name });
+  }
+
+  // Carries the actionSeq the admin saw, like a player's action, so a double-click acts once.
+  function adminForceAct() {
+    setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
+    socketRef.current?.emit('adminForceAct', { seq: latestActionSeqRef.current ?? undefined });
+  }
+
+  function adminSetTurnClock(seconds: number) {
+    setAdminActionErrorMessage(null);
+    setAdminNoticeMessage(null);
+    socketRef.current?.emit('adminSetTurnClock', { seconds });
+  }
+
   const value: SocketContextValue = {
     status,
     state,
@@ -519,6 +594,9 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
     adminSetDefaultBet,
     adminSetStartingBalance,
     adminReleaseName,
+    adminKick,
+    adminForceAct,
+    adminSetTurnClock,
     takeOver,
   };
 
