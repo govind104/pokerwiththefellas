@@ -14,20 +14,22 @@ through a PR. This list is the order to work in. The sections below hold the det
 1. ~~Audit fix item 6, "unsticking tables" (I6, I11, I10)~~ **Done 2026-10-02**: admin Remove from
    table / Act for / turn clock, server-confirmed leave, rejoin after two quick drops. Commits
    `ec704cf`..the item-6 docs commit; detail in the audit progress table and "Next step" item 3.
-2. **3D readability Plan B (HUD and showdown, spec §6).** Next. Brainstorm the 2D-view decision below
-   first. Detail and things to check at its gate are in "Next step" item 2 below. Also from item 6:
-   - show the turn clock countdown (`turnClockSeconds` is in every state; the server sends no
-     deadline yet);
-   - decide whether Leave shows mid-hand for a player who isn't dealt in (the server allows it
-     since item 6);
-   - the admin panel grew with item 6's forms and, at a short window (800x450), runs off the top of
-     the screen with no way to scroll to it ("Switch to Blackjack" unreachable). Fix the panel's
-     scrolling with the HUD work.
+2. **3D readability Plan B (HUD, showdown, flat view).** Next. Brainstormed and planned 2026-10-02 on
+   branch `feat/3d-plan-b-hud`:
+   - **Spec:** `docs/superpowers/specs/2026-10-02-3d-plan-b-hud-design.md` (amends base spec §6).
+     Approved visual: `.playtest-data/plan-b-preview/plan-b-visual.html` (git-ignored).
+   - **Plan:** `docs/superpowers/plans/2026-10-02-3d-plan-b-hud.md`, 9 tasks plus Gate 3 and docs, to run with
+     `superpowers:subagent-driven-development` (models per task are in the plan). Task 2 renders a 3D
+     canvas baseline before any frontend change; Gate 3 pixel-diffs against it.
+   - **Hard rule from the user: nothing built for the 3D side may break.** The plan's Global
+     Constraints list the only allowed `three/` changes and the only allowed edits to existing `three/` tests.
+   - Item 6's leftovers are inside the plan: turn-clock countdown (Task 1 server field + HUD), Leave
+     mid-hand for a seat not dealt in (HUD), admin panel scrolling (Task 6).
 3. **The rest of the audit, in the report's §8 order:**
    - **I3:** idempotent Hold'em settlement on recovery, together with the MIN-1/MIN-2 lock races.
    - **Short stacks (I8, M1, M3, M24):** the call-for-less offered as an all-in, integer chips,
      the heads-up short big blind, and side pots plus an "All in" label.
-   - **2D fixes (I12, I13's 2D half, M25's 2D nits):** skip these if the 2D view is retired.
+   - **2D fixes (I12, I13's 2D half, M25's 2D nits):** dropped: the 2D view is retired (Plan B).
    - **3D polish (I14, I15, M16-M18, M25-M26):** first check which ones Plan A already fixed, e.g.
      M26's `dealerActive` and M25's "seats shift sides" and "own plate detached". Then fix the rest.
    - **The remaining Minors** in the report's §6 table.
@@ -39,15 +41,10 @@ through a PR. This list is the order to work in. The sections below hold the det
    - MIN-3 and MIN-4;
    - Plan A's deferred follow-ups ("Next step" item 2 below).
 
-**Open decision: retire the 2D view?** The user is considering scrapping it as too primitive
-(2026-10-02). It is not just an alternative look, though: `App.tsx:29` picks 2D whenever the window
-is narrower than 900 px, so **2D is the phone view**. A phone played a full hand over Tailscale on
-2026-10-01. Recommendation: settle this in Plan B's brainstorm, not before.
-- Plan B's HUD is the React overlay a phone UI needs anyway. If the 3D view plus the HUD can work
-  on a phone (portrait camera framing, the HUD reflowing below 900 px, WebGL performance on a
-  mid-range phone), the 2D table becomes redundant and can be deleted.
-- If not, keep 2D as the phone-only view.
-- Until then, freeze the 2D view: no 2D-only fixes.
+**Decided 2026-10-02: the 2D view is retired.** Phones are out of scope (the group plays on laptops).
+The 2D view's two jobs, the 3D-failure fallback and the narrow-window view, go to a "flat" layout of
+Plan B's HUD, and a "Flat view" / "3D view" toggle stays. Details in the Plan B spec. Until Plan B's
+Task 9 deletes it, the 2D view stays frozen: no 2D-only fixes.
 
 ## Audit fix progress (the 2026-10-01 audit)
 
