@@ -589,7 +589,7 @@ git commit -m "feat(3d): table layout by rail distance (spec A1)"
   - `projectToScreen(cam: THREE.PerspectiveCamera, x: number, y: number, z: number): { sx: number; sy: number }` (0..1 from the top-left)
   - `interface HudZone { name: 'players' | 'table' | 'actions'; x: number; y: number; w: number; h: number }`, `HUD_ZONES: readonly HudZone[]`, `hudZoneAt(sx: number, sy: number): HudZone | null`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/frontend/src/three/cameraFit.test.ts`:
 
@@ -739,12 +739,12 @@ describe('table layout property (spec §A1)', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run src/three/cameraFit.test.ts src/three/layout.property.test.ts --root packages/frontend`
 Expected: FAIL, "Failed to resolve import './cameraFit'".
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `packages/frontend/src/three/hudZones.ts`:
 
@@ -855,14 +855,14 @@ export function projectToScreen(cam: THREE.PerspectiveCamera, x: number, y: numb
 
 Note: the last loop iteration moves `look` and `d` after measuring; the returned position uses the updated values, which is what the prototype did (it converges well inside 80 iterations, so the difference is below the test tolerance).
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run src/three/cameraFit.test.ts src/three/layout.property.test.ts --root packages/frontend`
 Expected: PASS (7 camera/HUD tests; 45 property cases). If a property case fails, do not loosen the test: report the case and the problems list to the controller (the values in `layout.ts` came from a prototype run that passed all 45).
 
 Then `npm run typecheck`: clean.
 
-- [ ] **Step 5: Commit (controller, after the user says yes)**
+- [x] **Step 5: Commit (controller, after the user says yes)**
 
 ```bash
 git add packages/frontend/src/three/cameraFit.ts packages/frontend/src/three/hudZones.ts packages/frontend/src/three/cameraFit.test.ts packages/frontend/src/three/layout.property.test.ts docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md
