@@ -64,6 +64,16 @@ export interface KickPayload {
   displayName: string;
 }
 
+export interface ForceActPayload {
+  /** The table's actionSeq as the admin saw it, so a double-click doesn't act for the next player too. */
+  seq?: number;
+}
+
+export interface SetTurnClockPayload {
+  /** Whole seconds: 0 turns the clock off, otherwise 10-600. */
+  seconds: number;
+}
+
 export interface AdminNoticePayload {
   message: string;
 }
@@ -96,6 +106,8 @@ export interface ClientToServerEvents {
   adminAdjustBalance: (payload: AdjustBalancePayload) => void;
   adminReleaseName: (payload: ReleaseNamePayload) => void;
   adminKick: (payload: KickPayload) => void;
+  adminForceAct: (payload: ForceActPayload) => void;
+  adminSetTurnClock: (payload: SetTurnClockPayload) => void;
   adminSetBlinds: (payload: SetBlindsPayload) => void;
   adminSetDefaultBet: (payload: SetDefaultBetPayload) => void;
   adminSetStartingBalance: (payload: SetStartingBalancePayload) => void;

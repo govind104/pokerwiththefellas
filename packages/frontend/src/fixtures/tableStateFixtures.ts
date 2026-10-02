@@ -285,6 +285,7 @@ export const DEFAULT_CONFIG_VIEW = {
   bigBlind: 10,
   blackjackDefaultBet: 25,
   defaultStartingBalance: 1000,
+  turnClockSeconds: 0,
 } as const;
 
 export function makeAppState(

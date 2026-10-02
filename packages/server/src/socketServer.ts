@@ -20,6 +20,8 @@ import type {
   ReleaseNamePayload,
   LeaveResult,
   KickPayload,
+  ForceActPayload,
+  SetTurnClockPayload,
 } from './protocol';
 
 export interface StaticTableConfig {
@@ -155,6 +157,8 @@ export async function createServer(
   // discarding the first. A single boolean, not a real mutex -- the handlers
   // it guards are the only writers of `table`/`currentMode`.
   let modeChangeInFlight = false;
+  // The admin's turn clock (audit I6). Memory only, like the admin session: a restart turns it off.
+  let turnClockMs = 0;
 
   async function buildTableConfig(mode: GameMode): Promise<TableConfig> {
     const values = await gameConfigStore.getConfig();
@@ -167,6 +171,7 @@ export async function createServer(
       blackjackDefaultBet: values.blackjackDefaultBet,
       defaultStartingBalance: values.defaultStartingBalance,
       reconnectGraceMs: staticConfig.reconnectGraceMs,
+      turnClockMs,
       random: staticConfig.random,
     };
   }
@@ -181,6 +186,7 @@ export async function createServer(
       bigBlind: currentConfig.bigBlind,
       blackjackDefaultBet: currentConfig.blackjackDefaultBet,
       defaultStartingBalance: currentConfig.defaultStartingBalance,
+      turnClockSeconds: turnClockMs / 1000,
     };
   }
 
@@ -612,6 +618,37 @@ export async function createServer(
             ? `Removed "${displayName}" from the table.`
             : `Removed "${displayName}": they fold or stand from now on and leave when this hand ends.`,
       });
+      broadcast();
+    }));
+
+    // Acts once, with the default action, for whoever is up (audit I6). The seq stops a double-click
+    // from acting for the next player too.
+    socket.on('adminForceAct', adminHandler(async (payload: ForceActPayload) => {
+      if (!isAdmin()) return;
+      if (!table) {
+        rejectAdmin('No game is active');
+        return;
+      }
+      const seq = typeof payload?.seq === 'number' ? payload.seq : undefined;
+      let name: string;
+      try {
+        name = await table.forceDefaultAction(seq);
+      } catch (err) {
+        rejectAdmin((err as Error).message);
+        return;
+      }
+      socket.emit('adminNotice', { message: `Acted for ${name}.` });
+    }));
+
+    socket.on('adminSetTurnClock', adminHandler(async (payload: SetTurnClockPayload) => {
+      if (!isAdmin()) return;
+      const seconds = payload?.seconds;
+      if (!isNonNegativeNumber(seconds) || !Number.isInteger(seconds) || (seconds !== 0 && (seconds < 10 || seconds > 600))) {
+        rejectAdmin('The turn clock must be 0 (off) or a whole number of seconds from 10 to 600');
+        return;
+      }
+      turnClockMs = seconds * 1000;
+      table?.updateConfig({ turnClockMs });
       broadcast();
     }));
 

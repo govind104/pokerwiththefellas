@@ -542,6 +542,105 @@ describe('socketServer', () => {
     });
   });
 
+  describe('adminForceAct and adminSetTurnClock (audit I6)', () => {
+    // waitForSeated is registered before the join: the seated state can arrive before the
+    // identity event, so waiting after the join can hang.
+    async function sit(name: string) {
+      const socket = connect();
+      const seated = waitForSeated(socket, name);
+      await joinAndGetToken(socket, name);
+      await seated;
+      return socket;
+    }
+
+    it('acts for whoever is up and says who', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = await sit('alice');
+      const bob = await sit('bob');
+      alice.emit('ready');
+      await waitForReady(alice, 'alice');
+      const started = waitForState(admin, (s) => s.table?.handInProgress === true);
+      bob.emit('ready');
+      const seq = (await started).table!.actionSeq;
+
+      const notice = waitForEvent<{ message: string }>(admin, 'adminNotice');
+      const over = waitForState(admin, (s) => s.table?.handInProgress === false);
+      admin.emit('adminForceAct', { seq });
+      expect((await notice).message).toBe('Acted for alice.');
+      await over;
+    });
+
+    it('rejects a stale sequence number, nobody up, and a non-admin', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const noHand = waitForEvent<ErrorPayload>(admin, 'error');
+      admin.emit('adminForceAct', {});
+      expect(await noHand).toEqual({ message: 'No hand in progress', scope: 'admin' });
+
+      const alice = await sit('alice');
+      const bob = await sit('bob');
+      alice.emit('ready');
+      await waitForReady(alice, 'alice');
+      const started = waitForState(admin, (s) => s.table?.handInProgress === true);
+      bob.emit('ready');
+      const seq = (await started).table!.actionSeq;
+
+      const stale = waitForEvent<ErrorPayload>(admin, 'error');
+      admin.emit('adminForceAct', { seq: seq - 1 });
+      expect((await stale).message).toContain('already been handled');
+
+      const denied = waitForEvent<ErrorPayload>(alice, 'error');
+      alice.emit('adminForceAct', { seq });
+      expect(await denied).toEqual({ message: 'Admin only', scope: 'admin' });
+    });
+
+    it('sets the turn clock, shows it in every state, and rejects values out of range', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const set = waitForState(admin, (s) => s.turnClockSeconds === 30);
+      admin.emit('adminSetTurnClock', { seconds: 30 });
+      await set;
+
+      for (const seconds of [5, 601, 12.5, -1]) {
+        const error = waitForEvent<ErrorPayload>(admin, 'error');
+        admin.emit('adminSetTurnClock', { seconds });
+        expect(await error).toEqual({
+          message: 'The turn clock must be 0 (off) or a whole number of seconds from 10 to 600',
+          scope: 'admin',
+        });
+      }
+
+      const off = waitForState(admin, (s) => s.turnClockSeconds === 0);
+      admin.emit('adminSetTurnClock', { seconds: 0 });
+      await off;
+    });
+
+    it('a non-admin cannot set the turn clock', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const alice = await sit('alice');
+      const denied = waitForEvent<ErrorPayload>(alice, 'error');
+      alice.emit('adminSetTurnClock', { seconds: 30 });
+      expect(await denied).toEqual({ message: 'Admin only', scope: 'admin' });
+    });
+
+    it('a new table after a mode switch keeps the turn clock', async () => {
+      const admin = connect();
+      await startGameAsAdmin(admin, 'holdem');
+      const set = waitForState(admin, (s) => s.turnClockSeconds === 20);
+      admin.emit('adminSetTurnClock', { seconds: 20 });
+      await set;
+      const switched = waitForState(admin, (s) => s.mode === 'blackjack');
+      admin.emit('adminSwitchMode', { mode: 'blackjack' });
+      expect((await switched).turnClockSeconds).toBe(20);
+      // The view's number comes from a module variable; what matters is that the NEW table was
+      // built with the clock, or it would never fire. Test-only access to its (private) config.
+      const newTable = server.getTable() as unknown as { config: { turnClockMs?: number } };
+      expect(newTable.config.turnClockMs).toBe(20000);
+    });
+  });
+
   describe('admin payload validation', () => {
     // Each of these used to be accepted and written straight through to a
     // file that survives a restart (game-config.json / balances.json), or --

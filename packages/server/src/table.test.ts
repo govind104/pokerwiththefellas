@@ -2475,3 +2475,207 @@ describe('Table.leave precondition (audit I11, with kick)', () => {
     expect(table.seats[0]?.displayName).toBe('alice');
   });
 });
+
+describe('Table.forceDefaultAction (audit I6)', () => {
+  it("acts once for whoever is up and returns their name (Hold'em fold facing a bet)", async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await expect(table.forceDefaultAction(table.actionSeq)).resolves.toBe('alice');
+    expect(table.handInProgress).toBe(false);
+  });
+
+  it('a stale sequence number does nothing (a double-click must not act for the next player too)', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const seq = table.actionSeq;
+    await table.forceDefaultAction(seq); // stands for alice
+    await expect(table.forceDefaultAction(seq)).rejects.toThrow('already been handled');
+    expect(table.activeSeatIndex).toBe(1); // bob is still up
+  });
+
+  it('rejects when no hand is in progress', async () => {
+    const { table } = makeTable();
+    await expect(table.forceDefaultAction()).rejects.toThrow('No hand in progress');
+  });
+});
+
+describe('Table turn clock (audit I6)', () => {
+  it('acts for a connected player who lets the clock run out', async () => {
+    const { table } = makeTable({ turnClockMs: 40 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(true);
+    await wait(120);
+    expect(table.handInProgress).toBe(false); // alice was folded for, facing the big blind
+  });
+
+  it('an action restarts the clock for the next player', async () => {
+    const { table } = makeTable({ turnClockMs: 100 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'call');
+    const hand = table.holdemHand!;
+    await wait(50);
+    expect(hand.street).toBe('preflop');
+    expect(hand.actingPlayerId).toBe('bob');
+    await wait(100); // bob's clock (started at the call) has run out: checked for, on to the flop
+    expect(hand.street).not.toBe('preflop');
+  });
+
+  it('is off by default', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await wait(100);
+    expect(table.holdemHand!.actingPlayerId).toBe('alice');
+  });
+
+  it('can be switched on between hands with updateConfig', async () => {
+    const { table } = makeTable();
+    table.updateConfig({ turnClockMs: 40 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await wait(120);
+    expect(table.handInProgress).toBe(false);
+  });
+
+  it('a retired table never acts on its clock', async () => {
+    const { table } = makeTable({ turnClockMs: 40 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    table.retire();
+    await wait(120);
+    expect(table.handInProgress).toBe(true);
+  });
+
+  it('a hand that ends leaves no live clock to act on the next hand', async () => {
+    const { table } = makeTable({ turnClockMs: 80 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect((table as any).turnClockTimer).not.toBeNull();
+    await table.submitAction(0, 'fold'); // hand over well inside alice's clock
+    expect(table.handInProgress).toBe(false);
+    expect((table as any).turnClockTimer).toBeNull(); // cleared, not just guarded
+    await wait(150);
+    expect(table.handInProgress).toBe(false);
+  });
+
+  it('retire() clears the live timer', async () => {
+    const { table } = makeTable({ turnClockMs: 60 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect((table as any).turnClockTimer).not.toBeNull();
+    table.retire();
+    expect((table as any).turnClockTimer).toBeNull();
+  });
+
+  it('setting the clock to 0 mid-turn cancels the running clock at once', async () => {
+    const { table } = makeTable({ turnClockMs: 60 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'call'); // re-arms for bob
+    expect((table as any).turnClockTimer).not.toBeNull();
+    table.updateConfig({ turnClockMs: 0 });
+    expect((table as any).turnClockTimer).toBeNull();
+    const hand = table.holdemHand!;
+    await wait(150);
+    expect(hand.street).toBe('preflop'); // bob was never acted for
+    expect(hand.actingPlayerId).toBe('bob');
+  });
+
+  it('a manual action before the clock fires means the old clock does not act for the next player', async () => {
+    const { table } = makeTable({ turnClockMs: 80 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await wait(50);
+    await table.submitAction(0, 'call'); // alice acts at ~50ms; bob's clock restarts
+    await wait(50); // ~100ms: alice's original clock would have fired by now
+    expect(table.holdemHand!.street).toBe('preflop');
+    expect(table.holdemHand!.actingPlayerId).toBe('bob');
+  });
+});
+
+describe('Table turn clock vs a queued action (audit I6)', () => {
+  it('a clock that fires while the player\'s own action holds the lock does not act for the next player', async () => {
+    const handLog = new ControllableHandLog();
+    const playerStore = new FakePlayerStore(1000);
+    const table = new Table(
+      {
+        gameMode: 'holdem', seatCount: 8, smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000, reconnectGraceMs: 50, turnClockMs: 60,
+        random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog, onStateChange: () => {} }
+    );
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    handLog.holdAppends = true;
+    const call = table.submitAction(0, 'call'); // suspended inside the lock, at the log write
+    await wait(100); // alice's clock fires now and queues behind the lock
+    handLog.holdAppends = false;
+    handLog.releaseNextAppend();
+    await call;
+    await wait(20); // the queued clock callback has run; bob's own clock (60ms) has not
+    expect(table.holdemHand!.street).toBe('preflop');
+    expect(table.holdemHand!.actingPlayerId).toBe('bob');
+  });
+});
+
+describe('Table turn clock switched off while queued (audit I6)', () => {
+  it('a clock callback queued behind a busy lock does not act once the clock was set to 0', async () => {
+    const handLog = new ControllableHandLog();
+    const playerStore = new FakePlayerStore(1000);
+    const table = new Table(
+      {
+        gameMode: 'holdem', seatCount: 8, smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000, reconnectGraceMs: 50, turnClockMs: 60,
+        random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog, onStateChange: () => {} }
+    );
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    // Hold the table lock directly, so the fired clock callback has to queue behind it.
+    let release!: () => void;
+    const held = (table as unknown as { runExclusive: (f: () => Promise<void>) => Promise<void> }).runExclusive(
+      () => new Promise<void>((r) => (release = r))
+    );
+    await wait(100); // alice's clock fires and queues behind the held lock
+    table.updateConfig({ turnClockMs: 0 }); // too late to clear the timer: it already fired
+    release();
+    await held;
+    await wait(20);
+    expect(table.holdemHand!.street).toBe('preflop');
+    expect(table.holdemHand!.actingPlayerId).toBe('alice'); // nobody was acted for
+  });
+});

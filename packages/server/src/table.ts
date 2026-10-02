@@ -34,6 +34,8 @@ export interface TableConfig {
   blackjackDefaultBet: number;
   defaultStartingBalance: number;
   reconnectGraceMs: number;
+  /** How long a player has to act before the default action is applied; absent or 0 means off (audit I6). */
+  turnClockMs?: number;
   random: () => number;
 }
 
@@ -105,6 +107,8 @@ export interface AppStateView {
   bigBlind: number;
   blackjackDefaultBet: number;
   defaultStartingBalance: number;
+  /** The admin's turn clock in seconds; 0 when off (audit I6). */
+  turnClockSeconds: number;
 }
 
 export class Table {
@@ -122,6 +126,7 @@ export class Table {
   // Shown to everyone at the table; without it a failed start looked like a frozen table (audit I4).
   private handStartError: string | null = null;
   private disconnectTimers: Map<number, NodeJS.Timeout> = new Map();
+  private turnClockTimer: NodeJS.Timeout | null = null;
   private timedOutSeats: Set<number> = new Set();
   // Seats the admin removed while they were in the hand: they are acted for from then on, and the
   // seat is freed when the hand ends (audit I6).
@@ -170,9 +175,15 @@ export class Table {
   // to be told about it. adminSetStartingBalance correspondingly calls
   // playerStore.setDefaultStartingBalance and nothing here.
   updateConfig(
-    update: Partial<Pick<TableConfig, 'smallBlind' | 'bigBlind' | 'blackjackDefaultBet'>>
+    update: Partial<Pick<TableConfig, 'smallBlind' | 'bigBlind' | 'blackjackDefaultBet' | 'turnClockMs'>>
   ): void {
     Object.assign(this.config, update);
+    // A clock switched off mid-turn must not still fire once for the turn already running; a
+    // changed (non-zero) value takes effect from the next turn (audit I6).
+    if (this.turnClockTimer && (this.config.turnClockMs ?? 0) <= 0) {
+      clearTimeout(this.turnClockTimer);
+      this.turnClockTimer = null;
+    }
     // A new bet can make a ready seat able (or unable) to afford the hand; with nothing to
     // re-check, the ready players had no button left to press (audit I5).
     this.startHandIfEveryoneReady().catch((err) => {
@@ -193,6 +204,10 @@ export class Table {
       clearTimeout(timer);
     }
     this.disconnectTimers.clear();
+    if (this.turnClockTimer) {
+      clearTimeout(this.turnClockTimer);
+      this.turnClockTimer = null;
+    }
   }
 
   // The admin balance correction. The checks, the durable write and the in-memory update
@@ -504,6 +519,54 @@ export class Table {
     await this.applyDefaultAction(seatIndex);
   }
 
+  // Called whenever the turn may have moved (a hand started, an action was applied): restarts the
+  // clock for whoever is up now. It is tied to the actionSeq it was started at, so a clock that
+  // fires after the player acted does nothing (audit I6).
+  private armTurnClock(): void {
+    if (this.turnClockTimer) {
+      clearTimeout(this.turnClockTimer);
+      this.turnClockTimer = null;
+    }
+    const turnClockMs = this.config.turnClockMs ?? 0;
+    if (this.retired || !this.handInProgress || turnClockMs <= 0) {
+      return;
+    }
+    const seq = this.actionSeq;
+    this.turnClockTimer = setTimeout(() => {
+      this.turnClockTimer = null;
+      // The timer callback does not hold the table lock, so it takes it itself.
+      this.runExclusive(async () => {
+        // Re-read the config under the lock: the admin may have set the clock to 0 while this
+        // callback waited behind a busy lock (audit I6).
+        if (this.retired || this.actionSeq !== seq || (this.config.turnClockMs ?? 0) <= 0) {
+          return;
+        }
+        const seatIndex = this.actingSeatIndex();
+        if (seatIndex !== null) {
+          await this.applyDefaultAction(seatIndex);
+        }
+      }).catch((err) => {
+        console.error('Table: error acting for a player whose turn clock ran out:', err);
+      });
+    }, turnClockMs);
+  }
+
+  /** The admin's "Act for ..." (audit I6): the default action, once, for whoever is up. */
+  forceDefaultAction(expectedSeq?: number): Promise<string> {
+    return this.runExclusive(async () => {
+      if (!this.handInProgress) {
+        throw new Error('No hand in progress');
+      }
+      const seatIndex = this.actingSeatIndex();
+      const seat = seatIndex !== null ? this.seats[seatIndex] : null;
+      if (seatIndex === null || !seat) {
+        throw new Error('Nobody is up to act');
+      }
+      await this.applyDefaultAction(seatIndex, expectedSeq);
+      return seat.displayName;
+    });
+  }
+
   private buildShuffledDeck(deckCount: number): Card[] {
     const cards = Array.from({ length: deckCount }, () => createDeck()).flat();
     return shuffle(cards, this.config.random);
@@ -605,6 +668,7 @@ export class Table {
     }
 
     this.deps.onStateChange();
+    this.armTurnClock();
   }
 
   /**
@@ -672,6 +736,7 @@ export class Table {
     }
 
     this.deps.onStateChange();
+    this.armTurnClock();
 
     if (this.handInProgress) {
       const nextSeatIndex = this.actingSeatIndex();

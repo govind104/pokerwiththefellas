@@ -873,7 +873,7 @@ git commit -m "feat(server): admin can remove a player from the table, mid-hand 
   - `protocol.ts`: `ForceActPayload { seq?: number }`, `SetTurnClockPayload { seconds: number }`,
     plus `adminForceAct` and `adminSetTurnClock` in `ClientToServerEvents`.
 
-- [ ] **Step 1: Write the failing Table tests**
+- [x] **Step 1: Write the failing Table tests**
 
 Append to `packages/server/src/table.test.ts`:
 
@@ -970,13 +970,13 @@ describe('Table turn clock (audit I6)', () => {
 
 (`wait` is the file's existing helper, defined near line 835.)
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `npx vitest run src/table.test.ts --root packages/server -t "audit I6"`
 Expected: FAIL (`forceDefaultAction` is not a function; the clock tests see the hand still in
 progress; `turnClockMs` is a type error under `npm run typecheck`).
 
-- [ ] **Step 3: Implement in `table.ts`**
+- [x] **Step 3: Implement in `table.ts`**
 
 In `TableConfig`, add after `reconnectGraceMs`:
 
@@ -1060,12 +1060,12 @@ Arm the clock in two places:
 
 When a hand ends, `handInProgress` is false at the next `armTurnClock()` call, which clears the timer.
 
-- [ ] **Step 4: Run the Table tests**
+- [x] **Step 4: Run the Table tests**
 
 Run: `npx vitest run src/table.test.ts --root packages/server`
 Expected: all PASS.
 
-- [ ] **Step 5: Write the failing socket tests**
+- [x] **Step 5: Write the failing socket tests**
 
 In `packages/server/src/protocol.ts`, add:
 
@@ -1148,12 +1148,12 @@ Add to `packages/server/src/socketServer.test.ts`, inside `describe('socketServe
   });
 ```
 
-- [ ] **Step 6: Run them to verify they fail**
+- [x] **Step 6: Run them to verify they fail**
 
 Run: `npx vitest run src/socketServer.test.ts --root packages/server -t "adminForceAct"`
 Expected: FAIL (timeouts; `turnClockSeconds` undefined).
 
-- [ ] **Step 7: Implement in `socketServer.ts` and `table.ts`**
+- [x] **Step 7: Implement in `socketServer.ts` and `table.ts`**
 
 In `table.ts`'s `AppStateView`, add after `defaultStartingBalance: number;`:
 
@@ -1210,7 +1210,7 @@ In `socketServer.ts`:
 In `packages/frontend/src/fixtures/tableStateFixtures.ts`, add `turnClockSeconds: 0,` to
 `DEFAULT_CONFIG_VIEW`.
 
-- [ ] **Step 8: Run everything and typecheck**
+- [x] **Step 8: Run everything and typecheck**
 
 Run: `npm test --workspace=@poker-blackjack/server`, `npm test --workspace=@poker-blackjack/frontend`,
 then `npm run typecheck`.
