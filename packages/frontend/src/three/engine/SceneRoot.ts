@@ -4,13 +4,14 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { TABLE_Y, feltPrintKey, type SceneModel } from '../sceneModel';
+import { TABLE_Y, feltPrintKey, type SceneModel, type Vec2 } from '../sceneModel';
 import { fitCamera } from '../cameraFit';
 import { CardObject } from './cards';
 import { ChipStackObject } from './chips';
 import { Room } from './room';
 import { SoundStage } from './audio';
 import { Tweens, easeInOutCubic } from './tween';
+import { stepTurnLight, type TurnLightState } from './turnLight';
 
 export type Quality = 'low' | 'medium' | 'high';
 
@@ -68,6 +69,11 @@ const BJ_DISCARD_POS = new THREE.Vector3(-0.62, TABLE_Y + 0.01, -0.55);
 const DECK_POS = new THREE.Vector3(0, TABLE_Y + 0.03, -0.3);
 const MUCK_POS = new THREE.Vector3(0, TABLE_Y + 0.01, -0.62);
 
+// One shadowless spot on the acting seat, including your own (spec §A6), replacing the camera lean.
+// 5x the lamp (room.ts baseSpot 22) from the prototype's Hold'em frame; Gate 2 settles it.
+export const TURN_LIGHT_INTENSITY = 110;
+const TURN_LIGHT_HEIGHT = 2.0;
+
 export class SceneRoot {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -83,6 +89,11 @@ export class SceneRoot {
   private chips = new Map<string, ChipStackObject>();
   private raf = 0;
   private feltKey = '';
+  private turnLight = new THREE.SpotLight(0xffa552, 0, 4, 0.22, 0.7, 1.6);
+  private turnGoal: Vec2 | null = null;
+  private turnState: TurnLightState = { x: 0, z: 0, level: 0 };
+  // Full strength of the turn light. Public so Gate 2 can tune it live through window.__bj3d.
+  turnLightLevel = TURN_LIGHT_INTENSITY;
   private disposed = false;
   private width = 1;
   private height = 1;
@@ -112,6 +123,10 @@ export class SceneRoot {
     this.scene.background = new THREE.Color(0x060403);
     this.scene.fog = new THREE.FogExp2(0x0a0604, 0.055);
     this.scene.add(this.room.group);
+    // Added once, at zero intensity, so turning it on later doesn't change the light count and
+    // recompile every material.
+    this.turnLight.castShadow = false;
+    this.scene.add(this.turnLight, this.turnLight.target);
 
     this.applyQuality(opts.quality);
     this.raf = requestAnimationFrame(this.loop);
@@ -210,6 +225,7 @@ export class SceneRoot {
       this.room.setFeltPrint(model.felt);
       this.feltKey = feltKey;
     }
+    this.turnGoal = model.turnLight;
 
     // Cards.
     const keep = new Set<string>();
@@ -348,6 +364,13 @@ export class SceneRoot {
 
     this.tweens.update(dt);
     this.room.update(t, still);
+    this.turnState = stepTurnLight(this.turnState, this.turnGoal, dt, still);
+    const { x, z, level } = this.turnState;
+    // Nearly straight above the target, so the pool doesn't spill onto the rail or floor.
+    this.turnLight.position.set(x * 0.85, TURN_LIGHT_HEIGHT, z * 0.85);
+    this.turnLight.target.position.set(x, TABLE_Y, z);
+    this.turnLight.target.updateMatrixWorld();
+    this.turnLight.intensity = this.turnLightLevel * level;
 
     if (!draw) return;
     if (this.grade) this.grade.uniforms.time.value = t;

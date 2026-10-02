@@ -2236,7 +2236,7 @@ git commit -m "feat(3d): printed felt per game and seat layout (spec A5)"
 - Consumes: `SceneModel.turnLight: Vec2 | null` (Task 4).
 - Produces: `interface TurnLightState { x: number; z: number; level: number }`, `TURN_LIGHT_TAU`, `stepTurnLight(s, goal, dt, instant): TurnLightState`; `TURN_LIGHT_INTENSITY`; `SceneRoot.turnLightLevel` (public, dev-tunable through `window.__bj3d` at Gate 2).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/frontend/src/three/engine/turnLight.test.ts`:
 
@@ -2278,12 +2278,12 @@ describe('stepTurnLight', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run src/three/engine/turnLight.test.ts --root packages/frontend`
 Expected: FAIL, "Failed to resolve import './turnLight'".
 
-- [ ] **Step 3: Write the stepper**
+- [x] **Step 3: Write the stepper**
 
 Create `packages/frontend/src/three/engine/turnLight.ts`:
 
@@ -2314,7 +2314,7 @@ export function stepTurnLight(s: TurnLightState, goal: Vec2 | null, dt: number, 
 
 Run: `npx vitest run src/three/engine/turnLight.test.ts --root packages/frontend` → PASS.
 
-- [ ] **Step 4: The light in `SceneRoot`**
+- [x] **Step 4: The light in `SceneRoot`**
 
 In `packages/frontend/src/three/engine/SceneRoot.ts`:
 - Import: `import { stepTurnLight, type TurnLightState } from './turnLight';` and change the model import to `import { TABLE_Y, feltPrintKey, type SceneModel, type Vec2 } from '../sceneModel';`.
@@ -2352,11 +2352,11 @@ In `packages/frontend/src/three/engine/SceneRoot.ts`:
     this.turnLight.intensity = this.turnLightLevel * level;
   ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `npm test` and `npm run typecheck` → green.
 
-- [ ] **Step 6: Commit (controller, after the user says yes)**
+- [x] **Step 6: Commit (controller, after the user says yes)**
 
 ```bash
 git add packages/frontend/src/three/engine/turnLight.ts packages/frontend/src/three/engine/turnLight.test.ts packages/frontend/src/three/engine/SceneRoot.ts docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md
