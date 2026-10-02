@@ -98,7 +98,8 @@ export function TableStage({
   useEffect(() => {
     const a = anchors.current;
     a.clear();
-    for (const s of model.seats) if (!s.isMe) a.set(`plate:${s.seatIndex}`, { x: s.plateX, y: TABLE_Y + 0.07, z: s.plateZ });
+    // A player who sat down mid-hand has no place on the table until the next deal.
+    for (const s of model.seats) if (!s.isMe && s.plate) a.set(`plate:${s.seatIndex}`, { x: s.plate.x, y: TABLE_Y + 0.07, z: s.plate.z });
     for (const o of model.outcomes) a.set(o.key, { x: o.x, y: TABLE_Y + 0.1, z: o.z });
     if (model.pot) a.set('pot', { x: model.pot.x, y: TABLE_Y + 0.13, z: model.pot.z });
   }, [model]);
@@ -130,7 +131,12 @@ export function TableStage({
     scene.onFrame = (project) => {
       for (const [key, el] of plateEls.current) {
         const a = anchors.current.get(key);
-        if (!a) continue;
+        if (!a) {
+          // No anchor means the seat has no place on the table right now: hide the plate, or it
+          // would stay frozen at its last position.
+          el.style.visibility = 'hidden';
+          continue;
+        }
         const p = project(a.x, a.y, a.z);
         // Keep plates on screen even when their seat is around the edge of the view.
         const x = Math.min(Math.max(p.x, 70), Math.max(70, wrap.clientWidth - 70));

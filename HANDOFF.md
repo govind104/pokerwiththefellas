@@ -90,14 +90,64 @@ fix re-review approved). Remaining:
    steps 16-17 (share the machine with a friend; tests the "share, don't invite" advice), then
    remove the "Not yet tested" note in `docs/HOSTING.md`, check its free-plan user-limit claim,
    and tick step 6 in the plan.
-2. **Next session (user's choice, 2026-10-01): the 3D camera is too low.** The eye sits 0.29 m above the felt
-   (`BASE_CAM` y 1.05 vs `TABLE_Y` 0.76 in `packages/frontend/src/three/engine/SceneRoot.ts:67`
-   and `sceneModel.ts:14`; `LEAN_CAM` is lower still, 0.16 m). Your own cards are hard to read in
-   both games, the river is hard to see in Hold'em, and opponents' revealed cards can't be read at
-   showdown (fine for Blackjack, not for Poker). The user's first idea: a normal seated head
-   height, roughly double the current height above the table; other solutions are open. Needs a
-   design pass (`superpowers:brainstorming`) comparing heights and options with screenshots
-   before any code. Gameplay over Tailscale was smooth.
+2. **3D table readability and look: Plan A (3D scene) done 2026-10-02; Plan B (HUD and showdown) next.**
+   It started as "the camera is too low" and grew in brainstorming, with the user comparing renders
+   at each step. Spec: `docs/superpowers/specs/2026-10-02-3d-table-readability-design.md`, on branch
+   `feat/3d-table-readability`. The approved look is `.playtest-data/camera-heights/v3-review.html`
+   (git-ignored, local-only; the prototype code is copied beside the spec).
+   - **Design summary:** a fixed three-quarter camera with computed framing; no figures, props or
+     visible lamp; seats spread by rail distance; a centred board; big-index faces; printed felt;
+     a turn light; a 2D HUD; and a showdown highlight. Split: Plan A (3D scene), then Plan B.
+   - **Plan A done:** `docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md`, commits
+     `5769598`..`6b2949d` plus the docs commit after them (base `2cd30d4`). Tests: 321 frontend,
+     133 game-engine and 278 server pass, and typecheck is clean.
+     - **Gates:** the user approved both gates with no layout or lighting changes. At Gate 1 the user
+       had the Blackjack shoe and discard tray removed (deviation 8). Gate 2's contrast was measured
+       with cards hidden (deviation 9; lowest 2.42). Shots: `.playtest-data/plan-a-gates/` (git-ignored).
+     - **Settled values (the plan's Deviations 1-10):**
+       - hand ellipse 0.76 Hold'em / 0.72 Blackjack;
+       - Blackjack seats spread up to 120°;
+       - crowded fans close up to a 0.06 m step;
+       - Hold'em betting line at 0.61;
+       - an exponential turn-light glide;
+       - **no turn light on the dealer** (deviation 10: the server never sends a dealer-playing phase).
+     - **Known limitation (deviation 5):** at 6 Blackjack players, a split into hands of 3+ cards can
+       touch a neighbour's cards.
+   - **Final review** (opus, `.superpowers/sdd/planA-final-review.md`, fixes re-reviewed in
+     `planA-final-rereview.md`), fixed in `6b2949d`:
+     - stale name plates;
+     - between hands (no hand, or every round settled) all seated players are laid out, per spec §A1.
+       Before, a broke or newly joined player had no seat until dealt in;
+     - waiting cards lie on the felt;
+     - the Hold'em deck point moved off the pot and bets (`layout.ts` `DECK_SPOT`, property-tested);
+     - the render save-server refuses non-localhost origins.
+   - **Expect at playtest:** a seated player who sits a hand out (not ready, broke, or disconnected at
+     the deal) makes the table re-flow twice a hand. It re-flows at the settle (in Blackjack, while
+     the dealer's cards are still being revealed) and back at the next deal. This follows from the
+     §A1 fix. Revisit it in Plan B if it looks bad.
+   - **Deferred follow-ups (not blocking):**
+     - a `Room.dispose()` that frees the room textures, the ~12 MB printed felt and `feltBase`;
+     - `cameraFit.ts` `frameOutline` hands out mutable cached Vector3s;
+     - give the Hold'em dev-harness steps real pots;
+     - the Blackjack discard point touches the outer-left 6-player seat's cards for a moment when they
+       are swept;
+     - the harness "Dealer reveals" step and one model test still use the `phase: 'dealer'` state,
+       which the server never sends (harmless).
+   - **Next: Plan B** (HUD and showdown, spec §6). Write its plan first (`superpowers:writing-plans`).
+     The HUD is sized to `three/hudZones.ts`. Plan B removes the projected name plates, pot label and
+     outcome labels.
+   - Loop used (keep it): the controller extracts briefs (`.superpowers/sdd/planA-task-N-brief.md`),
+     implementers don't commit, the controller packages the working tree with `wt-package.sh`, a
+     sonnet reviewer reads `.superpowers/sdd/planA-reviewer-instructions.md`, and the binding
+     constraints are in `planA-global-constraints.md`. **The user waived per-task commit approval:
+     commit after a clean review; still stop at user gates and before push/PR/merge.**
+   - **Render method** (for the gates): a subagent drives `/dev3d.html` in the in-app browser and
+     patches or inspects the scene through `window.__bj3d`. It waits about 4.5 s after each load
+     for textures, because `advance()` can't wait for async loads. It captures with
+     `canvas.toDataURL` and POSTs to `scripts/render/save-server.cjs`, so images don't pass through model
+     context. Pages that load images are served with `scripts/render/static-server.cjs`, because the browser
+     pane won't load `file://` subresources. Reload the page between runs, since patches
+     don't stack.
 3. **Then §8 item 6, "unsticking tables" (I6, I11, I10):** I6 admin kick and force-act plus an
    optional turn clock (an idle connected player stalls the table forever); I11 leave racing a hand
    start (the client drops its identity before the server confirms, so the server keeps the seat);

@@ -60,10 +60,10 @@ export class CardObject {
     this.flipper.rotation.x = Math.PI / 2;
   }
 
-  setCard(card: Card | null, onTextureLoaded?: () => void): void {
+  setCard(card: Card | null): void {
     this.card = card;
     if (card) {
-      this.frontMat.map = cardFaceTexture(card, onTextureLoaded);
+      this.frontMat.map = cardFaceTexture(card);
       this.frontMat.needsUpdate = true;
     }
   }

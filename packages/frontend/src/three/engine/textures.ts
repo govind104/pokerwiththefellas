@@ -1,8 +1,10 @@
 import * as THREE from 'three';
-import type { Card, Rank } from '@poker-blackjack/game-engine';
+import type { Card } from '@poker-blackjack/game-engine';
+import type { FeltPrint } from '../sceneModel';
+import { FACE_PAPER, drawCardFace, glyphSupported } from './cardFace';
+import { FELT_TEX_H, FELT_TEX_W, paintFelt } from './feltPrint';
 
-// Every texture is generated on a canvas at startup (seeded, so it looks the
-// same every run). No image downloads except the vendored MIT card-face SVGs.
+// Every texture is generated on a canvas at startup (seeded, so it looks the same every run). No image downloads.
 
 export function rng(seed: number): () => number {
   let s = seed >>> 0;
@@ -114,6 +116,18 @@ export function feltTexture(seed = 3): THREE.CanvasTexture {
     }
   }
   return tex(c, { repeat: [3, 2] });
+}
+
+// The printed felt for one seat layout, mapped across the felt ellipse with UV = metres and clamped.
+export function printedFeltTexture(base: THREE.CanvasTexture, print: FeltPrint): THREE.CanvasTexture {
+  const [c, ctx] = canvas(FELT_TEX_W, FELT_TEX_H);
+  const image = base.image as HTMLCanvasElement;
+  paintFelt(ctx, { image, width: image.width, height: image.height, repeat: [base.repeat.x, base.repeat.y] }, print);
+  const t = tex(c);
+  t.repeat.set(1 / 2.4, 1 / 1.7);
+  t.offset.set(0.5, 0.5);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
 }
 
 export function plankTexture(seed = 11, tint = '#3a2616'): THREE.CanvasTexture {
@@ -232,64 +246,26 @@ export function cardBackTexture(): THREE.CanvasTexture {
   return tex(c);
 }
 
-const RANK_FILE: Record<Rank, string> = {
-  A: 'ace',
-  '2': '2',
-  '3': '3',
-  '4': '4',
-  '5': '5',
-  '6': '6',
-  '7': '7',
-  '8': '8',
-  '9': '9',
-  '10': '10',
-  J: 'jack',
-  Q: 'queen',
-  K: 'king',
-};
-
-function faceUrl(card: Card): string {
-  return new URL(`../../assets/cards/${RANK_FILE[card.rank]}_of_${card.suit}.svg`, import.meta.url).href;
-}
-
 const faceCache = new Map<string, THREE.CanvasTexture>();
 
-// Returns immediately with a blank aged card; the SVG is composited onto it
-// (multiplied, so the white becomes parchment) as soon as it has loaded.
-export function cardFaceTexture(card: Card, onLoaded?: () => void): THREE.CanvasTexture {
+// Big-index face on aged parchment (spec §A4). Drawn synchronously, so there is no blank-face
+// moment while an image loads.
+export function cardFaceTexture(card: Card): THREE.CanvasTexture {
   const id = `${card.rank}-${card.suit}`;
   const cached = faceCache.get(id);
   if (cached) return cached;
-
   const [c, ctx] = canvas(CARD_TEX_W, CARD_TEX_H);
   const seed = id.split('').reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7);
-  const paint = (img?: HTMLImageElement) => {
-    ctx.clearRect(0, 0, CARD_TEX_W, CARD_TEX_H);
-    ctx.save();
-    roundRectPath(ctx, CARD_TEX_W, CARD_TEX_H, 14);
-    ctx.clip();
-    ctx.fillStyle = '#e4d5ad';
-    ctx.fillRect(0, 0, CARD_TEX_W, CARD_TEX_H);
-    if (img) {
-      ctx.globalCompositeOperation = 'multiply';
-      ctx.drawImage(img, 6, 6, CARD_TEX_W - 12, CARD_TEX_H - 12);
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    age(ctx, CARD_TEX_W, CARD_TEX_H, rng(seed));
-    ctx.restore();
-  };
-  paint();
+  ctx.save();
+  roundRectPath(ctx, CARD_TEX_W, CARD_TEX_H, 14);
+  ctx.clip();
+  ctx.fillStyle = FACE_PAPER;
+  ctx.fillRect(0, 0, CARD_TEX_W, CARD_TEX_H);
+  drawCardFace(ctx, card, glyphSupported);
+  age(ctx, CARD_TEX_W, CARD_TEX_H, rng(seed));
+  ctx.restore();
   const t = tex(c);
   faceCache.set(id, t);
-
-  const img = new Image();
-  img.decoding = 'async';
-  img.onload = () => {
-    paint(img);
-    t.needsUpdate = true;
-    onLoaded?.();
-  };
-  img.src = faceUrl(card);
   return t;
 }
 
@@ -336,21 +312,5 @@ export function softDotTexture(inner = 'rgba(255,220,160,1)'): THREE.CanvasTextu
   g.addColorStop(1, 'rgba(255,190,100,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 64, 64);
-  return tex(c);
-}
-
-export function smokeTexture(seed = 5): THREE.CanvasTexture {
-  const [c, ctx] = canvas(128, 128);
-  const r = rng(seed);
-  for (let i = 0; i < 26; i++) {
-    const x = 28 + r() * 72;
-    const y = 28 + r() * 72;
-    const rad = 14 + r() * 26;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
-    g.addColorStop(0, 'rgba(255,240,215,0.16)');
-    g.addColorStop(1, 'rgba(255,240,215,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
   return tex(c);
 }

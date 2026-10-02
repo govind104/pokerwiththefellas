@@ -13,7 +13,7 @@ import '../index.css';
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 const hand = (cards: Card[], bet: number, done = false): PlayerHand => ({ cards, bet, doubled: false, done });
 
-const NAMES = ['you', 'bob', 'cara', 'dan', 'edna'];
+const NAMES = ['you', 'bob', 'cara', 'dan', 'edna', 'fay'];
 
 function seats(count: number): SeatView[] {
   return Array.from({ length: 6 }, (_, i) => ({
@@ -64,6 +64,11 @@ function allRounds(
 const MINE = [hand([c('7', 'diamonds'), c('4', 'clubs')], 25)];
 const MINE_HIT = [hand([c('7', 'diamonds'), c('4', 'clubs'), c('9', 'spades')], 25)];
 const win = (n: number) => ({ outcome: 'win' as const, payout: n });
+const SPLIT = [hand([c('8', 'hearts'), c('3', 'clubs')], 25), hand([c('8', 'spades'), c('5', 'clubs')], 25)];
+const SPLIT_LONG = [
+  hand([c('8', 'hearts'), c('3', 'clubs'), c('2', 'diamonds'), c('5', 'spades')], 25),
+  hand([c('8', 'spades'), c('5', 'clubs'), c('A', 'diamonds'), c('2', 'clubs')], 25),
+];
 
 const STEPS: Step[] = [
   { label: 'Waiting', count: 4, inProgress: false, active: null, rounds: null },
@@ -89,6 +94,12 @@ const STEPS: Step[] = [
   },
   { label: 'Next hand', count: 4, inProgress: false, active: null, rounds: null },
   { label: 'Six seats', count: 6, inProgress: true, active: 0, rounds: allRounds(6, MINE, 'playing', null) },
+  // Layout, framing and turn-light steps for the readability gates (plan A, Gates 1 and 2).
+  { label: '2 players, bob acts', count: 2, inProgress: true, active: 1, rounds: allRounds(2, MINE, 'playing', null) },
+  { label: '3 players, cara acts', count: 3, inProgress: true, active: 2, rounds: allRounds(3, MINE, 'playing', null) },
+  { label: '6 players, edna acts', count: 6, inProgress: true, active: 4, rounds: allRounds(6, MINE, 'playing', null) },
+  { label: 'Split, your turn', count: 4, inProgress: true, active: 0, rounds: allRounds(4, SPLIT, 'playing', null) },
+  { label: 'Split, 4-card hands', count: 4, inProgress: true, active: 0, rounds: allRounds(4, SPLIT_LONG, 'playing', null) },
 ];
 
 type P = HoldemView['players'][number];
@@ -134,9 +145,16 @@ interface PokerStep {
 }
 
 function pokerPlayers(bets: number[], opts: { folded?: string[]; reveal?: boolean } = {}): P[] {
-  const holes: P['holeCards'][] = [MY_HOLE, [c('Q', 'clubs'), c('Q', 'diamonds')], [c('9', 'hearts'), c('8', 'hearts')], [c('K', 'clubs'), c('3', 'spades')], [c('5', 'diamonds'), c('5', 'clubs')]];
-  return NAMES.map((name, i) =>
-    pl(name, 1000 - bets[i], bets[i], i === 0 || opts.reveal ? holes[i] : null, { folded: opts.folded?.includes(name) ?? false }),
+  const holes: P['holeCards'][] = [
+    MY_HOLE,
+    [c('Q', 'clubs'), c('Q', 'diamonds')],
+    [c('9', 'hearts'), c('8', 'hearts')],
+    [c('K', 'clubs'), c('3', 'spades')],
+    [c('5', 'diamonds'), c('5', 'clubs')],
+    [c('J', 'diamonds'), c('10', 'clubs')],
+  ];
+  return bets.map((bet, i) =>
+    pl(NAMES[i], 1000 - bet, bet, i === 0 || opts.reveal ? holes[i] : null, { folded: opts.folded?.includes(NAMES[i]) ?? false }),
   );
 }
 
@@ -155,6 +173,14 @@ const POKER_STEPS: PokerStep[] = [
       { playerId: 'bob', payout: -150 },
       { playerId: 'cara', payout: 0 },
     ]),
+  },
+  { label: '2 players, bob acts', count: 2, inProgress: true, holdem: holdem('preflop', [], 'bob', pokerPlayers([10, 5]), 15) },
+  { label: '3 players, cara acts', count: 3, inProgress: true, holdem: holdem('flop', FLOP, 'cara', pokerPlayers([0, 20, 0]), 50) },
+  {
+    label: '6 players, fay acts',
+    count: 6,
+    inProgress: true,
+    holdem: holdem('turn', TURN, 'fay', pokerPlayers([40, 40, 0, 40, 0, 0], { folded: ['dan'] }), 240),
   },
 ];
 

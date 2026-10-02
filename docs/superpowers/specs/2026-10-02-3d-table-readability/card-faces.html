@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Card face sketch</title>
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; padding: 16px; background: #0b0806; color: #f1e6cf; font-family: Inter, system-ui, sans-serif; }
+  h1, h2 { font-family: 'IM Fell English SC', Georgia, serif; font-weight: 400; color: #e0b45a; margin: 10px 0; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  p, li { color: #b9a98a; font-size: 14px; line-height: 1.5; }
+  .felt { background: radial-gradient(ellipse at 50% 40%, #3f5a2c, #24341a 70%); padding: 18px 20px; border-radius: 12px; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: 120px 1fr 1fr; gap: 10px 24px; align-items: center; }
+  .grid .h { font-family: 'IM Fell English SC', serif; color: #e0b45a; font-size: 18px; }
+  .lbl { font-size: 13px; color: #d8c9a8; }
+  .set { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+  .persp { perspective: 260px; display: inline-block; }
+  .persp > * { transform: rotateX(62deg); transform-origin: 50% 100%; }
+
+  /* current: vendored SVG multiplied onto parchment, like cardFaceTexture() */
+  .cur { position: relative; width: var(--w); height: calc(var(--w) * 1.4); border-radius: calc(var(--w) * 0.06); background: #e4d5ad; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.55); }
+  .cur img { position: absolute; inset: 2.3%; width: 95.4%; height: 95.4%; mix-blend-mode: multiply; }
+
+  /* proposed: jumbo index */
+  .jum { position: relative; width: var(--w); height: calc(var(--w) * 1.4); border-radius: calc(var(--w) * 0.06); background: #e4d5ad; box-shadow: 0 2px 6px rgba(0,0,0,.55); color: #1b1410; overflow: hidden; font-family: Georgia, 'Times New Roman', serif; }
+  .jum.r { color: #a3221b; }
+  .jum .ix { position: absolute; left: 6%; top: 3%; display: flex; flex-direction: column; align-items: center; line-height: .9; }
+  .jum .ix.b { left: auto; top: auto; right: 6%; bottom: 3%; transform: rotate(180deg); }
+  .jum .rk { font-size: calc(var(--w) * 0.40); font-weight: 700; letter-spacing: -0.04em; }
+  .jum .st { font-size: calc(var(--w) * 0.30); }
+  .jum .mid { position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%); font-size: calc(var(--w) * 0.62); opacity: .9; }
+  .jum .face { position: absolute; inset: 22% 20% 22% 20%; border: calc(var(--w) * 0.012) solid currentColor; border-radius: calc(var(--w) * 0.04); display: grid; place-items: center; font-size: calc(var(--w) * 0.34); opacity: .75; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Item 8: big-index card faces</h1>
+<p>Today's 3D cards use the vendored SVG faces (left column). Their corner index (rank plus suit) is small, about 10% of the card height, and the middle is full of pips or face art. When a card lies flat on the felt a metre away, only a few pixels of that index survive. The proposal (right column) draws our own faces: a corner rank about 40% of the card width, a suit under it, the same index mirrored in the opposite corner, and one large suit in the middle. Court cards keep a simple framed letter instead of detailed art. It's the same idea as the "jumbo index" decks used on casino tables and in online poker.</p>
+<p>Sizes below: 150 px (close-up), 64 px (about the size of a board card in the "double, same pitch" view at 1280×720) and 40 px (an opponent's cards), plus the 64 px card tilted as if lying on the table.</p>
+
+<div class="felt">
+  <div class="grid">
+    <div></div><div class="h">Today (vendored SVG)</div><div class="h">Proposed (big index)</div>
+
+    <div class="lbl">9♣</div>
+    <div class="set">
+      <div class="cur" style="--w:150px"><img src="9_of_clubs.svg" alt="" /></div>
+      <div class="cur" style="--w:64px"><img src="9_of_clubs.svg" alt="" /></div>
+      <div class="cur" style="--w:40px"><img src="9_of_clubs.svg" alt="" /></div>
+      <div class="persp"><div class="cur" style="--w:64px"><img src="9_of_clubs.svg" alt="" /></div></div>
+    </div>
+    <div class="set">
+      <div class="jum" style="--w:150px"><div class="ix"><span class="rk">9</span><span class="st">♣</span></div><div class="mid">♣</div><div class="ix b"><span class="rk">9</span><span class="st">♣</span></div></div>
+      <div class="jum" style="--w:64px"><div class="ix"><span class="rk">9</span><span class="st">♣</span></div><div class="mid">♣</div><div class="ix b"><span class="rk">9</span><span class="st">♣</span></div></div>
+      <div class="jum" style="--w:40px"><div class="ix"><span class="rk">9</span><span class="st">♣</span></div><div class="mid">♣</div><div class="ix b"><span class="rk">9</span><span class="st">♣</span></div></div>
+      <div class="persp"><div class="jum" style="--w:64px"><div class="ix"><span class="rk">9</span><span class="st">♣</span></div><div class="mid">♣</div><div class="ix b"><span class="rk">9</span><span class="st">♣</span></div></div></div>
+    </div>
+
+    <div class="lbl">7♦</div>
+    <div class="set">
+      <div class="cur" style="--w:150px"><img src="7_of_diamonds.svg" alt="" /></div>
+      <div class="cur" style="--w:64px"><img src="7_of_diamonds.svg" alt="" /></div>
+      <div class="cur" style="--w:40px"><img src="7_of_diamonds.svg" alt="" /></div>
+      <div class="persp"><div class="cur" style="--w:64px"><img src="7_of_diamonds.svg" alt="" /></div></div>
+    </div>
+    <div class="set">
+      <div class="jum r" style="--w:150px"><div class="ix"><span class="rk">7</span><span class="st">♦</span></div><div class="mid">♦</div><div class="ix b"><span class="rk">7</span><span class="st">♦</span></div></div>
+      <div class="jum r" style="--w:64px"><div class="ix"><span class="rk">7</span><span class="st">♦</span></div><div class="mid">♦</div><div class="ix b"><span class="rk">7</span><span class="st">♦</span></div></div>
+      <div class="jum r" style="--w:40px"><div class="ix"><span class="rk">7</span><span class="st">♦</span></div><div class="mid">♦</div><div class="ix b"><span class="rk">7</span><span class="st">♦</span></div></div>
+      <div class="persp"><div class="jum r" style="--w:64px"><div class="ix"><span class="rk">7</span><span class="st">♦</span></div><div class="mid">♦</div><div class="ix b"><span class="rk">7</span><span class="st">♦</span></div></div></div>
+    </div>
+
+    <div class="lbl">Q♥</div>
+    <div class="set">
+      <div class="cur" style="--w:150px"><img src="queen_of_hearts.svg" alt="" /></div>
+      <div class="cur" style="--w:64px"><img src="queen_of_hearts.svg" alt="" /></div>
+      <div class="cur" style="--w:40px"><img src="queen_of_hearts.svg" alt="" /></div>
+      <div class="persp"><div class="cur" style="--w:64px"><img src="queen_of_hearts.svg" alt="" /></div></div>
+    </div>
+    <div class="set">
+      <div class="jum r" style="--w:150px"><div class="ix"><span class="rk">Q</span><span class="st">♥</span></div><div class="face">♛</div><div class="ix b"><span class="rk">Q</span><span class="st">♥</span></div></div>
+      <div class="jum r" style="--w:64px"><div class="ix"><span class="rk">Q</span><span class="st">♥</span></div><div class="face">♛</div><div class="ix b"><span class="rk">Q</span><span class="st">♥</span></div></div>
+      <div class="jum r" style="--w:40px"><div class="ix"><span class="rk">Q</span><span class="st">♥</span></div><div class="face">♛</div><div class="ix b"><span class="rk">Q</span><span class="st">♥</span></div></div>
+      <div class="persp"><div class="jum r" style="--w:64px"><div class="ix"><span class="rk">Q</span><span class="st">♥</span></div><div class="face">♛</div><div class="ix b"><span class="rk">Q</span><span class="st">♥</span></div></div></div>
+    </div>
+
+    <div class="lbl">K♠</div>
+    <div class="set">
+      <div class="cur" style="--w:150px"><img src="king_of_spades.svg" alt="" /></div>
+      <div class="cur" style="--w:64px"><img src="king_of_spades.svg" alt="" /></div>
+      <div class="cur" style="--w:40px"><img src="king_of_spades.svg" alt="" /></div>
+      <div class="persp"><div class="cur" style="--w:64px"><img src="king_of_spades.svg" alt="" /></div></div>
+    </div>
+    <div class="set">
+      <div class="jum" style="--w:150px"><div class="ix"><span class="rk">K</span><span class="st">♠</span></div><div class="face">♚</div><div class="ix b"><span class="rk">K</span><span class="st">♠</span></div></div>
+      <div class="jum" style="--w:64px"><div class="ix"><span class="rk">K</span><span class="st">♠</span></div><div class="face">♚</div><div class="ix b"><span class="rk">K</span><span class="st">♠</span></div></div>
+      <div class="jum" style="--w:40px"><div class="ix"><span class="rk">K</span><span class="st">♠</span></div><div class="face">♚</div><div class="ix b"><span class="rk">K</span><span class="st">♠</span></div></div>
+      <div class="persp"><div class="jum" style="--w:64px"><div class="ix"><span class="rk">K</span><span class="st">♠</span></div><div class="face">♚</div><div class="ix b"><span class="rk">K</span><span class="st">♠</span></div></div></div>
+    </div>
+  </div>
+</div>
+<ul>
+  <li>In the real build, faces would be drawn into the same 256×358 canvas that <code>cardFaceTexture()</code> uses today, so the aged-parchment look and the card backs stay the same. It also removes the async SVG load, which is what caused the blank faces in the first render pass.</li>
+  <li>The court-card letter-in-a-frame is a placeholder idea. Keeping the SVG art for J, Q and K only, with a jumbo index painted over it, is an alternative.</li>
+</ul>
+</div>
+</body>
+</html>

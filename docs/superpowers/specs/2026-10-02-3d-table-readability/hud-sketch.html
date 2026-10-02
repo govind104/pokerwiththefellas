@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HUD sketch</title>
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root { --brass: #e0b45a; --parch: #f1e6cf; --dim: #b9a98a; --plate: rgba(12, 8, 5, 0.72); --red: #b3261e; }
+  body { margin: 0; background: #0b0806; color: var(--parch); font-family: Inter, system-ui, sans-serif; padding: 16px; }
+  h1, h2 { font-family: 'IM Fell English SC', Georgia, serif; font-weight: 400; color: var(--brass); margin: 8px 0; }
+  .wrap { max-width: 1280px; margin: 0 auto; }
+  .stage { position: relative; aspect-ratio: 16 / 9; container-type: inline-size; background-size: cover; border: 1px solid #3a2a1a; margin-bottom: 8px; overflow: hidden; }
+  .poker { background-image: url('poker-showdown-h058-samepitch.png'); }
+  .bj { background-image: url('blackjack-settled-h058-samepitch.png'); }
+  .proposal { outline: 2px dashed rgba(224, 180, 90, 0.55); outline-offset: 2px; }
+
+  /* mini card */
+  .c { display: inline-flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; width: var(--w); height: calc(var(--w) * 1.4); padding: calc(var(--w) * 0.07); border-radius: calc(var(--w) * 0.1); background: #f6efe0; color: #111; font-weight: 600; font-size: calc(var(--w) * 0.36); line-height: 1; box-shadow: 0 0.15cqw 0.4cqw rgba(0,0,0,.6); }
+  .c.r { color: var(--red); }
+  .c .s { align-self: center; font-size: calc(var(--w) * 0.55); }
+  .c.down { background: repeating-linear-gradient(45deg, #7a1d1d 0 0.3cqw, #932828 0.3cqw 0.6cqw); border: 0.18cqw solid #f6efe0; }
+  .sm { --w: 1.9cqw; }
+  .lg { --w: 4.4cqw; }
+
+  /* bottom-left player list */
+  .list { position: absolute; left: 1.2cqw; bottom: 1.2cqw; display: flex; flex-direction: column; gap: 0.45cqw; transform: scale(0.85); transform-origin: bottom left; }
+  .row { display: flex; align-items: center; gap: 0.7cqw; background: var(--plate); padding: 0.4cqw 0.9cqw 0.4cqw 0.4cqw; border-left: 0.25cqw solid transparent; min-width: 17cqw; }
+  .row.me { border-left-color: var(--brass); }
+  .row.turn { border-left-color: #f3d27a; box-shadow: 0 0 1cqw rgba(243, 210, 122, .35); }
+  .row.out { opacity: .5; }
+  .av { width: 2.8cqw; height: 2.8cqw; border-radius: 50%; background: #3b2a1b; border: 0.15cqw solid var(--brass); display: grid; place-items: center; font-family: 'IM Fell English SC', serif; font-size: 1.5cqw; color: var(--brass); flex: none; }
+  .bal { font-family: 'IM Fell English SC', serif; font-size: 1.9cqw; line-height: 1; }
+  .sub { font-size: 0.95cqw; color: var(--dim); margin-top: 0.15cqw; white-space: nowrap; }
+  .sub b { color: var(--parch); font-weight: 600; }
+  .badge { display: inline-block; font-size: 0.8cqw; padding: 0 0.35cqw; border-radius: 0.3cqw; background: var(--brass); color: #1a1006; font-weight: 600; margin-left: 0.3cqw; }
+  .badge.d { background: #f6efe0; border-radius: 50%; width: 1.1cqw; text-align: center; padding: 0; }
+  .cards { display: flex; gap: 0.2cqw; margin-left: auto; padding-left: 0.6cqw; }
+  .tot { font-family: 'IM Fell English SC', serif; font-size: 1.4cqw; color: var(--parch); margin-left: 0.4cqw; align-self: center; }
+  .win { color: #9fdc7c; } .lose { color: #ff8a80; } .push { color: var(--dim); }
+
+  /* top-right */
+  .tr { position: absolute; right: 1.2cqw; top: 3.2cqw; text-align: right; }
+  .tr .cards { gap: 0.5cqw; justify-content: flex-end; padding: 0; }
+  .tr .lbl { font-family: 'IM Fell English SC', serif; font-size: 1.6cqw; margin-top: 0.5cqw; text-shadow: 0 0 0.6cqw #000; }
+  .tr .lbl small { font-family: Inter, sans-serif; font-size: 0.95cqw; color: var(--dim); margin-right: 0.6cqw; }
+  .admin { position: absolute; right: 1.2cqw; top: 0.7cqw; font-size: 0.9cqw; color: #6fd19a; }
+
+  /* bottom-right prompts */
+  .prompts { position: absolute; right: 1.6cqw; bottom: 1.4cqw; display: flex; flex-direction: column; align-items: flex-end; gap: 0.45cqw; font-family: 'IM Fell English SC', serif; font-size: 1.5cqw; text-shadow: 0 0 0.6cqw #000; }
+  .prompts span { display: flex; align-items: center; gap: 0.6cqw; }
+  .prompts kbd { font-family: Inter, sans-serif; font-size: 0.85cqw; border: 0.12cqw solid var(--parch); border-radius: 0.35cqw; padding: 0.1cqw 0.45cqw; }
+  .prompts .off { color: #6d6150; } .prompts .off kbd { border-color: #6d6150; }
+  .tl { position: absolute; left: 1cqw; top: 0.8cqw; display: flex; gap: 0.5cqw; font-size: 0.9cqw; }
+  .tl span { background: var(--plate); border: 0.1cqw solid #5a4128; padding: 0.2cqw 0.5cqw; border-radius: 0.3cqw; color: var(--parch); }
+
+  .notes { font-size: 14px; line-height: 1.5; color: var(--dim); margin: 0 0 28px; }
+  .notes li { margin: 2px 0; } .notes b { color: var(--parch); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>HUD sketch over the "double, same pitch" frames</h1>
+<p class="notes">Rough sketch only. The 3D view is the real render; everything else is HTML drawn on top. Dashed outlines mark elements that move or are new compared with today. Card data comes from the dev-harness script, not a real hand, so the payouts don't match the cards.</p>
+
+<h2>Hold'em: showdown</h2>
+<div class="stage poker">
+  <div class="tl"><span>2D view</span><span>Quality: High</span><span>Sound: off</span><span class="proposal">Admin</span></div>
+
+  <div class="tr proposal">
+    <div class="cards">
+      <span class="c lg"><span>2</span><span class="s">♣</span></span>
+      <span class="c lg r"><span>7</span><span class="s">♦</span></span>
+      <span class="c lg r"><span>Q</span><span class="s">♥</span></span>
+      <span class="c lg"><span>J</span><span class="s">♠</span></span>
+      <span class="c lg"><span>9</span><span class="s">♣</span></span>
+    </div>
+    <div class="lbl"><small>River</small>Pot 305</div>
+  </div>
+
+  <div class="list proposal">
+    <div class="row out"><div class="av">D</div><div><div class="bal">990</div><div class="sub">dan · Folded <span class="badge d">D</span></div></div></div>
+    <div class="row out"><div class="av">E</div><div><div class="bal">980</div><div class="sub">edna · Folded</div></div></div>
+    <div class="row"><div class="av">C</div><div><div class="bal">1000</div><div class="sub">cara · <span class="push">No change</span></div></div>
+      <div class="cards"><span class="c sm r"><span>9</span><span class="s">♥</span></span><span class="c sm r"><span>8</span><span class="s">♥</span></span></div></div>
+    <div class="row"><div class="av">B</div><div><div class="bal">850</div><div class="sub">bob · <span class="lose">−150</span> <span class="badge">BB</span></div></div>
+      <div class="cards"><span class="c sm"><span>Q</span><span class="s">♣</span></span><span class="c sm r"><span>Q</span><span class="s">♦</span></span></div></div>
+    <div class="row me"><div class="av">Y</div><div><div class="bal">1150</div><div class="sub"><b>you</b> · <span class="win">Wins +150</span> <span class="badge">SB</span></div></div>
+      <div class="cards"><span class="c sm"><span>A</span><span class="s">♠</span></span><span class="c sm r"><span>K</span><span class="s">♥</span></span></div></div>
+  </div>
+
+  <div class="prompts proposal">
+    <span class="off">Fold <kbd>F</kbd></span>
+    <span class="off">Check / Call <kbd>C</kbd></span>
+    <span class="off">Raise <kbd>R</kbd></span>
+    <span>Ready <kbd>Space</kbd></span>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>Top right:</b> the board, five slots always shown. Unrevealed streets show face-down backs, so the flop is 3 up and 2 down. Pot and street go underneath. The Admin chip moves into the top-left cluster to make room.</li>
+  <li><b>Bottom left:</b> one row per seat, with you at the bottom: balance (large), then name, live bet this street and a dealer-button, SB or BB badge. Rows in the list scheme get a gold edge when it's that seat's turn. Folded seats are dimmed. Revealed hole cards appear as mini cards at showdown, and only your own cards show before that.</li>
+  <li><b>Bottom right:</b> actions as a prompt list with keyboard shortcuts (greyed out when not legal), replacing today's bottom-centre buttons. The raise amount input would sit next to Raise.</li>
+  <li>The 3D name plates over each seat would become redundant. Remove them, or keep only the name.</li>
+</ul>
+
+<h2>Blackjack: settled hand</h2>
+<div class="stage bj">
+  <div class="tl"><span>2D view</span><span>Quality: High</span><span>Sound: off</span><span class="proposal">Admin</span></div>
+
+  <div class="tr proposal">
+    <div class="cards">
+      <span class="c lg"><span>K</span><span class="s">♠</span></span>
+      <span class="c lg r"><span>7</span><span class="s">♥</span></span>
+    </div>
+    <div class="lbl"><small>Dealer</small>17</div>
+  </div>
+
+  <div class="list proposal">
+    <div class="row"><div class="av">C</div><div><div class="bal">1100</div><div class="sub">cal · bet 100 · <span class="win">Win +100</span></div></div>
+      <div class="cards"><span class="c sm r"><span>10</span><span class="s">♦</span></span><span class="c sm"><span>J</span><span class="s">♣</span></span><span class="tot">20</span></div></div>
+    <div class="row"><div class="av">B</div><div><div class="bal">1000</div><div class="sub">ben · bet 25 · <span class="push">Push</span></div></div>
+      <div class="cards"><span class="c sm"><span>A</span><span class="s">♠</span></span><span class="c sm r"><span>6</span><span class="s">♦</span></span><span class="tot">17</span></div></div>
+    <div class="row"><div class="av">A</div><div><div class="bal">1000</div><div class="sub">ana · bet 50 · <span class="push">Push</span></div></div>
+      <div class="cards"><span class="c sm r"><span>9</span><span class="s">♥</span></span><span class="c sm"><span>8</span><span class="s">♣</span></span><span class="tot">17</span></div></div>
+    <div class="row me"><div class="av">Y</div><div><div class="bal">1025</div><div class="sub"><b>you</b> · bet 25 · <span class="win">Win +25</span></div></div>
+      <div class="cards"><span class="c sm r"><span>7</span><span class="s">♦</span></span><span class="c sm"><span>4</span><span class="s">♣</span></span><span class="c sm"><span>9</span><span class="s">♠</span></span><span class="tot">20</span></div></div>
+  </div>
+
+  <div class="prompts proposal">
+    <span class="off">Hit <kbd>H</kbd></span>
+    <span class="off">Stand <kbd>S</kbd></span>
+    <span class="off">Double <kbd>D</kbd></span>
+    <span class="off">Split <kbd>P</kbd></span>
+    <span>Ready <kbd>Space</kbd></span>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>Top right:</b> dealer cards and total. Before the reveal it shows the upcard plus a face-down card, with a total like "10 + ?".</li>
+  <li><b>Bottom left:</b> one row per seat: balance, name, bet and status. Status reads Waiting, Your turn, Playing, Stood, Bust or Blackjack mid-hand, then Win, Push or Lose at settlement. Each row has mini cards and a total. A split hand would get a second card group in the same row.</li>
+  <li><b>Bottom right:</b> Hit, Stand, Double and Split as prompts, greyed out when not legal (the same rule `blackjackActions.ts` already applies).</li>
+</ul>
+</div>
+</body>
+</html>

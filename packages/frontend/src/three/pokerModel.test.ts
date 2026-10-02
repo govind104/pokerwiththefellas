@@ -1,7 +1,6 @@
 import type { HoldemView, SeatView } from '@poker-blackjack/server/src/table';
 import type { Card } from '@poker-blackjack/game-engine';
-import { MY_SLOT } from './sceneModel';
-import { POKER_OTHER_SLOTS, actingSeatIndex, amountToCall, buildPokerModel, livePot } from './pokerModel';
+import { actingSeatIndex, amountToCall, buildPokerModel, livePot } from './pokerModel';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 type P = HoldemView['players'][number];
@@ -37,20 +36,56 @@ function hand(over: Partial<HoldemView> = {}): HoldemView {
 }
 
 describe('buildPokerModel', () => {
-  it('has no dealer figure and no pot before a hand starts', () => {
+  it('has no felt rings and no pot before a hand starts', () => {
     const m = buildPokerModel({ seats: seats(['a', 'b']), mySeatIndex: 0, holdem: null });
     expect(m.kind).toBe('holdem');
-    expect(m.dealerFigure).toBe(false);
+    expect(m.felt).toEqual({ kind: 'holdem', rings: [] });
     expect(m.pot).toBeNull();
     expect(m.hasRound).toBe(false);
     expect(m.seats.map((s) => s.status)).toEqual(['Ready', 'Ready']);
   });
 
-  it('seats the far-centre chair for a fifth opponent since there is no dealer there', () => {
-    const m = buildPokerModel({ seats: seats(['a', 'b', 'c', 'd', 'e', 'f']), mySeatIndex: 0, holdem: null });
-    expect(m.seats[0].angle).toBe(MY_SLOT);
-    expect(m.seats.slice(1).map((s) => s.angle)).toEqual(POKER_OTHER_SLOTS);
-    expect(POKER_OTHER_SLOTS).toContain(0);
+  it('spreads seats evenly round the whole table: me at the bottom, then left, far, right', () => {
+    const m = buildPokerModel({ seats: seats(['a', 'b', 'c', 'd']), mySeatIndex: 0, holdem: null });
+    const [me, left, far, right] = m.seats.map((s) => s.plate);
+    expect(me?.x).toBeCloseTo(0, 6);
+    expect(me?.z).toBeGreaterThan(0);
+    expect(left?.x).toBeLessThan(0);
+    expect(left?.z).toBeCloseTo(0, 2);
+    expect(far?.x).toBeCloseTo(0, 2);
+    expect(far?.z).toBeLessThan(0);
+    expect(right?.x).toBeGreaterThan(0);
+  });
+
+  it('places the board in the centre and the pot just beyond it', () => {
+    const h = hand({ street: 'flop', communityCards: [c('2', 'clubs'), c('7', 'diamonds'), c('Q', 'hearts')] });
+    const m = buildPokerModel({ seats: seats(['a', 'b', 'c']), mySeatIndex: 0, holdem: h });
+    const cc = m.cards.filter((k) => k.key.startsWith('cc:'));
+    expect(cc.map((k) => k.z)).toEqual([0, 0, 0]);
+    expect(cc[2].x).toBeCloseTo(0, 6);
+    expect(m.pot?.z).toBeLessThan(0);
+  });
+
+  it('gives a player who sat down mid-hand no place, and points the turn light at the acting hand', () => {
+    const m = buildPokerModel({ seats: seats(['a', 'b', 'c', 'late']), mySeatIndex: 0, holdem: hand({ actingPlayerId: 'b' }) });
+    expect(m.seats[3].plate).toBeNull();
+    const b = m.cards.filter((k) => k.key.startsWith('h:1:'));
+    expect(m.turnLight?.x).toBeCloseTo((b[0].x + b[1].x) / 2, 6);
+    expect(buildPokerModel({ seats: seats(['a']), mySeatIndex: 0, holdem: null }).turnLight).toBeNull();
+  });
+
+  it('lays out every seated player once the hand has settled; a joiner gets a place but no cards', () => {
+    // The server keeps sending the last settled hand until the next deal, so a settled hand is "between hands".
+    const h = hand({ street: 'settled', actingPlayerId: null });
+    const m = buildPokerModel({ seats: seats(['a', 'b', 'c', 'late']), mySeatIndex: 0, holdem: h });
+    expect(m.seats[3].plate).not.toBeNull();
+    expect(m.cards.some((k) => k.key.startsWith('h:3:'))).toBe(false);
+    expect(m.cards.filter((k) => k.key.startsWith('h:1:'))).toHaveLength(2);
+  });
+
+  it('keeps a joiner unplaced while the hand is live', () => {
+    const m = buildPokerModel({ seats: seats(['a', 'b', 'c', 'late']), mySeatIndex: 0, holdem: hand({ street: 'turn' }) });
+    expect(m.seats[3].plate).toBeNull();
   });
 
   it('shows my hole cards face-up and everyone else\'s face-down, with stable keys', () => {

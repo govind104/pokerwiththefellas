@@ -83,7 +83,7 @@ describe('Poker3D', () => {
     expect(created).toHaveLength(1);
     const model = created[0].apply.mock.calls[0][0];
     expect(model.kind).toBe('holdem');
-    expect(model.dealerFigure).toBe(false);
+    expect(model.felt).toEqual({ kind: 'holdem', rings: [] });
   });
 
   it('mirrors the table in an accessible summary and hides opponents\' cards', () => {

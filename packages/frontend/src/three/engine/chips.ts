@@ -1,9 +1,9 @@
 import * as THREE from 'three';
+import { CHIP_R } from '../layout';
 import { TABLE_Y, chipsFor } from '../sceneModel';
 import { chipSideTexture, chipTopTexture } from './textures';
 import { Tweens, easeOutCubic } from './tween';
 
-const CHIP_R = 0.024;
 const CHIP_H = 0.0055;
 const geometry = new THREE.CylinderGeometry(CHIP_R, CHIP_R, CHIP_H, 28);
 
