@@ -257,13 +257,13 @@ describe('Table seats', () => {
   it('leave clears the seat', async () => {
     const { table } = makeTable();
     await table.join('alice');
-    table.leave(0);
+    await table.leave(0);
     expect(table.seats[0]).toBeNull();
   });
 
   it('leave throws on an already-empty seat', async () => {
     const { table } = makeTable();
-    expect(() => table.leave(0)).toThrow('empty');
+    await expect(table.leave(0)).rejects.toThrow('empty');
   });
 
   it('leave throws while a hand is in progress', async () => {
@@ -272,14 +272,14 @@ describe('Table seats', () => {
     await table.join('bob');
     await table.setReady(0);
     await table.setReady(1);
-    expect(() => table.leave(0)).toThrow('in progress');
+    await expect(table.leave(0)).rejects.toThrow('in progress');
   });
 
   it('calls onStateChange on join and leave', async () => {
     const { table, getStateChangeCount } = makeTable();
     await table.join('alice');
     expect(getStateChangeCount()).toBe(1);
-    table.leave(0);
+    await table.leave(0);
     expect(getStateChangeCount()).toBe(2);
   });
 });
@@ -452,7 +452,7 @@ describe('Table: a Hold\'em hand that is already over when it is dealt (audit C1
 
   it('leaves the table usable: players can leave afterwards', async () => {
     const { table } = await dealShortStackedHand();
-    expect(() => table.leave(0)).not.toThrow();
+    await expect(table.leave(0)).resolves.toBeUndefined();
   });
 
   it('shows the finished hand (full board, both hands) to everyone', async () => {
@@ -1007,7 +1007,7 @@ describe('Table disconnect/reconnect', () => {
     table.disconnect(1); // alice disconnects before any hand starts
     await wait(100); // past the grace window -- alice (seat 1) is now in timedOutSeats
 
-    table.leave(1); // alice leaves; handInProgress is false, so this is allowed
+    await table.leave(1); // alice leaves; handInProgress is false, so this is allowed
     expect(table.seats[1]).toBeNull();
 
     await table.join('dave'); // recycles seat 1, the lowest empty index
@@ -1125,7 +1125,7 @@ describe('Table hand eligibility (C1/C2)', () => {
     expect(table.handInProgress).toBe(false);
     expect(table.holdemHand).toBeNull();
     // And the table is not bricked: with no hand in progress, leave() works.
-    expect(() => table.leave(0)).not.toThrow();
+    await expect(table.leave(0)).resolves.toBeUndefined();
   });
 
   it('excludes a Blackjack seat that cannot cover the default bet', async () => {
@@ -2292,5 +2292,85 @@ describe('Table concurrency (audit C3, I1, I2)', () => {
 
     expect(table.handInProgress).toBe(false);
     expect(handLog.entries).toHaveLength(0);
+  });
+});
+
+describe('Table.leave mid-hand and under the lock (audit I11)', () => {
+  it('a seat that was not dealt in can leave while a hand is in progress', async () => {
+    const { table, playerStore } = makeTable();
+    await playerStore.setBalance('carol', 0); // broke: not dealt into Hold'em
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('carol');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.handInProgress).toBe(true);
+
+    await table.leave(2);
+    expect(table.seats[2]).toBeNull();
+    expect(table.handInProgress).toBe(true);
+  });
+
+  it('a seat in the hand still cannot leave, and keeps its seat', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+
+    await expect(table.leave(0)).rejects.toThrow('Cannot leave while a hand you are in is in progress');
+    expect(table.seats[0]?.displayName).toBe('alice');
+  });
+
+  it('a leave sent while a hand start is mid-write waits for it, then sees the player is in the hand', async () => {
+    const handLog = new ControllableHandLog();
+    const config: TableConfig = {
+      gameMode: 'holdem',
+      seatCount: 8,
+      smallBlind: 5,
+      bigBlind: 10,
+      blackjackDefaultBet: 25,
+      defaultStartingBalance: 1000,
+      reconnectGraceMs: 50,
+      random: makeDeterministicRandom(2),
+    };
+    const table = new Table(config, { playerStore: new FakePlayerStore(1000), handLog, onStateChange: () => {} });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+
+    handLog.holdAppends = true;
+    const ready = table.setReady(1);
+    // The hand start has set handInProgress but has not built the hand yet: nobody is dealt in.
+    await vi.waitFor(() => expect(handLog.entries).toHaveLength(1));
+    const leave = table.leave(0);
+
+    handLog.releaseNextAppend();
+    await ready;
+    await expect(leave).rejects.toThrow('in progress');
+    expect(table.seats[0]?.displayName).toBe('alice');
+    expect(table.holdemHand!.players.map((p) => p.playerId)).toContain('alice');
+  });
+
+  it('runs onLeft after the seat is freed and before the state change is broadcast', async () => {
+    const calls: string[] = [];
+    const playerStore = new FakePlayerStore(1000);
+    const table = new Table(
+      {
+        gameMode: 'holdem',
+        seatCount: 8,
+        smallBlind: 5,
+        bigBlind: 10,
+        blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000,
+        reconnectGraceMs: 50,
+        random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog: new FakeHandLog(), onStateChange: () => calls.push('broadcast') }
+    );
+    await table.join('alice');
+    calls.length = 0;
+    await table.leave(0, () => calls.push(table.seats[0] === null ? 'onLeft:freed' : 'onLeft:still-seated'));
+    expect(calls).toEqual(['onLeft:freed', 'broadcast']);
   });
 });

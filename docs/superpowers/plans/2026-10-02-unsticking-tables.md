@@ -97,7 +97,7 @@ Other constraints:
   - Private `freeSeat(seatIndex: number): void` (no broadcast) and
     `isDealtIn(seatIndex: number): boolean`. Task 3 uses both.
 
-- [ ] **Step 1: Update the existing `leave` callers in `table.test.ts` to the async API**
+- [x] **Step 1: Update the existing `leave` callers in `table.test.ts` to the async API**
 
 `leave` becomes async, so the synchronous `expect(() => …).toThrow` forms no longer work. Make
 exactly these edits:
@@ -121,7 +121,7 @@ exactly these edits:
 
 Run `grep -n "\.leave(" packages/server/src/table.test.ts` afterwards; every hit must be `await`ed.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Append to `packages/server/src/table.test.ts`:
 
@@ -207,7 +207,7 @@ describe('Table.leave mid-hand and under the lock (audit I11)', () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `npx vitest run src/table.test.ts --root packages/server`
 Expected: the four new tests FAIL. The first fails with "Cannot leave while a hand is in progress",
@@ -215,7 +215,7 @@ the third because the old synchronous `leave` resolves or throws before the lock
 because `onLeft` is never called. The edited old tests may also fail where they expected a
 synchronous throw.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 In `packages/server/src/table.ts`, replace the whole `leave(seatIndex: number): void { … }` method
 with:
@@ -292,7 +292,7 @@ handler, change `table.leave(seatIndex);` to the code below. Task 2 replaces thi
     });
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npm test --workspace=@poker-blackjack/server` then `npm run typecheck`
 Expected: all PASS, typecheck clean.

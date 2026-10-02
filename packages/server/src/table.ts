@@ -246,13 +246,35 @@ export class Table {
     return seatIndex;
   }
 
-  leave(seatIndex: number): void {
-    if (this.handInProgress) {
-      throw new Error('Cannot leave while a hand is in progress');
-    }
-    if (!this.seats[seatIndex]) {
-      throw new Error('Seat is empty');
-    }
+  /**
+   * Frees a seat. Runs inside the table lock: between startHand's first line and its hand being
+   * built, `handInProgress` is already true but nobody is dealt in yet, so an unlocked check could
+   * free a seat the new hand is about to deal to (audit I11). A seat that is not in the current
+   * hand (broke, or sat down after the deal) may leave mid-hand; a seat in it may not. `onLeft`
+   * runs after the seat is freed and before the change is broadcast: the socket server unmaps
+   * the player's sockets there, so no state ever points them at an empty seat.
+   */
+  async leave(seatIndex: number, onLeft?: () => void): Promise<void> {
+    await this.runExclusive(async () => {
+      if (!this.seats[seatIndex]) {
+        throw new Error('Seat is empty');
+      }
+      if (this.handInProgress && this.isDealtIn(seatIndex)) {
+        throw new Error('Cannot leave while a hand you are in is in progress');
+      }
+      this.freeSeat(seatIndex);
+      onLeft?.();
+      this.deps.onStateChange();
+    });
+
+    this.startHandIfEveryoneReady().catch((err) => {
+      console.error(`Table: error starting hand after seat ${seatIndex} left:`, err);
+    });
+  }
+
+  // Everything a seat leaves behind goes with it, so a new occupant of the same index starts clean.
+  // No broadcast: callers do that.
+  private freeSeat(seatIndex: number): void {
     const timer = this.disconnectTimers.get(seatIndex);
     if (timer) {
       clearTimeout(timer);
@@ -260,11 +282,19 @@ export class Table {
     }
     this.timedOutSeats.delete(seatIndex);
     this.seats[seatIndex] = null;
-    this.deps.onStateChange();
+  }
 
-    this.startHandIfEveryoneReady().catch((err) => {
-      console.error(`Table: error starting hand after seat ${seatIndex} left:`, err);
-    });
+  // Dealt into the hand being played, folded or not: a folded Hold'em player's loss and a finished
+  // Blackjack seat's result are only paid at settlement, so their seat must still be there then.
+  private isDealtIn(seatIndex: number): boolean {
+    const seat = this.seats[seatIndex];
+    if (!seat) {
+      return false;
+    }
+    if (this.config.gameMode === 'holdem') {
+      return this.holdemHand?.players.some((p) => p.playerId === seat.displayName) ?? false;
+    }
+    return this.blackjackRounds.has(seatIndex);
   }
 
   async setReady(seatIndex: number): Promise<void> {

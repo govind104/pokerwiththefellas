@@ -348,14 +348,14 @@ export async function createServer(
       }
     });
 
-    socket.on('leave', () => {
+    socket.on('leave', async () => {
       const seatIndex = seatBySocketId.get(socket.id);
       if (seatIndex === undefined || !table) {
         socket.emit('error', { message: 'Not seated' });
         return;
       }
       try {
-        table.leave(seatIndex);
+        await table.leave(seatIndex);
         seatBySocketId.delete(socket.id);
       } catch (err) {
         socket.emit('error', { message: (err as Error).message });
