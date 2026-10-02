@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import type { Card, Rank } from '@poker-blackjack/game-engine';
+import type { Card } from '@poker-blackjack/game-engine';
+import { FACE_PAPER, drawCardFace, glyphSupported } from './cardFace';
 
-// Every texture is generated on a canvas at startup (seeded, so it looks the
-// same every run). No image downloads except the vendored MIT card-face SVGs.
+// Every texture is generated on a canvas at startup (seeded, so it looks the same every run). No image downloads.
 
 export function rng(seed: number): () => number {
   let s = seed >>> 0;
@@ -232,64 +232,26 @@ export function cardBackTexture(): THREE.CanvasTexture {
   return tex(c);
 }
 
-const RANK_FILE: Record<Rank, string> = {
-  A: 'ace',
-  '2': '2',
-  '3': '3',
-  '4': '4',
-  '5': '5',
-  '6': '6',
-  '7': '7',
-  '8': '8',
-  '9': '9',
-  '10': '10',
-  J: 'jack',
-  Q: 'queen',
-  K: 'king',
-};
-
-function faceUrl(card: Card): string {
-  return new URL(`../../assets/cards/${RANK_FILE[card.rank]}_of_${card.suit}.svg`, import.meta.url).href;
-}
-
 const faceCache = new Map<string, THREE.CanvasTexture>();
 
-// Returns immediately with a blank aged card; the SVG is composited onto it
-// (multiplied, so the white becomes parchment) as soon as it has loaded.
-export function cardFaceTexture(card: Card, onLoaded?: () => void): THREE.CanvasTexture {
+// Big-index face on aged parchment (spec §A4). Drawn synchronously, so there is no blank-face
+// moment while an image loads.
+export function cardFaceTexture(card: Card): THREE.CanvasTexture {
   const id = `${card.rank}-${card.suit}`;
   const cached = faceCache.get(id);
   if (cached) return cached;
-
   const [c, ctx] = canvas(CARD_TEX_W, CARD_TEX_H);
   const seed = id.split('').reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7);
-  const paint = (img?: HTMLImageElement) => {
-    ctx.clearRect(0, 0, CARD_TEX_W, CARD_TEX_H);
-    ctx.save();
-    roundRectPath(ctx, CARD_TEX_W, CARD_TEX_H, 14);
-    ctx.clip();
-    ctx.fillStyle = '#e4d5ad';
-    ctx.fillRect(0, 0, CARD_TEX_W, CARD_TEX_H);
-    if (img) {
-      ctx.globalCompositeOperation = 'multiply';
-      ctx.drawImage(img, 6, 6, CARD_TEX_W - 12, CARD_TEX_H - 12);
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    age(ctx, CARD_TEX_W, CARD_TEX_H, rng(seed));
-    ctx.restore();
-  };
-  paint();
+  ctx.save();
+  roundRectPath(ctx, CARD_TEX_W, CARD_TEX_H, 14);
+  ctx.clip();
+  ctx.fillStyle = FACE_PAPER;
+  ctx.fillRect(0, 0, CARD_TEX_W, CARD_TEX_H);
+  drawCardFace(ctx, card, glyphSupported);
+  age(ctx, CARD_TEX_W, CARD_TEX_H, rng(seed));
+  ctx.restore();
   const t = tex(c);
   faceCache.set(id, t);
-
-  const img = new Image();
-  img.decoding = 'async';
-  img.onload = () => {
-    paint(img);
-    t.needsUpdate = true;
-    onLoaded?.();
-  };
-  img.src = faceUrl(card);
   return t;
 }
 

@@ -1652,7 +1652,7 @@ git commit -m "feat(3d): scene models use the rail-distance layout; harness step
 
 Spec §7 gate 1, after A1–A3. Not an implementer task.
 
-- [ ] **Step 1: Dispatch the render subagent** (model: sonnet) with this brief:
+- [x] **Step 1: Dispatch the render subagent** (model: sonnet) with this brief:
 
   > Render Gate 1 screenshots of the 3D tables. Do not edit repo files.
   > 1. Start the save server in the background: `node scripts/render/save-server.cjs .playtest-data/plan-a-gates/gate1` (port 3199).
@@ -1669,8 +1669,8 @@ Spec §7 gate 1, after A1–A3. Not an implementer task.
   > 4. For each shot also record `s.debugCards()` and any console errors.
   > 5. Write `.playtest-data/plan-a-gates/gate1/findings.md`: per shot, whether gaps between neighbouring hands look equal, whether the table is framed symmetrically (equal side margins, rail fully in frame), whether any card or chip is inside a dashed HUD rectangle, whether the 3D name plates still show, and anything that looks wrong. Return a 10-line summary; no image data in your reply.
 
-- [ ] **Step 2: Show the user** the PNGs (`SendUserFile`, `display: render`) and the findings summary. Ask for approval.
-- [ ] **Step 3: If the user asks for changes,** turn them into a follow-up task on the constants in `layout.ts` (re-run Task 2's property test) and re-render the affected shots. Record the settled values in this plan's "Deviations" list.
+- [x] **Step 2: Show the user** the PNGs (`SendUserFile`, `display: render`) and the findings summary. Ask for approval.
+- [x] **Step 3: If the user asks for changes,** turn them into a follow-up task on the constants in `layout.ts` (re-run Task 2's property test) and re-render the affected shots. Record the settled values in this plan's "Deviations" list.
 
 ---
 
@@ -1690,7 +1690,7 @@ Spec §7 gate 1, after A1–A3. Not an implementer task.
   - `cardFace.ts`: `FACE_PAPER`, `FACE_RED`, `FACE_BLACK`, `SYMBOL_FONT`, `type GlyphCheck = (glyph: string) => boolean`, `drawCardFace(ctx, card, hasGlyph): void` (draws ink on a 256×358 card), `glyphSupported(glyph): boolean`
   - `cardFaceTexture(card: Card): THREE.CanvasTexture` (synchronous, no callback); `CardObject.setCard(card: Card | null): void`
 
-- [ ] **Step 1: Write the test helper and the failing tests**
+- [x] **Step 1: Write the test helper and the failing tests**
 
 Create `packages/frontend/src/three/testCanvas.ts`:
 
@@ -1773,12 +1773,12 @@ describe('drawCardFace', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run src/three/engine/cardFace.test.ts --root packages/frontend`
 Expected: FAIL, "Failed to resolve import './cardFace'".
 
-- [ ] **Step 3: Write the painter**
+- [x] **Step 3: Write the painter**
 
 Create `packages/frontend/src/three/engine/cardFace.ts`:
 
@@ -1882,7 +1882,7 @@ export function glyphSupported(glyph: string): boolean {
 }
 ```
 
-- [ ] **Step 4: Use it in `textures.ts` and `cards.ts`**
+- [x] **Step 4: Use it in `textures.ts` and `cards.ts`**
 
 In `packages/frontend/src/three/engine/textures.ts`:
 - Change the type import to `import type { Card } from '@poker-blackjack/game-engine';` (no `Rank`).
@@ -1929,13 +1929,13 @@ In `packages/frontend/src/three/engine/cards.ts` replace `setCard` with:
 
 The 2D view (`components/Card.tsx`) and `src/assets/cards` are untouched.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run src/three/engine/cardFace.test.ts --root packages/frontend` → PASS.
 Run: `npm test` and `npm run typecheck` → green.
 Run: `git grep -n "onTextureLoaded\|faceUrl\|RANK_FILE" -- packages/frontend/src/three` → no matches.
 
-- [ ] **Step 6: Commit (controller, after the user says yes)**
+- [x] **Step 6: Commit (controller, after the user says yes)**
 
 ```bash
 git add packages/frontend/src/three/testCanvas.ts packages/frontend/src/three/engine/cardFace.ts packages/frontend/src/three/engine/cardFace.test.ts packages/frontend/src/three/engine/textures.ts packages/frontend/src/three/engine/cards.ts docs/superpowers/plans/2026-10-02-3d-table-readability-plan-a.md
