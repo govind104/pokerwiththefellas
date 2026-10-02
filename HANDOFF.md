@@ -13,7 +13,9 @@ hold the detail.
 
 1. **Audit fix item 6, "unsticking tables" (I6, I11, I10)** on branch `audit/item6-unsticking-tables`.
    It comes first because I6 is a real-play blocker: one idle, connected player stalls the table
-   forever. Write the plan first (`superpowers:writing-plans`); detail is in "Next step" item 3 below.
+   forever. **The plan is written and approved (2026-10-02):**
+   `docs/superpowers/plans/2026-10-02-unsticking-tables.md` (7 tasks). Execute it with
+   `superpowers:subagent-driven-development`. Detail and the loop are in "Next step" item 3 below.
 2. **3D readability Plan B (HUD and showdown, spec §6).** Brainstorm the 2D-view decision below
    first. Detail and things to check at its gate are in "Next step" item 2 below.
 3. **The rest of the audit, in the report's §8 order:**
@@ -188,9 +190,27 @@ fix re-review approved). Remaining:
    optional turn clock (an idle connected player stalls the table forever); I11 leave racing a hand
    start (the client drops its identity before the server confirms, so the server keeps the seat);
    I10 `joinInFlightRef` surviving a disconnect (two quick drops leave the player on
-   "Reconnecting…"). Write its plan first (`superpowers:writing-plans`); line numbers in the audit
-   predate item 5's `SocketContext` changes. Look at the "Leave table with the admin panel open"
-   observation above while in that area (likely I11).
+   "Reconnecting…").
+   - **Plan:** `docs/superpowers/plans/2026-10-02-unsticking-tables.md`, approved by the user with
+     no changes. Its Global Constraints list the decisions made without the user: kick semantics,
+     a turn clock (0 = off, else 10-600 s, memory only, no countdown UI), force-act guarded by
+     `actionSeq`, and leave confirmed by an ack. Tasks 1-4 are server, 5-6 client, and 7 is docs,
+     the browser check and this handoff.
+   - **Probable root cause of the "Leave table with the admin panel open" observation:** the
+     server's `leave` handler broadcasts (from inside `table.leave`) *before* it deletes the socket's
+     seat mapping, so the leaver's last state has `mySeatIndex` pointing at the now-empty seat and
+     the client stays `at-table`. It came in with item 5's I9, and the admin panel is incidental.
+     Plan Task 2's first test should fail on current code to confirm it.
+   - **Models (suggested):** Sonnet implementers for Tasks 1-4, the server concurrency and timer
+     work. Haiku can implement Tasks 5-6, whose briefs carry complete code; use Sonnet if a brief
+     needs judgement. Sonnet per-task reviewers, escalating to Opus at a 2nd review round. Opus for
+     the final whole-branch review. Task 7's browser check goes to a subagent with a findings file
+     (`.playtest-data/run/item6-browser-check.md`).
+   - **Loop:** the same as Plan A (below): briefs in `.superpowers/sdd/item6-task-N-brief.md`,
+     reports in `item6-task-N-report.md`, and review packages from
+     `bash .superpowers/sdd/wt-package.sh .superpowers/sdd/item6-review-task-N.diff`. Write the
+     reviewers' constraints file `item6-global-constraints.md` from the plan's Global Constraints.
+     Commit after each clean review without asking. Don't push or open a PR without asking.
 
 - How this session ran the loop (keep it for item 6): implementers are told **not** to
   `git add`/commit; the controller builds the review package from the working tree with
