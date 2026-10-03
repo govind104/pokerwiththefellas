@@ -91,5 +91,6 @@ audit progress table; record the MIN-1 finding (closed by item 6).
 - [x] Task 1 committed
 - [x] Task 2 committed
 - [x] Task 3 committed
-- [ ] Branch review (Sonnet) clean
-- [ ] Task 4 committed; PR opened (user gate before push/PR)
+- [x] Branch review (Sonnet) clean (verdict "ready"; its one Minor, a settled hand followed by a later start, fixed in `0c33ba9`)
+- [x] Task 4 committed
+- [ ] PR opened (user gate before push/PR)
