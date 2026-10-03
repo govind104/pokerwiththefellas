@@ -82,12 +82,12 @@ display name, an admin (the host, or whoever runs the game) opens the "Admin" bu
 to pick Poker or Blackjack and start the game, everyone else takes a seat
 (the table has 6 seats).
 
-**3D or classic table.** Both games open in a first-person 3D saloon view on
-screens at least 900px wide (narrower screens such as phones get the classic 2D table). Each player
-can switch at any time with the "2D view" / "3D view" button; the choice is
+**3D or flat table.** Both games open in a first-person 3D saloon view on
+windows at least 1200px wide (smaller windows get the flat view). Each player
+can switch at any time with the "Flat view" / "3D view" button; the choice is
 remembered per browser. The 3D view needs WebGL (any current desktop
 browser) and loads its code (~150 kB gzipped) only when it is shown; if
-WebGL isn't available the app falls back to the 2D table by itself. The
+WebGL isn't available the app falls back to the flat view by itself. The
 "Quality" menu (Low / Medium / High) trades looks for speed on older
 laptops, and "Sound" is off until someone turns it on. All of this runs in
 each player's own browser — the host machine does no extra work for it.

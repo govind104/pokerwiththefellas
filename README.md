@@ -12,8 +12,10 @@ no accounts, no cloud hosting, no ongoing cost.
   in sync instantly.
 - **First-person 3D tables (Blackjack and Hold'em)** — a moody, lamp-lit saloon view
   (Three.js) with animated dealing, silhouetted opponents and optional
-  synthesised sound. Switch to the classic 2D table at any time; it also
-  kicks in automatically if the browser can't run WebGL.
+  synthesised sound, with a heads-up display over it (player list, board,
+  action prompts with keyboard shortcuts). Switch to the flat view at any
+  time; it also kicks in automatically if the browser can't run WebGL or
+  the window is small.
 - **A proper shared Blackjack dealer** — one shoe and one dealer hand per
   round. Players act in seat order, the dealer plays once after the last
   player, and everyone is settled against that same hand.
@@ -79,8 +81,8 @@ Open `http://localhost:5173` in a few browser tabs to play as different
 seats. Click "Admin" in the corner, enter the passphrase you set above,
 and pick Poker or Blackjack to start a game.
 
-Tables open in the 3D view on screens at least 900px wide (toggle with the
-"2D view" / "3D view" button; the choice is remembered). To look at the 3D
+Tables open in the 3D view on windows at least 1200px wide (toggle with the
+"Flat view" / "3D view" button; the choice is remembered). To look at the 3D
 scene without a server or admin login, open
 `http://localhost:5173/dev3d.html` (only the frontend dev server is needed) —
 a scripted Blackjack hand you can step through (`?step=0..8`; add
@@ -124,7 +126,7 @@ Per-package: `npm run test --workspace=@poker-blackjack/<game-engine|server|fron
 packages/
   game-engine/   deck, shoe, Hold'em + Blackjack rules — no I/O, pure logic
   server/        Socket.IO server, lobby/admin logic, JSON/JSONL persistence
-  frontend/      React UI (lobby, 2D table views for both games, admin panel)
+  frontend/      React UI (lobby, flat HUD table views for both games, admin panel)
     src/three/   first-person 3D tables: pure scene models, Three.js engine, shared shell
     dev3d.html   dev-only 3D harness page (not part of the production build)
     THIRD_PARTY_NOTICES.md   licences for the card SVGs, three.js and fonts

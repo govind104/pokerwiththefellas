@@ -53,7 +53,7 @@ These are copied into the repo next to this spec:
 | D8 | **Printed felt.** Blackjack: rule arcs plus a betting circle per seat. Hold'em: a betting line and a board box. |
 | D9 | **Big-index card faces**, with court cards drawn as a framed crown or knight. |
 | D10 | **Lighting:** no blanket brightening. Tune exposure with the turn light on screen and keep its contrast (§A6). |
-| D11 | **Out of scope:** the room (on hold), the 2D view, and phones (the 3D view only opens at 900 px wide or more). |
+| D11 | **Out of scope:** the room (on hold), the 2D view, and phones (the 3D view only opens at 900 px wide or more). *Amended 2026-10-02 by `2026-10-02-3d-plan-b-hud-design.md`: the 2D view is deleted; windows under the overlay thresholds get the flat HUD view.* |
 
 ## 4. Split into two plans
 
