@@ -1098,6 +1098,33 @@ describe('socketServer join-handler seat-orphan race', () => {
     expect(server.getTable()!.seats.find((s) => s?.displayName === 'bob')?.ready).toBe(false);
   });
 
+  it('a mode switch waits for an admin balance write still running on the old table (MIN-2)', async () => {
+    const admin = connect();
+    await startGameAsAdmin(admin, 'holdem');
+    const alice = connect();
+    const token = await joinAndGetToken(alice, 'alice');
+    const oldTable = server.getTable();
+
+    playerStore.holdSetBalance = true;
+    admin.emit('adminAdjustBalance', { displayName: 'alice', balance: 5 });
+    await vi.waitFor(() => {
+      expect(playerStore.pendingSetBalanceCount).toBe(1);
+    });
+    const switched = waitForState(admin, (s) => s.mode === 'blackjack');
+    admin.emit('adminSwitchMode', { mode: 'blackjack' });
+    await new Promise((r) => setTimeout(r, 50));
+    // Before the fix the new table already existed here, and a rejoin read the old balance.
+    expect(server.getTable()).toBe(oldTable);
+
+    playerStore.holdSetBalance = false;
+    playerStore.releaseNextSetBalance();
+    await switched;
+    const rejoined = waitForState(alice, (s) => s.mode === 'blackjack' && s.mySeatIndex !== null);
+    alice.emit('join', { displayName: 'alice', token });
+    await rejoined;
+    expect(server.getTable()!.seats.find((s) => s?.displayName === 'alice')?.balance).toBe(5);
+  });
+
   it('a second leave from the same socket while the first waits for the table lock does not free the next occupant of the seat (audit I11)', async () => {
     const admin = connect();
     await startGameAsAdmin(admin, 'holdem');

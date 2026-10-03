@@ -223,8 +223,13 @@ export class Table {
     return run;
   }
 
-  /** Stops this table from ever starting another hand and cancels its timers. */
-  retire(): void {
+  /**
+   * Stops this table from ever starting another hand and cancels its timers. Resolves once the
+   * locked work already queued has finished: an admin balance write in flight must land before
+   * the next table reads balances, or that table caches the old value (MIN-2). Work queued after
+   * this call cannot delay it for long: a hand start is a no-op and a balance write is refused.
+   */
+  retire(): Promise<void> {
     this.retired = true;
     for (const timer of this.disconnectTimers.values()) {
       clearTimeout(timer);
@@ -234,6 +239,7 @@ export class Table {
       clearTimeout(this.turnClockTimer);
       this.turnClockTimer = null;
     }
+    return this.exclusiveTail.then(() => {});
   }
 
   // The admin balance correction. The checks, the durable write and the in-memory update
@@ -242,6 +248,10 @@ export class Table {
   // overwrote or went negative against).
   async adminSetBalance(displayName: string, balance: number): Promise<void> {
     await this.runExclusive(async () => {
+      // Queued behind a mode switch: the new table may already have read this player's balance.
+      if (this.retired) {
+        throw new Error('The table was replaced; try again');
+      }
       const seat = this.seats.find((s) => sameName(s?.displayName, displayName));
       if (!seat) {
         throw new Error(`No player named "${displayName}" is currently seated`);

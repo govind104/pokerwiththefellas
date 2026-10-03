@@ -76,7 +76,7 @@ restore.
 1. table.test.ts: with `setBalance` held, `adminSetBalance` in flight, `retire()`'s promise does not
    resolve until the write is released, and then the store holds the new value.
 2. table.test.ts: an `adminSetBalance` called after `retire()` rejects and writes nothing.
-3. socketServer.test.ts, if the injected player store can be wrapped to hold writes: adjust balance,
+3. socketServer.test.ts (uses the existing `ControllablePlayerStore.holdSetBalance`): adjust balance,
    switch mode at once, release the write; the player's balance on the new table equals the correction.
    If the store cannot be wrapped there without new test scaffolding, the two Table tests cover it and
    the plan notes that.
@@ -90,6 +90,6 @@ audit progress table; record the MIN-1 finding (closed by item 6).
 
 - [x] Task 1 committed
 - [x] Task 2 committed
-- [ ] Task 3 committed
+- [x] Task 3 committed
 - [ ] Branch review (Sonnet) clean
 - [ ] Task 4 committed; PR opened (user gate before push/PR)

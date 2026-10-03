@@ -2423,6 +2423,45 @@ describe('Table concurrency (audit C3, I1, I2)', () => {
     await expect(playerStore.getBalance('alice')).resolves.toBe(5);
     expect(table.seats[seatIndex]?.balance).toBe(5);
   });
+
+  it('MIN-2: retire() resolves only once an admin balance write already running has landed', async () => {
+    let releaseWrite!: () => void;
+    const playerStore = new FakePlayerStore(1000);
+    const realSet = playerStore.setBalance.bind(playerStore);
+    playerStore.setBalance = async (name: string, balance: number) => {
+      await new Promise<void>((r) => (releaseWrite = r));
+      return realSet(name, balance);
+    };
+    const table = new Table(
+      {
+        gameMode: 'holdem', seatCount: 8, smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000, reconnectGraceMs: 50, random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog: new FakeHandLog(), onStateChange: () => {} }
+    );
+    await table.join('alice');
+    const adjust = table.adminSetBalance('alice', 5);
+    await wait(10);
+
+    let drained = false;
+    const retired = table.retire().then(() => (drained = true));
+    await wait(10);
+    expect(drained).toBe(false);
+
+    releaseWrite();
+    await adjust;
+    await retired;
+    await expect(playerStore.getBalance('alice')).resolves.toBe(5);
+  });
+
+  it('MIN-2: a retired table refuses an admin balance write and writes nothing', async () => {
+    const { table, playerStore } = makeTable();
+    await table.join('alice');
+    await table.retire();
+
+    await expect(table.adminSetBalance('alice', 5)).rejects.toThrow(/replaced/);
+    await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
+  });
 });
 
 describe('Table.leave mid-hand and under the lock (audit I11)', () => {
