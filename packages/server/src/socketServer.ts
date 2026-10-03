@@ -528,7 +528,10 @@ export async function createServer(
           rejectAdmin("Can't switch modes while a hand is in progress");
           return;
         }
-        oldTable.retire();
+        // Wait for locked work already running on the old table (an admin balance write) before
+        // the new table can read balances (MIN-2). A join that lands on the old table meanwhile
+        // has its mapping wiped below, and the client rejoins on the mode broadcast.
+        await oldTable.retire();
         seatBySocketId.clear();
         currentMode = payload.mode;
         table = createTable(nextConfig);

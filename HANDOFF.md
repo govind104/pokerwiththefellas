@@ -5,17 +5,17 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 (see "After Plan 6" below). Start here if you're new to this repo; `docs/README.md` says
 which docs are kept current and which are historical records.
 
-## Next steps (updated 2026-10-03, after 3D readability Plan B)
+## Next steps (updated 2026-10-03, after audit item 7)
 
-`master` holds audit items 1-5 (PR #14), 3D readability Plan A (PR #15) and audit item 6
-(unsticking tables, merged from `audit/item6-unsticking-tables`). Plan B is done on
-`feat/3d-plan-b-hud` and not yet merged. Work on a branch and merge through a PR. This list is the order to work in. The sections below hold the detail.
+`master` holds audit items 1-5 (PR #14), 3D readability Plan A (PR #15), audit item 6 (PR #16)
+and Plan B (PR #17, merged 2026-10-03 as `dac22ed`). Audit item 7 (I3, MIN-1, MIN-2) is done on
+`audit/item7-settlement-locks`; its PR is the user's call. Work on a branch and merge through a PR. This list is the order to work in. The sections below hold the detail.
 
 1. ~~Audit fix item 6, "unsticking tables" (I6, I11, I10)~~ **Done 2026-10-02**: admin Remove from
    table / Act for / turn clock, server-confirmed leave, rejoin after two quick drops. Commits
    `ec704cf`..the item-6 docs commit; detail in the audit progress table and "Next step" item 3.
-2. ~~**3D readability Plan B (HUD, showdown, flat view).**~~ **Done on the branch 2026-10-03; PR pending**
-   (final whole-branch review passed after one fix round; the merge decision is the user's). Branch
+2. ~~**3D readability Plan B (HUD, showdown, flat view).**~~ **Done; merged in PR #17 on 2026-10-03**
+   (final whole-branch review passed after one fix round). Branch
    `feat/3d-plan-b-hud`, commits `5ddfebe`..`a5cb58b` (implementation, docs, then the final-review
    fixes: the turn clock was armed after the broadcast, so every view carried the previous turn's
    timer; mid-hand Leave was dropped client-side).
@@ -52,7 +52,10 @@ which docs are kept current and which are historical records.
      - Mid-hand Leave and the live turn countdown were never driven against a real server in a
        browser (Gate 3 used harness fixtures); check both at the next playtest.
 3. **The rest of the audit, in the report's §8 order:**
-   - **I3:** idempotent Hold'em settlement on recovery, together with the MIN-1/MIN-2 lock races.
+   - ~~**I3** with the MIN-1/MIN-2 lock races~~ **Done 2026-10-03** on `audit/item7-settlement-locks`
+     (plan `docs/superpowers/plans/2026-10-03-item7-settlement-and-locks.md`; Sonnet branch review
+     `.superpowers/sdd/item7-branch-review.md`, "ready", its one Minor fixed). Detail in the audit
+     progress table. **Next:** open the PR (user gate), then short stacks.
    - **Short stacks (I8, M1, M3, M24):** the call-for-less offered as an all-in, integer chips,
      the heads-up short big blind, and side pots plus an "All in" label.
    - **3D polish (I14, I15, M16-M18, M25-M26):** first check which ones Plan A already fixed, e.g.
@@ -64,6 +67,9 @@ which docs are kept current and which are historical records.
    - the item-5 known limitations, e.g. the DNS-rebinding Host allowlist and join errors not
      tagged `scope: 'join'`;
    - MIN-3 and MIN-4;
+   - `startHand` appends to the hand log without clearing it, so a failed final clear in a settlement
+     leaves the old hand in front of the next one. Recovery now discards such a log instead of
+     replaying it (item 7); clearing before the start entry would remove the case entirely;
    - Plan A's remaining deferred follow-ups ("Next step" item 2 below; `Room.dispose()` is done);
    - Plan B's known follow-ups (item 2 above).
 
@@ -95,11 +101,18 @@ Done (each test-first; 530 tests green after the I4/I5/M5 commit, 625 after item
 | (I4/I5/M5 commit) | I4, I5, M5 | `adminSetBlinds` rejects non-whole blinds and small > big. `JsonGameConfigStore` drops a non-whole stored blind and returns the default blinds if the stored pair is small > big (checked only on returned values, so blinds can still be set one at a time). New `envConfig.ts` reads PORT, RECONNECT_GRACE_MS and the four config defaults strictly; `index.ts` refuses to start on a bad one. `updateConfig` and `adminSetBalance` re-run the ready check. A failed `startHand` restores the dealer button, sets `handStartError` in the table view (cleared when a hand starts) and broadcasts; the frontend shows it in the existing table error slot. AdminPanel has no client-side check for small > big; the server's admin error is shown instead |
 | `d441e73`, `4d7e0a0`, `9b5ed95`, `26722a7`, `2ce54f2`, `3743b85`, `ab7c244`, `ad2d938`, `be44565` | C5, I7, I9, M8, M11 (item 5) | **A name now belongs to one browser.** Names are normalised (`names.ts`: case-insensitive, at most 32 characters, invisible characters removed). `balances.json` is a v2 file (old one copied to `balances.json.v1-backup`): per name a balance plus `sha256(token)`. The first join under a tokenless name is issued a 32-byte token (`identity` event); the client keeps it in localStorage (`poker-blackjack:identity`) and sends it with every `join`. `playerStore.checkToken` runs before any seating, so a wrong token gets `code: 'name-claimed'`. The server sends `mySeatIndex` in each socket's state and the client trusts it instead of matching names (I9). A join with the right token takes over a seat still held by another socket (old one gets `code: 'replaced'` and shows "Play here instead"). The admin's **Release a name** forgets the token and keeps the balance. Admin login: 5 wrong passphrases → 60 s lockout per address; the admin session token is memory-only on the server and in sessionStorage (`poker-blackjack:adminToken`), so admin rights survive a reconnect (M11). The server binds `HOST` (default `127.0.0.1`), checks `Origin` against Host / X-Forwarded-Host / `ALLOWED_ORIGINS` (a missing Origin is allowed), and refuses a passphrase that is unset, `change-me` or under 8 characters (I7). `docs/HOSTING.md` now documents Tailscale Serve; the playtest bots keep their token. Final-review fixes (`be44565`): a browser that blocks storage keeps its token in memory for the tab's life; a socket that drops mid-join no longer kicks the tab holding the seat; the v1 migration and the client's token lookup both use the normalised name |
 | `ec704cf`, `52503dc`, `d7b6c21`, `2819540`, `fb8acbf`, `6aa0748`, plus the final-review fix and docs commits | I6, I10, I11, M30 (item 6) | **Unsticking tables.** `Table.leave` runs inside the table lock; a seat not dealt into the hand may leave mid-hand (a folded player may not: losses settle at the end). `leave` is acknowledged (`LeaveResult`); `unmapSeat` runs inside the lock before the broadcast, so no socket stays mapped to a freed seat (this was the "table stayed on screen after Leave" bug). Admin **Remove from table** (`adminKick`): frees a seat now, or for a player in the hand times them out, defaults every turn and frees the seat after payouts; a rejoin during the hand cancels it; the browser gets `code: 'kicked'`, forgets its last name, keeps its token. **Act for <name>** (`adminForceAct`) applies the default action once, guarded by `actionSeq`. **Turn clock** (`adminSetTurnClock`, 0 or 10-600 s, memory only) applies the default action on every turn; cleared on hand end, retire and when set to 0. Client: `joinInFlightRef` and the pending leave reset on disconnect (I10); the name is dropped only on a confirmed leave. Beyond the plan: a second `leave` while one is pending gets 'Already leaving', and `Table.leave`'s `stillOwnsSeat` re-checks ownership inside the lock (both closed races where a stale seat index freed another player). Tests 317 server, 338 frontend, 133 game-engine. Browser check 5/5 (`.playtest-data/run/item6-browser-check.md`) |
+| `79e5fa3`, `70e451b`, `fa204a6`, `0c33ba9` | I3, MIN-1, MIN-2 (item 7) | **Crash-safe Hold'em settlement and the admin-write lock races.** Recovery of a settled Hold'em hand writes `stack + payout` per player (idempotent; was: clear the log, so a crash between writes created or destroyed chips and a crash before any write voided the hand), skipping that when a later hand start follows. Unfinished recovered hands use the logged stacks. MIN-1 was already closed by item 6 (`leave` under the lock); a regression test pins it (mutation-checked). MIN-2: `retire()` drains the lock, `adminSwitchMode` awaits it, a retired table refuses balance writes. Server tests 334 |
 
 Decisions worth knowing:
-- `recoverFromLog` still **voids** (does not pay) a hand that replays to `settled`. After the C1
-  fix that only happens on a crash inside settlement, where balances may already be written, so
-  paying again could double-pay. Making settlement idempotent is I3.
+- `recoverFromLog` **pays** a Hold'em hand that replays to `settled` by writing absolute balances
+  (logged stack + net payout), which is safe whatever part of the live settlement had landed (I3,
+  item 7). It does not, and clears the log, when a later `holdem_hand_started` follows (a failed
+  final clear; the balances file is newer). An unfinished recovered hand is seated with the logged
+  stacks, not the balances file. Writes are best-effort: a failure logs the balance to set by hand,
+  and the log is cleared anyway, because `startHand` appends to it.
+- `Table.retire()` returns a promise that resolves when the lock queue present at retire time has
+  drained; `adminSwitchMode` awaits it before building the new table (MIN-2). A retired table
+  refuses admin balance writes.
 - `submitAction` is the locked public entry; `applyAction` is the body. Anything already holding
   the lock (the auto-act at the end of `applyAction`) must call `applyAction`, never
   `submitAction`, or it deadlocks.
