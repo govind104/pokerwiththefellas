@@ -92,7 +92,7 @@ describe('Poker3D', () => {
     expect(screen.getByTestId('player-info-0')).toHaveTextContent('A of spades, K of hearts');
     expect(screen.getByTestId('player-info-1')).toHaveTextContent('face-down card, face-down card');
     expect(screen.getByTestId('player-info-0')).toHaveAttribute('data-active', 'true');
-    expect(screen.getByTestId('pot')).toHaveTextContent('Pot: 40');
+    expect(screen.getByTestId('hud-pot')).toHaveTextContent('Pot 40');
   });
 
   it('shows the action bar only on my turn and forwards each action', async () => {
@@ -157,7 +157,7 @@ describe('Poker3D', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Ready' }));
     expect(p.onReady).toHaveBeenCalled();
     expect(screen.getByText('Waiting for hand to start…')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: '2D view' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Flat view' }));
     expect(p.onSwitchTo2D).toHaveBeenCalled();
   });
 });

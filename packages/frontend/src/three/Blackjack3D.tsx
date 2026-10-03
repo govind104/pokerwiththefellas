@@ -1,9 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import type { SeatView, BlackjackRoundView } from '@poker-blackjack/server/src/table';
 import type { PlayerAction, Card } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
-import { Button } from '../components/Button';
-import { blackjackAvailability } from '../components/blackjackActions';
+import { BlackjackHud } from '../hud/BlackjackHud';
 import { buildSceneModel, pickDealerRound } from './sceneModel';
 import { TableStage } from './TableStage';
 
@@ -23,6 +22,10 @@ export interface Blackjack3DProps {
   onSwitchTo2D: () => void;
   // Called if WebGL can't start, so the parent can fall back to the 2D table.
   onUnsupported: () => void;
+  // From the table view (Plan B spec §3 item 3); optional so the dev harness and tests can omit it.
+  turnClockRemainingMs?: number | null;
+  // Extra controls for the top-left cluster (Admin).
+  controls?: ReactNode;
 }
 
 function describeCard(c: Card | null): string {
@@ -43,14 +46,14 @@ export function Blackjack3D({
   actionPending = false,
   onSwitchTo2D,
   onUnsupported,
+  turnClockRemainingMs = null,
+  controls,
 }: Blackjack3DProps) {
   const model = useMemo(
     () => buildSceneModel({ seats, activeSeatIndex, mySeatIndex, blackjackRounds }),
     [seats, activeSeatIndex, mySeatIndex, blackjackRounds],
   );
   const dealerRound = pickDealerRound(blackjackRounds, mySeatIndex);
-  const myBalance = seats.find((s) => s.seatIndex === mySeatIndex)?.balance ?? 0;
-  const can = blackjackAvailability(mySeatIndex !== null ? blackjackRounds?.[mySeatIndex] : undefined, myBalance);
   const dealerText = dealerRound
     ? (dealerRound.dealerCards ?? [dealerRound.dealerUpcard, null]).map(describeCard).join(', ')
     : 'no hand in progress';
@@ -93,24 +96,23 @@ export function Blackjack3D({
       onSwitchTo2D={onSwitchTo2D}
       onUnsupported={onUnsupported}
       summary={summary}
-    >
-      {model.myTurn && (
-        <div className="flex flex-wrap justify-center gap-2 px-2">
-          <Button variant="neutral" size="md" disabled={actionPending} onClick={() => onAction('hit')}>
-            Hit
-          </Button>
-          <Button variant="neutral" size="md" disabled={actionPending} onClick={() => onAction('stand')}>
-            Stand
-          </Button>
-          <Button variant="primary" size="md" disabled={actionPending || !can.double} title={can.double ? undefined : 'Only on your first two cards'} onClick={() => onAction('double')}>
-            Double
-          </Button>
-          <Button variant="danger" size="md" disabled={actionPending || !can.split} title={can.split ? undefined : 'Only a pair, once per round'} onClick={() => onAction('split')}>
-            Split
-          </Button>
-        </div>
-      )}
-    </TableStage>
+      controls={controls}
+      hud={
+        <BlackjackHud
+          layout="overlay"
+          seats={seats}
+          mySeatIndex={mySeatIndex}
+          activeSeatIndex={activeSeatIndex}
+          handInProgress={handInProgress}
+          blackjackRounds={blackjackRounds}
+          turnClockRemainingMs={turnClockRemainingMs}
+          actionPending={actionPending}
+          onAction={onAction}
+          onReady={onReady}
+          onLeave={onLeave}
+        />
+      }
+    />
   );
 }
 

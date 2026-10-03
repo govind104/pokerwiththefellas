@@ -201,7 +201,8 @@ function PokerHarness() {
         onSwitchTo2D={() => undefined}
         onUnsupported={() => undefined}
       />
-      <div className="fixed bottom-2 right-2 z-50 flex gap-2 text-xs">
+      {showBar && (
+      <div className="fixed left-1/2 top-12 z-50 flex -translate-x-1/2 gap-2 text-xs">
         <button data-testid="prev" className="rounded bg-black/70 px-2 py-1 text-white" onClick={() => setI((n) => Math.max(0, n - 1))}>
           ◀
         </button>
@@ -212,6 +213,7 @@ function PokerHarness() {
           ▶
         </button>
       </div>
+      )}
     </>
   );
 }
@@ -236,7 +238,8 @@ function Harness() {
         onSwitchTo2D={() => setMode(null)}
         onUnsupported={() => undefined}
       />
-      <div className="fixed bottom-2 right-2 z-50 flex gap-2 text-xs">
+      {showBar && (
+      <div className="fixed left-1/2 top-12 z-50 flex -translate-x-1/2 gap-2 text-xs">
         <button data-testid="prev" className="rounded bg-black/70 px-2 py-1 text-white" onClick={() => setI((n) => Math.max(0, n - 1))}>
           ◀
         </button>
@@ -251,9 +254,13 @@ function Harness() {
           ▶
         </button>
       </div>
+      )}
     </>
   );
 }
+
+// ?bar=0 hides the step bar so it cannot cover the HUD in screenshots.
+const showBar = new URLSearchParams(location.search).get('bar') !== '0';
 
 // ?quality=low|medium|high sets the persisted graphics preference before the scene reads it.
 const qualityParam = new URLSearchParams(location.search).get('quality');
