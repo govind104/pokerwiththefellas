@@ -2708,3 +2708,97 @@ describe('Table turn clock switched off while queued (audit I6)', () => {
     expect(table.holdemHand!.actingPlayerId).toBe('alice'); // nobody was acted for
   });
 });
+
+describe('Table view fields for the HUD (Plan B)', () => {
+  it('reports the button and blind seats where startHand posted them', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.join('cara');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.setReady(2);
+    const view = table.getStateForSeat(0);
+    expect([view.buttonSeatIndex, view.smallBlindSeatIndex, view.bigBlindSeatIndex]).toEqual([0, 1, 2]);
+  });
+
+  it('heads-up, the button seat is also the small blind', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const view = table.getStateForSeat(1);
+    expect([view.buttonSeatIndex, view.smallBlindSeatIndex, view.bigBlindSeatIndex]).toEqual([0, 0, 1]);
+  });
+
+  it('has no blind seats in Blackjack or before the first hand', async () => {
+    const { table } = makeTable({ gameMode: 'blackjack' });
+    await table.join('alice');
+    expect(table.getStateForSeat(0).buttonSeatIndex).toBeNull();
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const view = table.getStateForSeat(0);
+    expect([view.buttonSeatIndex, view.smallBlindSeatIndex, view.bigBlindSeatIndex]).toEqual([null, null, null]);
+  });
+
+  it('adds the hand name and best five to every non-folded result at a real showdown', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'call');
+    await table.submitAction(1, 'check');
+    for (let street = 0; street < 3; street++) {
+      await table.submitAction(1, 'check');
+      await table.submitAction(0, 'check');
+    }
+    const results = table.getStateForSeat(null).holdem!.results!;
+    expect(results).toHaveLength(2);
+    for (const r of results) {
+      expect(typeof r.handName).toBe('string');
+      expect(r.bestCards).toHaveLength(5);
+    }
+  });
+
+  it('leaves the hand name off a fold-out', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    await table.submitAction(0, 'call');
+    await table.submitAction(1, 'fold');
+    for (const r of table.getStateForSeat(null).holdem!.results!) {
+      expect(r.handName).toBeUndefined();
+      expect(r.bestCards).toBeUndefined();
+    }
+  });
+
+  it('has no turn-clock time when the clock is off', async () => {
+    const { table } = makeTable();
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    expect(table.getStateForSeat(0).turnClockRemainingMs).toBeNull();
+  });
+
+  it('counts the turn clock down for whoever is up, and clears it between hands', async () => {
+    const { table } = makeTable({ turnClockMs: 10_000 });
+    await table.join('alice');
+    await table.join('bob');
+    await table.setReady(0);
+    await table.setReady(1);
+    const first = table.getStateForSeat(0).turnClockRemainingMs!;
+    expect(first).toBeGreaterThan(9_000);
+    expect(first).toBeLessThanOrEqual(10_000);
+    await wait(60);
+    expect(table.getStateForSeat(0).turnClockRemainingMs!).toBeLessThan(first);
+    await table.submitAction(0, 'fold'); // heads-up fold-out: the hand is over
+    expect(table.getStateForSeat(0).turnClockRemainingMs).toBeNull();
+    table.updateConfig({ turnClockMs: 0 });
+  });
+});

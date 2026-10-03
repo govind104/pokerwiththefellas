@@ -700,3 +700,21 @@ describe('HoldemHand.wentToShowdown', () => {
     expect(hand.wentToShowdown).toBe(true);
   });
 });
+
+describe('HoldemHand blind seats', () => {
+  it('names the button and the blinds, 3+ handed', () => {
+    const hand = new HoldemHand(
+      [{ playerId: 'a', stack: 1000 }, { playerId: 'b', stack: 1000 }, { playerId: 'c', stack: 1000 }],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 1, deck: threeHandedDeck() }
+    );
+    expect([hand.buttonPlayerId, hand.smallBlindPlayerId, hand.bigBlindPlayerId]).toEqual(['b', 'c', 'a']);
+  });
+
+  it('heads-up, the button is the small blind', () => {
+    const hand = new HoldemHand(
+      [{ playerId: 'a', stack: 1000 }, { playerId: 'b', stack: 1000 }],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 1, deck: threeHandedDeck() }
+    );
+    expect([hand.buttonPlayerId, hand.smallBlindPlayerId, hand.bigBlindPlayerId]).toEqual(['b', 'b', 'a']);
+  });
+});

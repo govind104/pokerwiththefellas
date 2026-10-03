@@ -82,4 +82,25 @@ describe('describeHand', () => {
     const result = describeHand([card('A', 'hearts'), card('3', 'hearts')], community);
     expect(result.name).toBe('Flush');
   });
+
+  it('returns the five cards that make the hand, as engine cards', () => {
+    const community = [card('Q', 'hearts'), card('Q', 'clubs'), card('7', 'diamonds'), card('7', 'spades'), card('2', 'clubs')];
+    const result = describeHand([card('A', 'spades'), card('K', 'hearts')], community);
+    expect(result.description).toBe("Two Pair, Q's & 7's");
+    expect(result.bestCards).toHaveLength(5);
+    expect(result.bestCards).toEqual(
+      expect.arrayContaining([card('Q', 'hearts'), card('Q', 'clubs'), card('7', 'diamonds'), card('7', 'spades'), card('A', 'spades')]),
+    );
+  });
+
+  it("maps a wheel straight's low ace and a ten back to engine ranks", () => {
+    const wheel = describeHand([card('A', 'hearts'), card('2', 'clubs')], [
+      card('3', 'diamonds'), card('4', 'spades'), card('5', 'hearts'), card('K', 'clubs'), card('K', 'diamonds'),
+    ]);
+    expect(wheel.bestCards).toContainEqual(card('A', 'hearts'));
+    const broadway = describeHand([card('10', 'hearts'), card('J', 'clubs')], [
+      card('Q', 'diamonds'), card('K', 'spades'), card('A', 'hearts'), card('2', 'clubs'), card('3', 'diamonds'),
+    ]);
+    expect(broadway.bestCards).toContainEqual(card('10', 'hearts'));
+  });
 });

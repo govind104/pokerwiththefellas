@@ -36,10 +36,19 @@ export function determineWinners(
   return solved.filter((s) => winningHands.includes(s.hand)).map((s) => s.playerId);
 }
 
+const SUIT_FROM_CODE: Record<string, Suit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
+
+// pokersolver writes a ten as 'T' and, in a wheel straight (A-2-3-4-5), the ace as '1'.
+function fromPokersolverCard(c: { value: string; suit: string }): Card {
+  const rank = c.value === 'T' ? '10' : c.value === '1' ? 'A' : c.value;
+  return { rank: rank as Rank, suit: SUIT_FROM_CODE[c.suit] };
+}
+
 export function describeHand(
   holeCards: [Card, Card],
   communityCards: Card[]
-): { name: string; description: string } {
+): { name: string; description: string; bestCards: Card[] } {
   const hand = Hand.solve([...holeCards, ...communityCards].map(toPokersolverCard));
-  return { name: hand.name, description: hand.descr };
+  // The five that make the hand: the client lifts these at a showdown (Plan B spec §5.1).
+  return { name: hand.name, description: hand.descr, bestCards: hand.cards.slice(0, 5).map(fromPokersolverCard) };
 }
