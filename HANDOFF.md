@@ -53,12 +53,9 @@ items live in `TODO.md`. Work on a branch and merge through a PR. This list is t
        browser (Gate 3 used harness fixtures); check both at the next playtest.
 3. ~~**Audit item 7** (I3, MIN-1, MIN-2)~~ **Done; merged in PR #18 on 2026-10-03.** Plan
    `docs/superpowers/plans/2026-10-03-item7-settlement-and-locks.md`.
-4. **I8, the short-stack call (next, in progress on `fix/i8-short-call`).** A stack shorter than the
-   call is offered "Call N" and the engine throws "go all-in instead" (`game-engine/src/holdemBetting.ts:37`).
-   Fix: a short call becomes an all-in for the stack (standard all-in for less), test-first in the
-   engine (one existing test expects the throw and flips); the HUD label becomes "Call N (all in)" when
-   short (`frontend/src/hud/ActionPrompts.tsx:121`, where `toCall` comes from). One review under the
-   stop rule below, then PR and merge (the user said to merge directly once reviewed).
+4. ~~I8, the short-stack call~~ **Done 2026-10-03, PR #19**: a call the stack can't cover now
+   commits the whole stack (all-in for less, the bet doesn't drop); the HUD reads "Call N (all in)". One Sonnet
+   review, no Critical/Important; its test-gap Minors are `TODO.md` T-12.
 5. **Everything else is parked in [`TODO.md`](TODO.md)**, the running to-do ledger: the rest of the
    audit, Plan A/B follow-ups, the item 5/6 deferred Minors, the Tailscale test and the unverified
    live checks. Decided 2026-10-03: the user called a wrap on the audit backlog (items 1-7 cover every

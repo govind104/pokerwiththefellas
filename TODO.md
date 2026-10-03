@@ -22,7 +22,7 @@ to it instead of starting a fix round.
 
 | ID | Item | Importance | Effort | Status | Source |
 |---|---|---|---|---|---|
-| I8 | Short stack offered "Call N", server rejects it (`holdemBetting.ts:37`). Fix: a short call becomes all-in for the stack; HUD label "Call N (all in)" | High | 0.3x | IN PROGRESS on `fix/i8-short-call` | Audit I8 |
+| — | Nothing in progress | | | | |
 
 ## Gameplay and money
 
@@ -39,6 +39,7 @@ to it instead of starting a fix round.
 | M7 | Uncalled-bet refund appears as a separate one-player pot | Low | 0.2x | OPEN | Audit |
 | M12 | After settlement, a folded player's cards visible to whoever later sits under that name | Low | 0.2x | OPEN | Audit |
 | T-1 | `startHand` appends to the hand log without clearing it; a failed final clear leaves the old hand in front of the next (recovery now discards such a log). Clearing before the start entry removes the case | Low | 0.2x | OPEN | Item 7 review |
+| T-12 | I8 test gaps: the short-call hand test doesn't check the pots or that the uncalled 150 goes back to the raiser (its name promises "without lowering the bet"); no test of a short call with a third player still to act | Low | 0.1x | OPEN | I8 review |
 
 ## 3D view
 
@@ -97,3 +98,4 @@ to it instead of starting a fix round.
 | C1-C5, I1-I7, I9-I11, M5, M8, M11, M30 | Audit items 1-6 | 2026-10-01 to 2026-10-02 | PRs #14, #16 |
 | I3, MIN-1, MIN-2 | Audit item 7: crash-safe Hold'em settlement, admin-write lock races | 2026-10-03 | PR #18 |
 | I12, I13 | 2D-only findings | 2026-10-03 | Dropped: the 2D view was retired (Plan B, PR #17) |
+| I8 | Short-stack call goes all-in for less; HUD "Call N (all in)" | 2026-10-03 | PR #19 |
