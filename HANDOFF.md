@@ -8,8 +8,8 @@ which docs are kept current and which are historical records.
 ## Next steps (updated 2026-10-03, after audit item 7)
 
 `master` holds audit items 1-5 (PR #14), 3D readability Plan A (PR #15), audit item 6 (PR #16)
-and Plan B (PR #17, merged 2026-10-03 as `dac22ed`). Audit item 7 (I3, MIN-1, MIN-2) is done on
-`audit/item7-settlement-locks`; its PR is the user's call. Work on a branch and merge through a PR. This list is the order to work in. The sections below hold the detail.
+Plan B (PR #17) and audit item 7 (PR #18, merged 2026-10-03 as `9eeeeb0`). Open work and parked
+items live in `TODO.md`. Work on a branch and merge through a PR. This list is the order to work in. The sections below hold the detail.
 
 1. ~~Audit fix item 6, "unsticking tables" (I6, I11, I10)~~ **Done 2026-10-02**: admin Remove from
    table / Act for / turn clock, server-confirmed leave, rejoin after two quick drops. Commits
@@ -51,27 +51,22 @@ and Plan B (PR #17, merged 2026-10-03 as `dac22ed`). Audit item 7 (I3, MIN-1, MI
        `Points` geometry is not disposed on unmount.
      - Mid-hand Leave and the live turn countdown were never driven against a real server in a
        browser (Gate 3 used harness fixtures); check both at the next playtest.
-3. **The rest of the audit, in the report's §8 order:**
-   - ~~**I3** with the MIN-1/MIN-2 lock races~~ **Done 2026-10-03** on `audit/item7-settlement-locks`
-     (plan `docs/superpowers/plans/2026-10-03-item7-settlement-and-locks.md`; Sonnet branch review
-     `.superpowers/sdd/item7-branch-review.md`, "ready", its one Minor fixed). Detail in the audit
-     progress table. **Next:** open the PR (user gate), then short stacks.
-   - **Short stacks (I8, M1, M3, M24):** the call-for-less offered as an all-in, integer chips,
-     the heads-up short big blind, and side pots plus an "All in" label.
-   - **3D polish (I14, I15, M16-M18, M25-M26):** first check which ones Plan A already fixed, e.g.
-     M26's `dealerActive` and M25's "seats shift sides" and "own plate detached". Then fix the rest.
-   - **The remaining Minors** in the report's §6 table.
-4. **Finish the live Tailscale test:** steps 16-17, then remove the `docs/HOSTING.md` "Not yet
-   tested" note and check its free-plan claim ("Next step" item 1 below).
-5. **Low-priority leftovers** (no plan yet):
-   - the item-5 known limitations, e.g. the DNS-rebinding Host allowlist and join errors not
-     tagged `scope: 'join'`;
-   - MIN-3 and MIN-4;
-   - `startHand` appends to the hand log without clearing it, so a failed final clear in a settlement
-     leaves the old hand in front of the next one. Recovery now discards such a log instead of
-     replaying it (item 7); clearing before the start entry would remove the case entirely;
-   - Plan A's remaining deferred follow-ups ("Next step" item 2 below; `Room.dispose()` is done);
-   - Plan B's known follow-ups (item 2 above).
+3. ~~**Audit item 7** (I3, MIN-1, MIN-2)~~ **Done; merged in PR #18 on 2026-10-03.** Plan
+   `docs/superpowers/plans/2026-10-03-item7-settlement-and-locks.md`.
+4. **I8, the short-stack call (next, in progress on `fix/i8-short-call`).** A stack shorter than the
+   call is offered "Call N" and the engine throws "go all-in instead" (`game-engine/src/holdemBetting.ts:37`).
+   Fix: a short call becomes an all-in for the stack (standard all-in for less), test-first in the
+   engine (one existing test expects the throw and flips); the HUD label becomes "Call N (all in)" when
+   short (`frontend/src/hud/ActionPrompts.tsx:121`, where `toCall` comes from). One review under the
+   stop rule below, then PR and merge (the user said to merge directly once reviewed).
+5. **Everything else is parked in [`TODO.md`](TODO.md)**, the running to-do ledger: the rest of the
+   audit, Plan A/B follow-ups, the item 5/6 deferred Minors, the Tailscale test and the unverified
+   live checks. Decided 2026-10-03: the user called a wrap on the audit backlog (items 1-7 cover every
+   money, freeze and exposure bug); pick items from the ledger only when needed.
+
+**Standing rules (2026-10-03):** check `TODO.md` before auditing or fixing anything. One review per
+branch; fix only Critical/Important findings or regressions the branch introduced (those on the spot);
+Minor findings go into `TODO.md`, with no fix round. Mark ledger rows done with date and PR.
 
 **Decided 2026-10-02: the 2D view is retired. Resolved 2026-10-03:** Plan B Task 9 deleted it. Phones
 are out of scope (the group plays on laptops). The 2D view's two jobs, the 3D-failure fallback and
