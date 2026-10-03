@@ -96,6 +96,33 @@ default bet and starting balance from the environment are only first-run
 defaults: once an admin changes one in the app, the values saved in
 `game-config.json` take over.
 
+### Local testing with throwaway data
+
+By default both `npm run dev` and `npm run play` read and write the real
+`balances.json`, `hand.jsonl` and `game-config.json` in `packages/server/`,
+so test hands move real balances. To test against scratch data instead,
+create a folder and point the server at it in `packages/server/.env`
+(relative paths resolve from `packages/server/`; the server won't create
+the folder for you):
+
+```bash
+mkdir -p .playtest-data/local
+```
+
+```
+PLAYER_STORE_PATH=../../.playtest-data/local/balances.json
+HAND_LOG_PATH=../../.playtest-data/local/hand.jsonl
+GAME_CONFIG_PATH=../../.playtest-data/local/game-config.json
+```
+
+`.playtest-data/` is git-ignored. Delete the folder's contents to start
+fresh, and comment these lines out again before hosting a real session.
+
+Every tab on one origin shares a saved identity (the
+`poker-blackjack:identity` key in `localStorage`), so a new tab picks up
+the last player's name instead of starting fresh. To seat another player, use a private window
+or a different browser, or clear that key in the tab's dev tools.
+
 ## Hosting an actual session with friends
 
 That's a different, simpler flow — one command builds the frontend and
