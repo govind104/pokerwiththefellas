@@ -1585,21 +1585,28 @@ describe('Table.recoverFromLog', () => {
     expect(table.reconnect('alice')).toBe(0);
   });
 
-  it('discards an already-settled Hold\'em hand instead of re-settling it', async () => {
-    const { table, handLog, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
+  // A heads-up hand where alice (button, small blind) folds preflop: alice ends on 995, bob on 1005.
+  async function aliceFoldsLog(stacks: { alice: number; bob: number } = { alice: 1000, bob: 1000 }) {
     const { createDeck, shuffle } = await import('@poker-blackjack/game-engine');
     const config = { smallBlind: 5, bigBlind: 10, buttonIndex: 0, deck: shuffle(createDeck(), Math.random) };
-    await handLog.append({
-      type: 'holdem_hand_started',
-      data: {
-        players: [
-          { playerId: 'alice', stack: 1000 },
-          { playerId: 'bob', stack: 1000 },
-        ],
-        config,
+    return [
+      {
+        type: 'holdem_hand_started',
+        data: {
+          players: [
+            { playerId: 'alice', stack: stacks.alice },
+            { playerId: 'bob', stack: stacks.bob },
+          ],
+          config,
+        },
       },
-    });
-    await handLog.append({ type: 'holdem_action', data: { playerId: 'alice', action: 'fold' } });
+      { type: 'holdem_action', data: { playerId: 'alice', action: 'fold' } },
+    ] as HandLogEntry[];
+  }
+
+  it('I3: pays out a Hold\'em hand that was decided before the crash but never written', async () => {
+    const { table, handLog, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
+    handLog.entries = await aliceFoldsLog();
 
     await table.recoverFromLog();
 
@@ -1607,8 +1614,96 @@ describe('Table.recoverFromLog', () => {
     expect(table.holdemHand).toBeNull();
     expect(table.seats.every((s) => s === null)).toBe(true);
     await expect(handLog.readAll()).resolves.toEqual([]);
-    // No balance write should have been attempted for either player.
-    await expect(playerStore.getBalance('alice')).resolves.toBe(1000);
+    await expect(playerStore.getBalance('alice')).resolves.toBe(995);
+    await expect(playerStore.getBalance('bob')).resolves.toBe(1005);
+  });
+
+  it('I3: recovering a settled hand is idempotent (balances are absolute, not added again)', async () => {
+    const { table, handLog, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
+    const log = await aliceFoldsLog();
+    // Both live writes landed; the crash came before the log was cleared.
+    await playerStore.setBalance('alice', 995);
+    await playerStore.setBalance('bob', 1005);
+    handLog.entries = log;
+    await table.recoverFromLog();
+    // And again, as if the first recovery's clear had been lost too.
+    const again = new Table(
+      {
+        gameMode: 'holdem', seatCount: 8, smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000, reconnectGraceMs: 50, random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog, onStateChange: () => {} }
+    );
+    handLog.entries = log;
+    await again.recoverFromLog();
+
+    await expect(playerStore.getBalance('alice')).resolves.toBe(995);
+    await expect(playerStore.getBalance('bob')).resolves.toBe(1005);
+  });
+
+  it('I3: finishes a live settlement that crashed between the two balance writes (chips conserved)', async () => {
+    const live = makeTable();
+    await live.table.join('alice');
+    await live.table.join('bob');
+    await live.table.setReady(0);
+    await live.table.setReady(1);
+    let writes = 0;
+    const realSet = live.playerStore.setBalance.bind(live.playerStore);
+    // The second write never lands: that is the crash.
+    live.playerStore.setBalance = (name: string, balance: number) =>
+      ++writes === 1 ? realSet(name, balance) : new Promise<void>(() => {});
+    const folder = live.table.holdemHand!.actingPlayerId!;
+    void live.table.submitAction(live.table.seats.findIndex((s) => s?.displayName === folder), 'fold');
+    await wait(10);
+    expect(writes).toBe(2);
+
+    // A fresh server: the same balances file, the same uncleared log.
+    const recovered = makeTable();
+    for (const name of ['alice', 'bob']) {
+      await recovered.playerStore.setBalance(name, await live.playerStore.getBalance(name));
+    }
+    recovered.handLog.entries = JSON.parse(JSON.stringify(live.handLog.entries));
+    await recovered.table.recoverFromLog();
+
+    const other = folder === 'alice' ? 'bob' : 'alice';
+    await expect(recovered.playerStore.getBalance(folder)).resolves.toBe(995);
+    await expect(recovered.playerStore.getBalance(other)).resolves.toBe(1005);
+    expect(recovered.handLog.entries).toEqual([]);
+  });
+
+  it('I3: a failed write while recovering a settled hand still writes the others and clears the log', async () => {
+    // Keeping the log would be worse: startHand appends to it, so the next hand's entries would
+    // follow this hand's start entry and the next recovery would replay a mix of both.
+    const { table, handLog, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
+    const realSet = playerStore.setBalance.bind(playerStore);
+    playerStore.setBalance = async (name: string, balance: number) => {
+      if (name === 'alice') throw new Error('disk full');
+      return realSet(name, balance);
+    };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    handLog.entries = await aliceFoldsLog();
+
+    await table.recoverFromLog();
+
+    await expect(playerStore.getBalance('bob')).resolves.toBe(1005);
+    expect(handLog.entries).toEqual([]);
+    // The admin can set it by hand from the server log.
+    expect(errors.mock.calls.some((c) => String(c[0]).includes('alice') && String(c[0]).includes('995'))).toBe(true);
+    errors.mockRestore();
+  });
+
+  it('seats an unfinished recovered Hold\'em hand with the stacks it was dealt from, not the balances file', async () => {
+    const { table, handLog, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
+    // An earlier best-effort write failed, so the file is behind the live balance.
+    await playerStore.setBalance('alice', 700);
+    const [started] = await aliceFoldsLog({ alice: 900, bob: 1000 });
+    handLog.entries = [started, { type: 'holdem_action', data: { playerId: 'alice', action: 'call' } }];
+
+    await table.recoverFromLog();
+
+    expect(table.handInProgress).toBe(true);
+    expect(table.seats[0]?.balance).toBe(900);
+    expect(table.seats[1]?.balance).toBe(1000);
   });
 
   it('reconstructs an in-progress Blackjack hand from a hand-crafted shared shoe', async () => {

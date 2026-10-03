@@ -979,6 +979,27 @@ export class Table {
   // something before constructing this Table (socketServer.ts's startup-mode
   // detection) doesn't cause every line -- including a torn-trailing-line
   // warning -- to be read, parsed, and logged twice.
+  // A crash can land before, between or after settleHoldem's per-player writes (audit I3). Writing
+  // absolute balances (the stack at the deal plus the net payout) gives the same numbers in every
+  // case, so it is safe to run whatever had already landed. Best-effort per player, like
+  // settleHoldem: the log is cleared either way, because startHand appends to it and a kept log
+  // would put the next hand's entries after this hand's start.
+  private async writeRecoveredHoldemBalances(players: HoldemPlayerInput[], hand: HoldemHand): Promise<void> {
+    for (const result of hand.results) {
+      const player = players.find((p) => p.playerId === result.playerId);
+      if (!player) continue;
+      const balance = player.stack + result.payout;
+      try {
+        await this.deps.playerStore.setBalance(player.playerId, balance);
+      } catch (err) {
+        console.error(
+          `Table: failed to write ${player.playerId}'s balance of ${balance} while recovering a finished Hold'em hand; set it by hand:`,
+          err
+        );
+      }
+    }
+  }
+
   async recoverFromLog(entries?: HandLogEntry[]): Promise<void> {
     try {
       const loaded = entries ?? (await this.deps.handLog.readAll());
@@ -1010,17 +1031,20 @@ export class Table {
           }
         }
         if (hand.street === 'settled') {
+          await this.writeRecoveredHoldemBalances(players, hand);
           await this.deps.handLog.clear();
           return;
         }
+        // The stacks the hand was dealt from, not the balances file: a Hold'em seat's balance does
+        // not change mid-hand, so the logged stack is the live balance at the crash, and the file
+        // is behind it if an earlier best-effort settlement write failed.
         for (let i = 0; i < players.length; i++) {
-          const balance = await this.deps.playerStore.getBalance(players[i].playerId);
           this.seats[i] = {
             seatIndex: i,
             displayName: players[i].playerId,
             connected: false,
             ready: false,
-            balance,
+            balance: players[i].stack,
           };
         }
         this.holdemHand = hand;
