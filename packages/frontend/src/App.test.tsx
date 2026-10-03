@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import App from './App';
 import {
   makeAppState,
@@ -245,6 +245,18 @@ describe('App', () => {
   });
 
   describe('Blackjack 2D/3D view', () => {
+    // jsdom's default 1024×768 window is below OVERLAY_MIN_WIDTH (1200), which would always pick
+    // the flat view; these tests need a window wide enough for the 3D one.
+    const jsdomSize = { w: window.innerWidth, h: window.innerHeight };
+    beforeEach(() => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: 720 });
+    });
+    afterEach(() => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: jsdomSize.w });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: jsdomSize.h });
+    });
+
     async function seatAtBlackjack() {
       render(<App />);
       act(() => {

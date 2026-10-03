@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { HudLayout } from '../hud/TableHud';
 
-// Which table view to show (Plan B spec §2.1). Gate 3 may tune the two thresholds.
-export const OVERLAY_MIN_WIDTH = 900;
+// Which table view to show (Plan B spec §2.1). Gate 3 raised the width from 900 to 1200: at 900 px the
+// smallest HUD text (card ranks, badges, status) rendered at 5-7 px, and a window snapped to half
+// of a 1920 screen (960 px) is better served by the flat view.
+export const OVERLAY_MIN_WIDTH = 1200;
 export const OVERLAY_MIN_ASPECT = 1.25;
 
 export type ViewPref = '3d' | 'flat';

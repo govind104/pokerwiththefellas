@@ -5,12 +5,12 @@ describe('chooseTableLayout', () => {
   const wide = { width: 1280, height: 720 };
   it('uses the overlay on a wide enough window when 3D is wanted and working', () => {
     expect(chooseTableLayout({ ...wide, pref: '3d', failed: false })).toBe('overlay');
-    expect(chooseTableLayout({ width: 1024, height: 768, pref: '3d', failed: false })).toBe('overlay');
+    expect(chooseTableLayout({ width: 1200, height: 900, pref: '3d', failed: false })).toBe('overlay');
   });
   it('goes flat by choice, on failure, or when the window is too narrow or too tall', () => {
     expect(chooseTableLayout({ ...wide, pref: 'flat', failed: false })).toBe('column');
     expect(chooseTableLayout({ ...wide, pref: '3d', failed: true })).toBe('column');
-    expect(chooseTableLayout({ width: 899, height: 500, pref: '3d', failed: false })).toBe('column');
+    expect(chooseTableLayout({ width: 1199, height: 700, pref: '3d', failed: false })).toBe('column');
     expect(chooseTableLayout({ width: 1280, height: 1100, pref: '3d', failed: false })).toBe('column');
     expect(chooseTableLayout({ width: 1280, height: 0, pref: '3d', failed: false })).toBe('column');
   });
