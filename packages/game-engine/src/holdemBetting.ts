@@ -34,9 +34,7 @@ export function validateAction(context: BettingContext, action: HoldemAction, am
       if (context.toCall === 0) {
         throw new Error('Cannot call when there is nothing to call');
       }
-      if (context.playerStack < context.toCall) {
-        throw new Error('Not enough chips to call in full — go all-in instead');
-      }
+      // A stack shorter than the call is still a legal call: all-in for less (see chipsToCommit).
       return;
     case 'raise': {
       if (amount === undefined) {
@@ -76,7 +74,7 @@ export function chipsToCommit(context: BettingContext, action: HoldemAction, amo
     case 'check':
       return 0;
     case 'call':
-      return context.toCall;
+      return Math.min(context.toCall, context.playerStack);
     case 'raise':
       if (amount === undefined) {
         throw new Error('Raise requires an amount');

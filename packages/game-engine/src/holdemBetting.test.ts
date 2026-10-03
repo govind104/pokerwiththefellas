@@ -40,9 +40,9 @@ describe('validateAction', () => {
     expect(() => validateAction(context, 'call')).not.toThrow();
   });
 
-  it('rejects calling when the player cannot afford a full call', () => {
+  it('allows a short call, which puts the whole stack in (all-in for less)', () => {
     const context = computeBettingContext(100, 20, 0, 30);
-    expect(() => validateAction(context, 'call')).toThrow('Not enough chips to call in full — go all-in instead');
+    expect(() => validateAction(context, 'call')).not.toThrow();
   });
 
   it('rejects a raise below the minimum', () => {
@@ -110,6 +110,11 @@ describe('chipsToCommit', () => {
   it('commits exactly toCall for a call', () => {
     const context = computeBettingContext(20, 20, 5, 100);
     expect(chipsToCommit(context, 'call')).toBe(15);
+  });
+
+  it('commits only the remaining stack for a short call', () => {
+    const context = computeBettingContext(100, 20, 0, 30);
+    expect(chipsToCommit(context, 'call')).toBe(30);
   });
 
   it('commits amount minus what was already in for a raise', () => {
