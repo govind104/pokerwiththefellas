@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import type { SeatView, HoldemView } from '@poker-blackjack/server/src/table';
 import type { HoldemAction, Card } from '@poker-blackjack/game-engine';
 import type { ConnectionStatus } from '../socket/SocketContext';
-import { Button } from '../components/Button';
-import { buildPokerModel, amountToCall } from './pokerModel';
+import { HoldemHud } from '../hud/HoldemHud';
+import { NO_BLINDS, type BlindSeats } from '../hud/hudModel';
+import { buildPokerModel } from './pokerModel';
 import { TableStage } from './TableStage';
 
 export interface Poker3DProps {
@@ -19,8 +20,15 @@ export interface Poker3DProps {
   // True while a sent action awaits the server's response: the action buttons stay disabled.
   actionPending?: boolean;
   onSwitchTo2D: () => void;
-  // Called if WebGL can't start, so the parent can fall back to the 2D table.
+  // Called if WebGL can't start, so the parent can fall back to the flat view.
   onUnsupported: () => void;
+  // From the table view (Plan B spec §5.1); optional so the dev harness and tests can omit them.
+  blinds?: BlindSeats;
+  turnClockRemainingMs?: number | null;
+  // The table's actionSeq, to restart the countdown on every new turn.
+  actionSeq?: number;
+  // Extra controls for the top-left cluster (Admin).
+  controls?: ReactNode;
 }
 
 function describeCard(c: Card | null): string {
@@ -40,20 +48,12 @@ export function Poker3D({
   actionPending = false,
   onSwitchTo2D,
   onUnsupported,
+  blinds = NO_BLINDS,
+  turnClockRemainingMs = null,
+  actionSeq,
+  controls,
 }: Poker3DProps) {
-  const [raiseAmount, setRaiseAmount] = useState(0);
   const model = useMemo(() => buildPokerModel({ seats, mySeatIndex, holdem }), [seats, mySeatIndex, holdem]);
-
-  const myName = seats.find((s) => s.seatIndex === mySeatIndex)?.displayName;
-  const me = holdem?.players.find((p) => p.playerId === myName) ?? null;
-  const showActions = model.myTurn && !!me?.holeCards;
-  const toCall = holdem && me ? amountToCall(holdem, me) : 0;
-
-  // A value typed into the raise field on one street/turn must not leak into
-  // the next: reset whenever the street or the acting player changes.
-  useEffect(() => {
-    setRaiseAmount(0);
-  }, [holdem?.street, holdem?.actingPlayerId]);
 
   const summary = (
     <>
@@ -86,50 +86,24 @@ export function Poker3D({
       onSwitchTo2D={onSwitchTo2D}
       onUnsupported={onUnsupported}
       summary={summary}
-    >
-      {showActions && (
-        <div className="flex flex-wrap items-center justify-center gap-2 px-2">
-          <Button variant="danger" size="md" disabled={actionPending} onClick={() => onAction('fold')}>
-            Fold
-          </Button>
-          <Button
-            variant="neutral"
-            size="md"
-            disabled={actionPending || toCall > 0}
-            title={toCall > 0 ? 'You are facing a bet' : undefined}
-            onClick={() => onAction('check')}
-          >
-            Check
-          </Button>
-          <Button
-            variant="neutral"
-            size="md"
-            disabled={actionPending || toCall === 0}
-            title={toCall === 0 ? 'Nothing to call' : undefined}
-            onClick={() => onAction('call')}
-          >
-            {toCall > 0 ? `Call ${toCall}` : 'Call'}
-          </Button>
-          <input
-            type="number"
-            value={raiseAmount}
-            // Whole, non-negative chips only.
-            onChange={(event) => setRaiseAmount(Math.max(0, Math.floor(Number(event.target.value) || 0)))}
-            aria-label="Raise amount"
-            min={1}
-            step={1}
-            max={me ? me.stack : undefined}
-            className="w-20 rounded-md border border-wood-grain bg-surface px-2 py-2 text-fg"
-          />
-          <Button variant="primary" size="md" disabled={actionPending} onClick={() => onAction('raise', raiseAmount)}>
-            Raise
-          </Button>
-          <Button variant="danger" size="md" disabled={actionPending} onClick={() => onAction('all-in')}>
-            All In
-          </Button>
-        </div>
-      )}
-    </TableStage>
+      controls={controls}
+      hud={
+        <HoldemHud
+          layout="overlay"
+          seats={seats}
+          mySeatIndex={mySeatIndex}
+          handInProgress={handInProgress}
+          holdem={holdem}
+          blinds={blinds}
+          turnClockRemainingMs={turnClockRemainingMs}
+          actionSeq={actionSeq}
+          actionPending={actionPending}
+          onAction={onAction}
+          onReady={onReady}
+          onLeave={onLeave}
+        />
+      }
+    />
   );
 }
 

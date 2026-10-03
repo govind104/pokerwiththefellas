@@ -1,7 +1,7 @@
 import { Component, type ReactNode } from 'react';
 
 // If the lazy 3D chunk fails to load or the scene throws while rendering, fall back
-// to the 2D table instead of blanking the whole app.
+// to the flat view instead of blanking the whole app.
 export class View3DBoundary extends Component<{ onError: () => void; children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
 
@@ -10,7 +10,7 @@ export class View3DBoundary extends Component<{ onError: () => void; children: R
   }
 
   componentDidCatch(error: unknown) {
-    console.error('3D table failed, falling back to 2D:', error);
+    console.error('3D table failed, falling back to the flat view:', error);
     this.props.onError();
   }
 

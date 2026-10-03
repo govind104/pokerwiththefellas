@@ -34,6 +34,8 @@ export interface CardSlot {
   z: number;
   rotY: number;
   order: number;
+  // A winner's best-five card at a Hold'em showdown: lifted and glowing (base spec §B2).
+  highlight?: boolean;
 }
 
 export interface ChipStackModel {

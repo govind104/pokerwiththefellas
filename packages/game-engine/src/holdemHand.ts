@@ -57,6 +57,10 @@ export class HoldemHand {
   results: HoldemResult[] = [];
   /** True once the hand settled by comparing hands; false if it ended with everyone else folding. */
   wentToShowdown = false;
+  /** Who holds the button and who posted each blind this hand. Heads-up the button is the small blind. */
+  readonly buttonPlayerId: string;
+  readonly smallBlindPlayerId: string;
+  readonly bigBlindPlayerId: string;
 
   private deck: Card[];
   private buttonIndex: number;
@@ -114,6 +118,9 @@ export class HoldemHand {
 
     this.postBlind(smallBlindIndex, config.smallBlind);
     this.postBlind(bigBlindIndex, config.bigBlind);
+    this.buttonPlayerId = this.players[this.buttonIndex].playerId;
+    this.smallBlindPlayerId = this.players[smallBlindIndex].playerId;
+    this.bigBlindPlayerId = this.players[bigBlindIndex].playerId;
 
     this.bigBlindAmount = config.bigBlind;
     this.currentBet = config.bigBlind;

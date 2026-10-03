@@ -7,35 +7,14 @@ import { AdminEntry } from './components/AdminEntry';
 import { AdminPanel } from './components/AdminPanel';
 import { Lobby } from './components/Lobby';
 import { JoinScreen } from './components/JoinScreen';
-import { PokerTable } from './components/PokerTable';
-import { BlackjackTable } from './components/BlackjackTable';
 import { resolveServerUrl } from './serverUrl';
 import { View3DBoundary } from './three/View3DBoundary';
+import { FlatTable } from './table/FlatTable';
+import { chooseTableLayout, readViewPref, useWindowSize, writeViewPref, type ViewPref } from './table/tableLayout';
 
 // three.js is only fetched when a 3D table view (Blackjack or Hold'em) is actually shown.
 const Blackjack3D = lazy(() => import('./three/Blackjack3D'));
 const Poker3D = lazy(() => import('./three/Poker3D'));
-
-const VIEW_KEY = 'table.view';
-
-function readView(): '2d' | '3d' {
-  try {
-    const stored = window.localStorage.getItem(VIEW_KEY);
-    if (stored === '2d' || stored === '3d') return stored;
-  } catch {
-    /* storage unavailable */
-  }
-  // No stored choice: 3D on desktop-sized screens, 2D on phones.
-  return window.innerWidth >= 900 ? '3d' : '2d';
-}
-
-function writeView(v: '2d' | '3d'): void {
-  try {
-    window.localStorage.setItem(VIEW_KEY, v);
-  } catch {
-    /* preference just won't persist */
-  }
-}
 
 // The same-origin fallback (page origin) is correct for `npm run play`
 // (single process) and for `npm run dev` (vite.config.ts proxies
@@ -64,76 +43,97 @@ function TableView({
   onAction: (action: PlayerAction | HoldemAction, amount?: number) => void;
   onLeave: () => void;
 }) {
-  const [view, setView] = useState<'2d' | '3d'>(readView);
-  const chooseView = (v: '2d' | '3d') => {
-    writeView(v);
-    setView(v);
+  const [pref, setPref] = useState<ViewPref>(readViewPref);
+  // 3D failed this session (no WebGL, lost context, a three.js error): flat until a reload, and
+  // the stored preference is left alone (Plan B spec §2.1 rule 2).
+  const [failed, setFailed] = useState(false);
+  const size = useWindowSize();
+  const layout = chooseTableLayout({ ...size, pref, failed });
+  const choose = (p: ViewPref) => {
+    writeViewPref(p);
+    setPref(p);
   };
-  const sharedProps = {
-    seats: table.seats,
-    mySeatIndex,
-    connectionStatus,
-    handInProgress: table.handInProgress,
-    errorMessage,
-    actionPending,
-    onReady,
-    onLeave,
-  };
+  const adminControls = (
+    <>
+      <AdminEntry inline />
+      <AdminPanel />
+    </>
+  );
 
-  if (view === '3d') {
+  if (layout === 'overlay') {
+    const sharedProps = {
+      seats: table.seats,
+      mySeatIndex,
+      connectionStatus,
+      handInProgress: table.handInProgress,
+      errorMessage,
+      actionPending,
+      onReady,
+      onLeave,
+      turnClockRemainingMs: table.turnClockRemainingMs,
+      actionSeq: table.actionSeq,
+      controls: adminControls,
+      onSwitchTo2D: () => choose('flat'),
+      onUnsupported: () => setFailed(true),
+    };
     return (
-      <View3DBoundary onError={() => setView('2d')}>
-      <Suspense
-        fallback={
-          <main className="flex min-h-screen items-center justify-center bg-black text-fg-dim">
-            <p>Pulling up a chair&hellip;</p>
-          </main>
-        }
-      >
-        {table.gameMode === 'holdem' ? (
-          <Poker3D
-            {...sharedProps}
-            holdem={table.holdem}
-            onAction={onAction}
-            onSwitchTo2D={() => chooseView('2d')}
-            // No WebGL: fall back without overwriting the user's stored preference.
-            onUnsupported={() => setView('2d')}
-          />
-        ) : (
-          <Blackjack3D
-            {...sharedProps}
-            activeSeatIndex={table.activeSeatIndex}
-            blackjackRounds={table.blackjackRounds}
-            onAction={onAction}
-            onSwitchTo2D={() => chooseView('2d')}
-            onUnsupported={() => setView('2d')}
-          />
-        )}
-      </Suspense>
+      <View3DBoundary onError={() => setFailed(true)}>
+        <Suspense
+          fallback={
+            <main className="flex min-h-screen items-center justify-center bg-black text-fg-dim">
+              <p>Pulling up a chair&hellip;</p>
+            </main>
+          }
+        >
+          {table.gameMode === 'holdem' ? (
+            <Poker3D
+              {...sharedProps}
+              holdem={table.holdem}
+              blinds={{
+                buttonSeatIndex: table.buttonSeatIndex,
+                smallBlindSeatIndex: table.smallBlindSeatIndex,
+                bigBlindSeatIndex: table.bigBlindSeatIndex,
+              }}
+              onAction={onAction}
+            />
+          ) : (
+            <Blackjack3D
+              {...sharedProps}
+              activeSeatIndex={table.activeSeatIndex}
+              blackjackRounds={table.blackjackRounds}
+              onAction={onAction}
+            />
+          )}
+        </Suspense>
       </View3DBoundary>
     );
   }
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => chooseView('3d')}
-        className="fixed left-3 top-3 z-40 rounded-md border border-wood-grain bg-surface px-2 py-1 font-utility text-xs text-parchment"
-      >
-        3D view
-      </button>
-      {table.gameMode === 'holdem' ? (
-        <PokerTable {...sharedProps} holdem={table.holdem} onAction={onAction} />
-      ) : (
-        <BlackjackTable
-          {...sharedProps}
-          activeSeatIndex={table.activeSeatIndex}
-          blackjackRounds={table.blackjackRounds}
-          onAction={onAction}
-        />
-      )}
-    </>
+    <FlatTable
+      table={table}
+      mySeatIndex={mySeatIndex}
+      connectionStatus={connectionStatus}
+      errorMessage={errorMessage}
+      actionPending={actionPending}
+      onReady={onReady}
+      onAction={onAction}
+      onLeave={onLeave}
+      controls={
+        <>
+          {pref === 'flat' && (
+            <button
+              type="button"
+              onClick={() => choose('3d')}
+              className="rounded-md border border-wood-grain bg-surface px-2 py-1 font-utility text-xs text-parchment"
+            >
+              3D view
+            </button>
+          )}
+          {adminControls}
+        </>
+      }
+    />
   );
 }
 
@@ -184,12 +184,21 @@ function AppContent() {
     );
   }
 
+  const atTable = (status === 'at-table' || status === 'reconnecting') && !!state.table;
   return (
     <>
-      <AdminEntry />
+      {!atTable && <AdminEntry />}
+      {/* Off-table the panel is a fixed corner widget under the Admin label (it was fixed
+          bottom-right before the HUD moved it into the at-table cluster); the cluster owns it at
+          the table. */}
+      {!atTable && (
+        <div className="fixed right-2 top-9 z-50 w-64">
+          <AdminPanel />
+        </div>
+      )}
       {status === 'lobby' && <Lobby />}
       {status === 'entering-name' && <JoinScreen />}
-      {(status === 'at-table' || status === 'reconnecting') && state.table && (
+      {atTable && state.table && (
         <TableView
           table={state.table}
           mySeatIndex={state.mySeatIndex}
@@ -201,7 +210,6 @@ function AppContent() {
           onLeave={leave}
         />
       )}
-      <AdminPanel />
     </>
   );
 }

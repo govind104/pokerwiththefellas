@@ -47,19 +47,18 @@ describe('Poker end-to-end via App', () => {
     // Wait for alice's real App instance to reflect bob's join before moving
     // on -- see the module doc comment above for why this findBy* sync point
     // (act-wrapped by testing-library) matters here.
-    await within(screen.getByTestId('player-info-1')).findByText('bob', { exact: false });
+    await within(screen.getByTestId('hud-player-1')).findByText('bob', { exact: false });
 
     bobSocket.emit('ready');
-    await within(screen.getByTestId('player-info-1')).findByText(/^Ready$/);
+    await within(screen.getByTestId('hud-player-1')).findByText(/^Ready$/);
 
     await userEvent.click(screen.getByRole('button', { name: /^ready$/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('my-hand').querySelectorAll('img')).toHaveLength(2);
+      expect(within(screen.getByTestId('hud-player-0')).getAllByRole('img')).toHaveLength(2);
     });
-    // My own hole cards are real card images; the opponent gets no card
-    // element at all mid-hand (their rail row is identity/status only).
-    expect(screen.getByTestId('player-info-1').querySelector('img, svg[role="img"]')).not.toBeInTheDocument();
+    // The opponent's cards stay hidden mid-hand: their row lists no cards at all.
+    expect(within(screen.getByTestId('hud-player-1')).queryAllByRole('img')).toHaveLength(0);
   });
 
   it('sendAction round-trips: calling advances the acting player from alice to bob', async () => {
@@ -78,33 +77,33 @@ describe('Poker end-to-end via App', () => {
     await new Promise<void>((resolve) => bobSocket.on('connect', resolve));
     bobSocket.emit('join', { displayName: 'bob' });
     await new Promise<void>((resolve) => bobSocket.once('state', () => resolve()));
-    await within(screen.getByTestId('player-info-1')).findByText('bob', { exact: false });
+    await within(screen.getByTestId('hud-player-1')).findByText('bob', { exact: false });
 
     bobSocket.emit('ready');
-    await within(screen.getByTestId('player-info-1')).findByText(/^Ready$/);
+    await within(screen.getByTestId('hud-player-1')).findByText(/^Ready$/);
 
     await userEvent.click(screen.getByRole('button', { name: /^ready$/i }));
 
     // On the first hand, seat 0 (alice) is the button/small blind and acts
     // first preflop in this heads-up table -- her own action controls
-    // appearing is the turn signal (she has no rail row to carry
-    // data-active, since the rail only lists opponents).
-    await screen.findByRole('button', { name: /^call$/i });
+    // appearing is the turn signal (alice's own row is hud-player-0; bob's
+    // turn shows as data-active on hud-player-1).
+    await screen.findByRole('button', { name: /^call/i });
 
     // The wire payload this proves: SocketContext.sendAction emits
     // { action: 'call', amount: undefined } over the real socket, the server
     // applies it, and pushes a fresh `state` back that moves the acting
     // player on to bob.
-    await userEvent.click(screen.getByRole('button', { name: /^call$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^call/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('player-info-1')).toHaveAttribute('data-active', 'true');
+      expect(screen.getByTestId('hud-player-1')).toHaveAttribute('data-active', 'true');
     });
     // It's no longer alice's turn, so her action controls should be gone.
-    expect(screen.queryByRole('button', { name: /^call$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^call/i })).not.toBeInTheDocument();
   });
 
-  it('an illegal action (checking while facing a bet) surfaces the error banner', async () => {
+  it('an illegal action (a raise below the minimum) surfaces the error banner', async () => {
     const { App } = ctx;
     render(<App />);
     // See the first test in this file for why this wait is needed before
@@ -120,19 +119,19 @@ describe('Poker end-to-end via App', () => {
     await new Promise<void>((resolve) => bobSocket.on('connect', resolve));
     bobSocket.emit('join', { displayName: 'bob' });
     await new Promise<void>((resolve) => bobSocket.once('state', () => resolve()));
-    await within(screen.getByTestId('player-info-1')).findByText('bob', { exact: false });
+    await within(screen.getByTestId('hud-player-1')).findByText('bob', { exact: false });
 
     bobSocket.emit('ready');
-    await within(screen.getByTestId('player-info-1')).findByText(/^Ready$/);
+    await within(screen.getByTestId('hud-player-1')).findByText(/^Ready$/);
 
     await userEvent.click(screen.getByRole('button', { name: /^ready$/i }));
 
-    // Alice (small blind, first to act preflop heads-up) still owes the
-    // difference to the big blind -- checking here is illegal and the
-    // server rejects it via an `error` event instead of a `state` update.
-    await screen.findByRole('button', { name: /^check$/i });
-    await userEvent.click(screen.getByRole('button', { name: /^check$/i }));
+    // Alice (small blind, first to act heads-up) presses Raise with the field still at 0: the
+    // server rejects it with an `error` event instead of a `state` update. (Check is greyed out
+    // in the HUD while facing a bet, so it can no longer be used to provoke an error.)
+    await screen.findByRole('button', { name: /^raise$/i });
+    await userEvent.click(screen.getByRole('button', { name: /^raise$/i }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/cannot check while facing a bet/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/raise must be to at least/i);
   });
 });

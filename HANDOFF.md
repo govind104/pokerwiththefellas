@@ -5,29 +5,56 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 (see "After Plan 6" below). Start here if you're new to this repo; `docs/README.md` says
 which docs are kept current and which are historical records.
 
-## Next steps (updated 2026-10-02, after audit item 6)
+## Next steps (updated 2026-10-03, after 3D readability Plan B)
 
 `master` holds audit items 1-5 (PR #14), 3D readability Plan A (PR #15) and audit item 6
-(unsticking tables, merged from `audit/item6-unsticking-tables`). Work on a branch and merge
-through a PR. This list is the order to work in. The sections below hold the detail.
+(unsticking tables, merged from `audit/item6-unsticking-tables`). Plan B is done on
+`feat/3d-plan-b-hud` and not yet merged. Work on a branch and merge through a PR. This list is the order to work in. The sections below hold the detail.
 
 1. ~~Audit fix item 6, "unsticking tables" (I6, I11, I10)~~ **Done 2026-10-02**: admin Remove from
    table / Act for / turn clock, server-confirmed leave, rejoin after two quick drops. Commits
    `ec704cf`..the item-6 docs commit; detail in the audit progress table and "Next step" item 3.
-2. **3D readability Plan B (HUD and showdown, spec §6).** Next. Brainstorm the 2D-view decision below
-   first. Detail and things to check at its gate are in "Next step" item 2 below. Also from item 6:
-   - show the turn clock countdown (`turnClockSeconds` is in every state; the server sends no
-     deadline yet);
-   - decide whether Leave shows mid-hand for a player who isn't dealt in (the server allows it
-     since item 6);
-   - the admin panel grew with item 6's forms and, at a short window (800x450), runs off the top of
-     the screen with no way to scroll to it ("Switch to Blackjack" unreachable). Fix the panel's
-     scrolling with the HUD work.
+2. ~~**3D readability Plan B (HUD, showdown, flat view).**~~ **Done on the branch 2026-10-03; PR pending**
+   (final whole-branch review passed after one fix round; the merge decision is the user's). Branch
+   `feat/3d-plan-b-hud`, commits `5ddfebe`..`a5cb58b` (implementation, docs, then the final-review
+   fixes: the turn clock was armed after the broadcast, so every view carried the previous turn's
+   timer; mid-hand Leave was dropped client-side).
+   - **Spec:** `docs/superpowers/specs/2026-10-02-3d-plan-b-hud-design.md` (amends base spec §6).
+     **Plan:** `docs/superpowers/plans/2026-10-02-3d-plan-b-hud.md`. Approved visual:
+     `.playtest-data/plan-b-preview/plan-b-visual.html` (git-ignored).
+   - **What shipped:** an overlay HUD over the 3D view (player list with blind badges and the turn
+     clock, board/dealer panel, action prompts with keyboard shortcuts F/C/R/H/S/D/P/Space); the
+     showdown lift and glow of the winners' best five; a flat HUD view that replaces the deleted 2D
+     view (the 2D components and `panelStyles.ts` went in Task 9); `Room.dispose()` (Plan A's deferred
+     follow-up); the admin panel scrolls and sits inline in the top-left cluster at the table; Leave
+     mid-hand for a seat not dealt in; new server view fields (blind seats, showdown hand name and
+     best five, turn-clock time left). The toggle buttons are "Flat view" / "3D view"
+     (`table.view` in `localStorage`; `'2d'` means flat).
+   - **Hard rule from the user, kept: nothing built for the 3D side may break.** Gate 3 measured the
+     3D canvas pixel diff at 0.0000% on all 12 baseline shots.
+   - **Gate 3** approved by the user 2026-10-03; findings in `.playtest-data/plan-b-gates/gate3/findings.md`
+     (git-ignored). **Threshold change:** `OVERLAY_MIN_WIDTH` raised from 900 to 1200, because the HUD
+     text at 900 px was 5-7 px high (a half-snapped 1920 window gets the flat view). `OVERLAY_MIN_ASPECT`
+     stays 1.25. So: 3D with the overlay HUD at >= 1200 px wide and aspect >= 1.25, unless the user
+     chose flat or WebGL failed; otherwise the flat view.
+   - **Known follow-ups (low priority, under Plan B or the leftovers item):**
+     - mini-card ranks are about 7 px at 1200 px wide: consider enlarging the HUD's smallest text;
+     - the off-table "Admin panel" button is not flush right on the join screen;
+     - a possible tween overlap when a showdown lift lands during an all-in runout deal: cancel the
+       previous tween in `moveTo` if it is seen.
+     - Deferred by the final review (one cleanup commit when convenient): `TableStageProps` still
+       declares unused `seats`/`mySeatIndex`/`handInProgress`/`onReady`/`onLeave`; sceneModel's
+       `outcomes` and seat `plate` are now unused (sceneModel is protected, so remove deliberately);
+       banner markup duplicated in `table/Banners.tsx` and `three/TableStage.tsx`; the 3D sr-only
+       live summary repeats what the HUD shows; "2D" comments at `three/pokerModel.ts:61` and
+       `three/sceneModel.ts:161`; `noThree.test.ts` only sees single-quoted static imports; the dust
+       `Points` geometry is not disposed on unmount.
+     - Mid-hand Leave and the live turn countdown were never driven against a real server in a
+       browser (Gate 3 used harness fixtures); check both at the next playtest.
 3. **The rest of the audit, in the report's §8 order:**
    - **I3:** idempotent Hold'em settlement on recovery, together with the MIN-1/MIN-2 lock races.
    - **Short stacks (I8, M1, M3, M24):** the call-for-less offered as an all-in, integer chips,
      the heads-up short big blind, and side pots plus an "All in" label.
-   - **2D fixes (I12, I13's 2D half, M25's 2D nits):** skip these if the 2D view is retired.
    - **3D polish (I14, I15, M16-M18, M25-M26):** first check which ones Plan A already fixed, e.g.
      M26's `dealerActive` and M25's "seats shift sides" and "own plate detached". Then fix the rest.
    - **The remaining Minors** in the report's §6 table.
@@ -37,17 +64,17 @@ through a PR. This list is the order to work in. The sections below hold the det
    - the item-5 known limitations, e.g. the DNS-rebinding Host allowlist and join errors not
      tagged `scope: 'join'`;
    - MIN-3 and MIN-4;
-   - Plan A's deferred follow-ups ("Next step" item 2 below).
+   - Plan A's remaining deferred follow-ups ("Next step" item 2 below; `Room.dispose()` is done);
+   - Plan B's known follow-ups (item 2 above).
 
-**Open decision: retire the 2D view?** The user is considering scrapping it as too primitive
-(2026-10-02). It is not just an alternative look, though: `App.tsx:29` picks 2D whenever the window
-is narrower than 900 px, so **2D is the phone view**. A phone played a full hand over Tailscale on
-2026-10-01. Recommendation: settle this in Plan B's brainstorm, not before.
-- Plan B's HUD is the React overlay a phone UI needs anyway. If the 3D view plus the HUD can work
-  on a phone (portrait camera framing, the HUD reflowing below 900 px, WebGL performance on a
-  mid-range phone), the 2D table becomes redundant and can be deleted.
-- If not, keep 2D as the phone-only view.
-- Until then, freeze the 2D view: no 2D-only fixes.
+**Decided 2026-10-02: the 2D view is retired. Resolved 2026-10-03:** Plan B Task 9 deleted it. Phones
+are out of scope (the group plays on laptops). The 2D view's two jobs, the 3D-failure fallback and
+the narrow-window view, now belong to the flat HUD layout, with a "Flat view" / "3D view" toggle.
+Details in the Plan B spec.
+
+**Decided 2026-10-03:** the group plays on 1600×900-or-larger screens. The flat view is kept only as
+the WebGL-failure fallback and the small-window view (the integration tests also run through it) and
+gets no further polish. Phones and odd resolutions are out of scope.
 
 ## Audit fix progress (the 2026-10-01 audit)
 
@@ -192,15 +219,16 @@ fix re-review approved). Remaining:
      the dealer's cards are still being revealed) and back at the next deal. This follows from the
      §A1 fix. Revisit it in Plan B if it looks bad.
    - **Deferred follow-ups (not blocking):**
-     - a `Room.dispose()` that frees the room textures, the ~12 MB printed felt and `feltBase`;
+     - ~~a `Room.dispose()` that frees the room textures, the ~12 MB printed felt and `feltBase`~~ done in
+       Plan B (`8634411`);
      - `cameraFit.ts` `frameOutline` hands out mutable cached Vector3s;
      - give the Hold'em dev-harness steps real pots;
      - the Blackjack discard point touches the outer-left 6-player seat's cards for a moment when they
        are swept;
      - the harness "Dealer reveals" step and one model test still use the `phase: 'dealer'` state,
        which the server never sends (harmless).
-   - **Next: Plan B** (HUD and showdown, spec §6). Write its plan first (`superpowers:writing-plans`).
-     The HUD is sized to `three/hudZones.ts`. Plan B removes the projected name plates, pot label and
+   - **Plan B** (HUD and showdown, spec §6) is done on `feat/3d-plan-b-hud`: see "Next steps" item 2.
+     The HUD is sized to `three/hudZones.ts`. Plan B removed the projected name plates, pot label and
      outcome labels.
    - Loop used (keep it): the controller extracts briefs (`.superpowers/sdd/planA-task-N-brief.md`),
      implementers don't commit, the controller packages the working tree with `wt-package.sh`, a
@@ -456,9 +484,10 @@ WebAudio (off until the player clicks "Sound"). All in `packages/frontend/src/th
   because keys repeat from hand to hand. `advance(seconds)` steps the simulation deterministically.
 - `TableStage.tsx` is the shared React shell (canvas lifecycle, projected name plates, quality/sound
   controls, banners, Ready/Leave). `Blackjack3D.tsx` / `Poker3D.tsx` only supply model, sr-only
-  summary and their action buttons. `View3DBoundary.tsx` drops to 2D if the lazy chunk or scene throws.
+  summary and their action buttons. `View3DBoundary.tsx` drops to the flat view if the lazy chunk or scene throws (it was the 2D view
+  when this was written; Plan B replaced it).
 - `App.tsx` lazy-loads the 3D views behind a toggle persisted in `localStorage` (`table.view`, default 3D
-  at >= 900px wide), and falls back to 2D if WebGL cannot start. Quality is `bj3d.quality`, sound `bj3d.sound`.
+  at >= 900px wide then; Plan B raised it to 1200), and falls back to the flat view if WebGL cannot start. Quality is `bj3d.quality`, sound `bj3d.sound`.
 - Dev harness (not in the production build): `npm run dev --workspace=@poker-blackjack/frontend`, then
   `/dev3d.html?step=0..8&quality=low|medium|high` (add `game=poker`, steps 0..5). It drives a scripted hand with
   no server/admin. In dev, `window.__bj3d` exposes the scene (`advance(s)`, `debugCards()`, `getStats()`);
@@ -541,8 +570,9 @@ Per-workspace: `npm run test --workspace=@poker-blackjack/game-engine` /
    enter the passphrase to unlock the lobby's mode picker and the in-game admin panel
    (balance correction, blinds/bet, starting balance, mode switching).
 
-Tables open in the 3D view at >= 900px wide (`table.view` in `localStorage`; the
-"2D view"/"3D view" button switches); see "After Plan 6" for the 3D dev harness
+Tables open in the 3D view with the overlay HUD at >= 1200 px wide and aspect >= 1.25 (`table.view` in
+`localStorage`; the "Flat view"/"3D view" button switches; `'2d'` means flat); other windows, and
+browsers without WebGL, get the flat HUD view; see "After Plan 6" for the 3D dev harness
 (`/dev3d.html`, needs only the frontend dev server).
 
 **To host an actual session with friends** (rather than local development),

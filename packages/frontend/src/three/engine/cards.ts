@@ -68,6 +68,12 @@ export class CardObject {
     }
   }
 
+  // A winning card at a showdown glows warm (base spec §B2); off again for the next hand.
+  setHighlight(on: boolean): void {
+    this.frontMat.emissive.setHex(on ? 0xffb45a : 0x000000);
+    this.frontMat.emissiveIntensity = on ? 0.35 : 0;
+  }
+
   placeAt(t: CardTarget): void {
     this.group.position.set(t.x, t.y, t.z);
     this.group.rotation.y = t.rotY;

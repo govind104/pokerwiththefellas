@@ -4,6 +4,7 @@ import {
   HoldemHand,
   createDeck,
   shuffle,
+  describeHand,
   type HoldemPlayerInput,
   type HoldemHandConfig,
   type PlayerAction,
@@ -70,12 +71,20 @@ export interface HoldemPlayerView {
   holeCards: [Card, Card] | null;
 }
 
+/** A settled Hold'em result as the client sees it; the extra fields only exist at a real showdown. */
+export interface HoldemResultView extends HoldemResult {
+  /** pokersolver's description of the player's hand, e.g. "Two Pair, Q's & 7's" (Plan B spec §5.1). */
+  handName?: string;
+  /** The five cards that make that hand. */
+  bestCards?: Card[];
+}
+
 export interface HoldemView {
   street: HoldemStreet;
   communityCards: Card[];
   actingPlayerId: string | null;
   pots: Pot[];
-  results: HoldemResult[] | null;
+  results: HoldemResultView[] | null;
   players: HoldemPlayerView[];
 }
 
@@ -88,6 +97,12 @@ export interface TableStateView {
   actionSeq: number;
   /** Why the last attempt to start a hand failed (e.g. unplayable blinds); null once a hand starts. */
   handStartError: string | null;
+  /** Hold'em only (null otherwise): the button and blind seats, as startHand posted them (Plan B spec §5.1). */
+  buttonSeatIndex: number | null;
+  smallBlindSeatIndex: number | null;
+  bigBlindSeatIndex: number | null;
+  /** Time left on the turn clock when this view was built; null when the clock is off or no turn is open. */
+  turnClockRemainingMs: number | null;
   blackjackRounds: Record<number, BlackjackRoundView> | null;
   holdem: HoldemView | null;
 }
@@ -111,6 +126,14 @@ export interface AppStateView {
   turnClockSeconds: number;
 }
 
+// Hand names only exist where hands were compared: a real showdown, for players who did not fold.
+function showdownResult(hand: HoldemHand, result: HoldemResult): HoldemResultView {
+  const player = hand.players.find((p) => p.playerId === result.playerId);
+  if (!hand.wentToShowdown || !player || player.folded) return result;
+  const { description, bestCards } = describeHand(player.holeCards, hand.communityCards);
+  return { ...result, handName: description, bestCards };
+}
+
 export class Table {
   seats: (Seat | null)[];
   handInProgress = false;
@@ -127,6 +150,9 @@ export class Table {
   private handStartError: string | null = null;
   private disconnectTimers: Map<number, NodeJS.Timeout> = new Map();
   private turnClockTimer: NodeJS.Timeout | null = null;
+  // When the running turn clock was armed and for how long, so a view can say how much is left.
+  private turnClockArmedAt = 0;
+  private turnClockArmedMs = 0;
   private timedOutSeats: Set<number> = new Set();
   // Seats the admin removed while they were in the hand: they are acted for from then on, and the
   // seat is freed when the hand ends (audit I6).
@@ -549,6 +575,14 @@ export class Table {
         console.error('Table: error acting for a player whose turn clock ran out:', err);
       });
     }, turnClockMs);
+    this.turnClockArmedAt = Date.now();
+    this.turnClockArmedMs = turnClockMs;
+  }
+
+  // Every place that stops the clock also nulls turnClockTimer, so the timer is the source of truth.
+  private turnClockRemainingMs(): number | null {
+    if (!this.turnClockTimer) return null;
+    return Math.max(0, this.turnClockArmedMs - (Date.now() - this.turnClockArmedAt));
   }
 
   /** The admin's "Act for ..." (audit I6): the default action, once, for whoever is up. */
@@ -667,8 +701,10 @@ export class Table {
       await this.settleHoldem(this.holdemHand);
     }
 
-    this.deps.onStateChange();
+    // Arm before broadcasting: onStateChange builds every seat's view synchronously, and a view
+    // carries the clock as it stands at that moment (Plan B final review).
     this.armTurnClock();
+    this.deps.onStateChange();
   }
 
   /**
@@ -735,8 +771,9 @@ export class Table {
       await this.advanceBlackjackTurn();
     }
 
-    this.deps.onStateChange();
+    // Arm before broadcasting, as in startHand: the views must carry the next actor's fresh clock.
     this.armTurnClock();
+    this.deps.onStateChange();
 
     if (this.handInProgress) {
       const nextSeatIndex = this.actingSeatIndex();
@@ -1091,8 +1128,8 @@ export class Table {
     }
 
     let holdem: HoldemView | null = null;
-    const holdemSource = this.holdemHand ?? this.lastSettledHoldemHand;
-    if (this.config.gameMode === 'holdem' && holdemSource) {
+    const holdemSource = this.config.gameMode === 'holdem' ? (this.holdemHand ?? this.lastSettledHoldemHand) : null;
+    if (holdemSource) {
       const hand = holdemSource;
       const viewerDisplayName =
         viewerSeatIndex !== null ? (this.seats[viewerSeatIndex]?.displayName ?? null) : null;
@@ -1101,7 +1138,7 @@ export class Table {
         communityCards: hand.communityCards,
         actingPlayerId: hand.actingPlayerId,
         pots: hand.pots,
-        results: hand.street === 'settled' ? hand.results : null,
+        results: hand.street === 'settled' ? hand.results.map((r) => showdownResult(hand, r)) : null,
         players: hand.players.map((p) => ({
           playerId: p.playerId,
           stack: p.stack,
@@ -1116,6 +1153,12 @@ export class Table {
       };
     }
 
+    const seatOf = (playerId: string | undefined): number | null => {
+      if (!playerId) return null;
+      const i = this.seats.findIndex((s) => s?.displayName === playerId);
+      return i === -1 ? null : i;
+    };
+
     return {
       gameMode: this.config.gameMode,
       handInProgress: this.handInProgress,
@@ -1123,6 +1166,10 @@ export class Table {
       activeSeatIndex: this.activeSeatIndex,
       actionSeq: this.actionSeq,
       handStartError: this.handStartError,
+      buttonSeatIndex: seatOf(holdemSource?.buttonPlayerId),
+      smallBlindSeatIndex: seatOf(holdemSource?.smallBlindPlayerId),
+      bigBlindSeatIndex: seatOf(holdemSource?.bigBlindPlayerId),
+      turnClockRemainingMs: this.turnClockRemainingMs(),
       blackjackRounds,
       holdem,
     };

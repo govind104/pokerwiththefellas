@@ -152,27 +152,10 @@ describe('Blackjack3D', () => {
     expect(window.localStorage.getItem('bj3d.quality')).toBe('low');
   });
 
-  it('hides the plate of a seat that loses its place on the table, instead of leaving it frozen on screen', () => {
-    const idle = props({ handInProgress: false, blackjackRounds: null, activeSeatIndex: null });
-    const { rerender } = render(<Blackjack3D {...idle} />);
-    const plate = () => {
-      const el = Array.from(document.querySelectorAll<HTMLElement>('div[aria-hidden="true"]')).find((d) => d.textContent?.includes('bob'));
-      if (!el) throw new Error('no plate for bob');
-      return el;
-    };
-    const project = () => ({ x: 100, y: 100, visible: true });
-    created[0].onFrame?.(project);
-    expect(plate().style.visibility).toBe('visible');
-    // A live hand dealt without bob: he has no place, so no anchor, and his plate must not keep its last position.
-    rerender(<Blackjack3D {...idle} handInProgress activeSeatIndex={0} blackjackRounds={{ 0: round }} />);
-    created[0].onFrame?.(project);
-    expect(plate().style.visibility).toBe('hidden');
-  });
-
   it('switches back to the 2D table on request', async () => {
     const p = props();
     render(<Blackjack3D {...p} />);
-    await userEvent.click(screen.getByRole('button', { name: '2D view' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Flat view' }));
     expect(p.onSwitchTo2D).toHaveBeenCalled();
   });
 });

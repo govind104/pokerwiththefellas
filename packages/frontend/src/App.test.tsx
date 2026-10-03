@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import App from './App';
 import {
   makeAppState,
@@ -109,7 +109,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /reload/i })).toBeInTheDocument();
   });
 
-  it('shows PokerTable once seated at a holdem table', async () => {
+  it('shows the Hold’em table once seated', async () => {
     render(<App />);
     act(() => {
       handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' })));
@@ -163,7 +163,7 @@ describe('App', () => {
     });
 
     expect(screen.getByRole('alert')).toHaveTextContent("Can't adjust -- bob is in an active hand");
-    // The join/table alert banner (GameTable's) must NOT have picked it up:
+    // The table's alert banner must NOT have picked it up:
     // exactly one alert is on screen, and it is the admin panel's.
     expect(screen.getAllByRole('alert')).toHaveLength(1);
   });
@@ -219,7 +219,18 @@ describe('App', () => {
     expect(disconnectCalls).toBe(0);
   });
 
-  it('shows BlackjackTable once seated at a blackjack table', async () => {
+  it('an admin on the join screen with a table present still sees the admin panel', async () => {
+    // Off-table (status 'entering-name', e.g. after "Leave table" or a rejected join) the panel
+    // must stay reachable so an admin can switch the game mode before sitting down.
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' }), { isAdmin: true }));
+    });
+    expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /admin panel/i })).toBeInTheDocument();
+  });
+
+  it('shows the Blackjack table once seated', async () => {
     render(<App />);
     act(() => {
       handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack' })));
@@ -233,7 +244,19 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
   });
 
-  describe('Blackjack 2D/3D view', () => {
+  describe('Blackjack flat/3D view', () => {
+    // jsdom's default 1024×768 window is below OVERLAY_MIN_WIDTH (1200), which would always pick
+    // the flat view; these tests need a window wide enough for the 3D one.
+    const jsdomSize = { w: window.innerWidth, h: window.innerHeight };
+    beforeEach(() => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: 720 });
+    });
+    afterEach(() => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: jsdomSize.w });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: jsdomSize.h });
+    });
+
     async function seatAtBlackjack() {
       render(<App />);
       act(() => {
@@ -246,7 +269,7 @@ describe('App', () => {
       });
     }
 
-    it('shows the 3D table when that is the stored preference, and switching to 2D is remembered', async () => {
+    it('shows the 3D table when that is the stored preference, and switching to the flat view is remembered', async () => {
       window.localStorage.setItem('table.view', '3d');
       await seatAtBlackjack();
       expect(await screen.findByTestId('bj3d')).toBeInTheDocument();
@@ -255,7 +278,7 @@ describe('App', () => {
       expect(window.localStorage.getItem('table.view')).toBe('2d');
     });
 
-    it('offers a 3D view button on the 2D table and remembers the choice', async () => {
+    it('offers a 3D view button on the flat table and remembers the choice', async () => {
       await seatAtBlackjack();
       await userEvent.click(await screen.findByRole('button', { name: '3D view' }));
       expect(await screen.findByTestId('bj3d')).toBeInTheDocument();
@@ -280,7 +303,7 @@ describe('App', () => {
       }
     });
 
-    it('falls back to 2D when WebGL is unsupported, without overwriting the stored preference', async () => {
+    it('falls back to the flat view when WebGL is unsupported, without overwriting the stored preference', async () => {
       window.localStorage.setItem('table.view', '3d');
       await seatAtBlackjack();
       await userEvent.click(await screen.findByRole('button', { name: 'stub-unsupported' }));
@@ -301,6 +324,27 @@ describe('App', () => {
       await userEvent.click(await screen.findByRole('button', { name: '3D view' }));
       expect(await screen.findByTestId('poker3d')).toBeInTheDocument();
       expect(window.localStorage.getItem('table.view')).toBe('3d');
+    });
+
+    it('uses the flat view in a narrow window even when 3D is preferred, and 3D again once it widens', async () => {
+      window.localStorage.setItem('table.view', '3d');
+      const original = { w: window.innerWidth, h: window.innerHeight };
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 700 });
+      try {
+        await seatAtBlackjack();
+        expect(await screen.findByRole('button', { name: 'Hit' })).toBeInTheDocument();
+        expect(screen.queryByTestId('bj3d')).not.toBeInTheDocument();
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 720 });
+        act(() => {
+          window.dispatchEvent(new Event('resize'));
+        });
+        expect(await screen.findByTestId('bj3d', {}, { timeout: 2000 })).toBeInTheDocument();
+        expect(window.localStorage.getItem('table.view')).toBe('3d');
+      } finally {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: original.w });
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: original.h });
+      }
     });
   });
 

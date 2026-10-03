@@ -33,5 +33,12 @@ mislead.
 - `plans/2026-09-29-3d-blackjack.md` is the exception that is part plan, part outcome: its
   "Deviations" section records what actually shipped.
 
+Plan B (3D readability: HUD, showdown highlight, flat view) has its own spec and plan:
+[specs/2026-10-02-3d-plan-b-hud-design.md](superpowers/specs/2026-10-02-3d-plan-b-hud-design.md) and
+[plans/2026-10-02-3d-plan-b-hud.md](superpowers/plans/2026-10-02-3d-plan-b-hud.md). Plan B deleted the 2D
+view, so every spec, plan and playtest or audit record that describes the 2D view (the 2026-08 UI
+specs and plans, the 3D Blackjack plan, the 2026-09-29 and 2026-10-01 playtest reports) is historical
+on that point; the flat HUD view replaced it.
+
 Later work kept its per-task ledgers as git-ignored scratch; that detail lives in the
 commit messages instead (HANDOFF.md, "How this was built", gives the `git log` ranges).
