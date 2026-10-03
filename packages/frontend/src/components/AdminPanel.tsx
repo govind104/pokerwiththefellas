@@ -151,7 +151,7 @@ export function AdminPanel() {
   const otherMode: GameMode = table.gameMode === 'holdem' ? 'blackjack' : 'holdem';
 
   return (
-    <div className="fixed bottom-2 right-2 z-50 text-sm text-white">
+    <div className="relative text-sm text-white">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -160,7 +160,9 @@ export function AdminPanel() {
         {open ? 'Close admin panel' : 'Admin panel'}
       </button>
       {open && (
-        <div className="mt-2 flex w-64 flex-col gap-3 rounded-md border border-slate-600 bg-slate-800 p-3">
+        // The panel grew with item 6's forms: below the top-left cluster it scrolls instead of
+        // running off a short window (HANDOFF: 800×450, "Switch to Blackjack" unreachable).
+        <div className="absolute left-0 top-full z-50 mt-2 flex max-h-[calc(100vh-5rem)] w-64 flex-col gap-3 overflow-y-auto rounded-md border border-slate-600 bg-slate-800 p-3">
           {/* The mode picker lives here, not in Lobby: Lobby only renders at
               status 'lobby', which SocketContext only reaches when no mode is
               active -- so Lobby's own switch UI (which requires a mode to be

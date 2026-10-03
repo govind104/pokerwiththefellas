@@ -4,6 +4,7 @@ import type { BlackjackRoundView, HoldemView, SeatView } from '@poker-blackjack/
 import type { Card, PlayerHand } from '@poker-blackjack/game-engine';
 import { Blackjack3D } from './Blackjack3D';
 import { Poker3D } from './Poker3D';
+import { FlatTable } from '../table/FlatTable';
 import '../index.css';
 
 // Dev-only harness (open /dev3d.html under `npm run dev`; add `?game=poker` for
@@ -189,6 +190,31 @@ function PokerHarness() {
   const step = POKER_STEPS[Math.min(i, POKER_STEPS.length - 1)];
   return (
     <>
+      {flatParam ? (
+      <FlatTable
+        table={{
+          gameMode: 'holdem',
+          handInProgress: step.inProgress,
+          seats: seats(step.count),
+          activeSeatIndex: null,
+          actionSeq: 0,
+          handStartError: null,
+          blackjackRounds: null,
+          holdem: step.holdem,
+          buttonSeatIndex: null,
+          smallBlindSeatIndex: null,
+          bigBlindSeatIndex: null,
+          turnClockRemainingMs: null,
+        }}
+        mySeatIndex={0}
+        connectionStatus="at-table"
+        actionPending={false}
+        onReady={() => undefined}
+        onAction={() => undefined}
+        onLeave={() => undefined}
+        controls={null}
+      />
+      ) : (
       <Poker3D
         seats={seats(step.count)}
         mySeatIndex={0}
@@ -201,6 +227,7 @@ function PokerHarness() {
         onSwitchTo2D={() => undefined}
         onUnsupported={() => undefined}
       />
+      )}
       {showBar && (
       <div className="fixed left-1/2 top-12 z-50 flex -translate-x-1/2 gap-2 text-xs">
         <button data-testid="prev" className="rounded bg-black/70 px-2 py-1 text-white" onClick={() => setI((n) => Math.max(0, n - 1))}>
@@ -225,6 +252,31 @@ function Harness() {
   if (mode) window.localStorage.setItem('bj3d.quality', mode);
   return (
     <>
+      {flatParam ? (
+      <FlatTable
+        table={{
+          gameMode: 'blackjack',
+          handInProgress: step.inProgress,
+          seats: seats(step.count),
+          activeSeatIndex: step.active,
+          actionSeq: 0,
+          handStartError: null,
+          blackjackRounds: step.rounds,
+          holdem: null,
+          buttonSeatIndex: null,
+          smallBlindSeatIndex: null,
+          bigBlindSeatIndex: null,
+          turnClockRemainingMs: null,
+        }}
+        mySeatIndex={0}
+        connectionStatus="at-table"
+        actionPending={false}
+        onReady={() => undefined}
+        onAction={() => undefined}
+        onLeave={() => undefined}
+        controls={null}
+      />
+      ) : (
       <Blackjack3D
         seats={seats(step.count)}
         activeSeatIndex={step.active}
@@ -238,6 +290,7 @@ function Harness() {
         onSwitchTo2D={() => setMode(null)}
         onUnsupported={() => undefined}
       />
+      )}
       {showBar && (
       <div className="fixed left-1/2 top-12 z-50 flex -translate-x-1/2 gap-2 text-xs">
         <button data-testid="prev" className="rounded bg-black/70 px-2 py-1 text-white" onClick={() => setI((n) => Math.max(0, n - 1))}>
@@ -258,6 +311,9 @@ function Harness() {
     </>
   );
 }
+
+// ?layout=flat renders the flat table (the HUD in one column) instead of the 3D scene.
+const flatParam = new URLSearchParams(location.search).get('layout') === 'flat';
 
 // ?bar=0 hides the step bar so it cannot cover the HUD in screenshots.
 const showBar = new URLSearchParams(location.search).get('bar') !== '0';

@@ -219,6 +219,17 @@ describe('App', () => {
     expect(disconnectCalls).toBe(0);
   });
 
+  it('an admin on the join screen with a table present still sees the admin panel', async () => {
+    // Off-table (status 'entering-name', e.g. after "Leave table" or a rejected join) the panel
+    // must stay reachable so an admin can switch the game mode before sitting down.
+    render(<App />);
+    act(() => {
+      handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' }), { isAdmin: true }));
+    });
+    expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /admin panel/i })).toBeInTheDocument();
+  });
+
   it('shows BlackjackTable once seated at a blackjack table', async () => {
     render(<App />);
     act(() => {
@@ -301,6 +312,27 @@ describe('App', () => {
       await userEvent.click(await screen.findByRole('button', { name: '3D view' }));
       expect(await screen.findByTestId('poker3d')).toBeInTheDocument();
       expect(window.localStorage.getItem('table.view')).toBe('3d');
+    });
+
+    it('uses the flat view in a narrow window even when 3D is preferred, and 3D again once it widens', async () => {
+      window.localStorage.setItem('table.view', '3d');
+      const original = { w: window.innerWidth, h: window.innerHeight };
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 700 });
+      try {
+        await seatAtBlackjack();
+        expect(await screen.findByRole('button', { name: 'Hit' })).toBeInTheDocument();
+        expect(screen.queryByTestId('bj3d')).not.toBeInTheDocument();
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 720 });
+        act(() => {
+          window.dispatchEvent(new Event('resize'));
+        });
+        expect(await screen.findByTestId('bj3d', {}, { timeout: 2000 })).toBeInTheDocument();
+        expect(window.localStorage.getItem('table.view')).toBe('3d');
+      } finally {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: original.w });
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: original.h });
+      }
     });
   });
 

@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { useSocket } from '../socket/SocketContext';
 
-export function AdminEntry() {
+export function AdminEntry({ inline = false }: { inline?: boolean } = {}) {
   const { isAdmin, adminLogin, adminErrorMessage } = useSocket();
   const [open, setOpen] = useState(false);
   const [passphrase, setPassphrase] = useState('');
+  const pos = inline ? 'relative' : 'fixed right-2 top-2 z-50';
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -16,11 +17,11 @@ export function AdminEntry() {
   }
 
   if (isAdmin) {
-    return <p className="fixed right-2 top-2 z-50 text-xs font-medium text-emerald-400">Admin</p>;
+    return <p className={`${pos} text-xs font-medium text-emerald-400`}>Admin</p>;
   }
 
   return (
-    <div className="fixed right-2 top-2 z-50 text-sm text-white">
+    <div className={`${pos} text-sm text-white`}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -31,7 +32,7 @@ export function AdminEntry() {
       {open && (
         <form
           onSubmit={handleSubmit}
-          className="mt-1 flex flex-col gap-1 rounded-md border border-slate-600 bg-slate-800 p-2"
+          className={`${inline ? 'absolute left-0 top-full z-50 ' : ''}mt-1 flex flex-col gap-1 rounded-md border border-slate-600 bg-slate-800 p-2`}
         >
           <input
             type="password"

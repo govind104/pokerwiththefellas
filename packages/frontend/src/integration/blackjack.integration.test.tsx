@@ -35,8 +35,8 @@ function buildConfig(): TableConfig {
     // action. Once settled, Table's state view reveals the FULL dealer hand
     // instead of just the upcard (see packages/server/src/table.ts around
     // getStateForSeat's blackjack branch), which would make this test's
-    // `dealer-hand` assertion below (expects exactly 1 card, i.e. upcard
-    // only) fail on the ~1-in-20 hands where alice is dealt a natural. Seed 2
+    // `hud-dealer` assertion below (expects a face-down hole card) fail on
+    // the ~1-in-20 hands where alice is dealt a natural. Seed 2
     // is verified (via a standalone script replaying Table.startHand's exact
     // buildShuffledDeck(6)-per-seat-in-order sequence against this test's own
     // config) to deal alice a 14 and bob a 19 -- neither a natural blackjack
@@ -88,16 +88,22 @@ describe('Blackjack end-to-end via App', () => {
     // Wait for alice's real App instance to reflect bob's join before moving
     // on -- see poker.integration.test.tsx for why this findBy* sync point
     // (act-wrapped by testing-library) matters here.
-    await within(screen.getByTestId('player-1')).findByText('bob', { exact: false });
+    await within(screen.getByTestId('hud-player-1')).findByText('bob', { exact: false });
 
     bobSocket.emit('ready');
-    await within(screen.getByTestId('player-1')).findByText(/^Ready$/);
+    await within(screen.getByTestId('hud-player-1')).findByText(/^Ready$/);
 
     await userEvent.click(screen.getByRole('button', { name: /^ready$/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('player-0').querySelectorAll('img').length).toBeGreaterThanOrEqual(2);
+      expect(within(screen.getByTestId('hud-player-0')).getAllByRole('img').length).toBeGreaterThanOrEqual(2);
     });
-    expect(screen.getByTestId('dealer-hand').querySelectorAll('img')).toHaveLength(1);
+    // The shared dealer shows its up-card and a face-down hole card until the reveal.
+    const dealerLabels = within(screen.getByTestId('hud-dealer'))
+      .getAllByRole('img')
+      .map((e) => e.getAttribute('aria-label'));
+    expect(dealerLabels).toHaveLength(2);
+    expect(dealerLabels[0]).not.toBe('face-down card');
+    expect(dealerLabels[1]).toBe('face-down card');
   });
 });
