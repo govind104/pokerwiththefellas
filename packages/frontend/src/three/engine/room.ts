@@ -226,4 +226,24 @@ export class Room {
       arr.needsUpdate = true;
     }
   }
+
+  // Frees what the room put on the GPU: every material and texture in the group, the base felt
+  // and the printed felt (~12 MB), and the shadow map. Resize-driven switches between the 3D and
+  // flat views mount and unmount the scene repeatedly (Plan B spec §2.3); geometries are freed by
+  // SceneRoot.dispose's traversal.
+  dispose(): void {
+    const textures = new Set<THREE.Texture>([this.feltBase]);
+    if (this.printedFelt) textures.add(this.printedFelt);
+    this.group.traverse((o) => {
+      if (o instanceof THREE.Mesh || o instanceof THREE.Points) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          for (const v of Object.values(m)) if (v instanceof THREE.Texture) textures.add(v);
+          m.dispose();
+        }
+      }
+    });
+    for (const t of textures) t.dispose();
+    this.spot.shadow.map?.dispose();
+  }
 }

@@ -399,6 +399,7 @@ export class SceneRoot {
     this.scene.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
     });
+    this.room.dispose();
     // No forceContextLoss(): under React StrictMode the effect re-runs on the
     // same <canvas>, and a force-lost context can't be recreated there.
     this.renderer.dispose();
