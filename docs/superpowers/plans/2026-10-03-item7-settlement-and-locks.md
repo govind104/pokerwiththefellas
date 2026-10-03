@@ -89,7 +89,7 @@ audit progress table; record the MIN-1 finding (closed by item 6).
 ## Checklist
 
 - [x] Task 1 committed
-- [ ] Task 2 committed
+- [x] Task 2 committed
 - [ ] Task 3 committed
 - [ ] Branch review (Sonnet) clean
 - [ ] Task 4 committed; PR opened (user gate before push/PR)

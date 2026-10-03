@@ -2389,6 +2389,40 @@ describe('Table concurrency (audit C3, I1, I2)', () => {
     expect(table.handInProgress).toBe(false);
     expect(handLog.entries).toHaveLength(0);
   });
+
+  it('MIN-1: a leave and rejoin sent during an admin balance write wait for it, so the correction sticks', async () => {
+    // The live seat used to keep the old balance (the write landed on the detached Seat object),
+    // and the next settlement overwrote the correction. Holds because leave runs under the lock.
+    let releaseWrite!: () => void;
+    const playerStore = new FakePlayerStore(1000);
+    const realSet = playerStore.setBalance.bind(playerStore);
+    let holdWrites = false;
+    playerStore.setBalance = async (name: string, balance: number) => {
+      if (holdWrites) await new Promise<void>((r) => (releaseWrite = r));
+      return realSet(name, balance);
+    };
+    const table = new Table(
+      {
+        gameMode: 'holdem', seatCount: 8, smallBlind: 5, bigBlind: 10, blackjackDefaultBet: 25,
+        defaultStartingBalance: 1000, reconnectGraceMs: 50, random: makeDeterministicRandom(2),
+      },
+      { playerStore, handLog: new FakeHandLog(), onStateChange: () => {} }
+    );
+    await table.join('alice');
+
+    holdWrites = true;
+    const adjust = table.adminSetBalance('alice', 5);
+    await wait(10);
+    const rejoin = table.leave(0).then(() => table.join('alice'));
+    await wait(10);
+    holdWrites = false;
+    releaseWrite();
+    await adjust;
+    const seatIndex = await rejoin;
+
+    await expect(playerStore.getBalance('alice')).resolves.toBe(5);
+    expect(table.seats[seatIndex]?.balance).toBe(5);
+  });
 });
 
 describe('Table.leave mid-hand and under the lock (audit I11)', () => {
