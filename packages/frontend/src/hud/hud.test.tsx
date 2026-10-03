@@ -104,6 +104,21 @@ describe.each<HudLayout>(['overlay', 'column'])('HoldemHud (%s)', (layout) => {
     expect(p.onAction).toHaveBeenLastCalledWith('fold');
   });
 
+  it('labels a call the stack cannot cover as all in', async () => {
+    const p = holdemProps({
+      layout,
+      holdem: holdemView({
+        players: [
+          { playerId: 'alice', stack: 30, streetContributed: 20, folded: false, isAllIn: false, holeCards: [c('A', 'spades'), c('K', 'hearts')] },
+          { playerId: 'bob', stack: 800, streetContributed: 200, folded: false, isAllIn: false, holeCards: null },
+        ],
+      }),
+    });
+    render(<HoldemHud {...p} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Call 30 (all in)' }));
+    expect(p.onAction).toHaveBeenLastCalledWith('call');
+  });
+
   it('presses Check with C when nothing is owed', async () => {
     const p = holdemProps({
       layout,

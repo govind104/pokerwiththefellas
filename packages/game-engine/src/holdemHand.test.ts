@@ -612,6 +612,32 @@ describe('HoldemHand construction — all-in from blinds', () => {
     const totalPayout = hand.results.reduce((sum, r) => sum + r.payout, 0);
     expect(totalPayout).toBe(0);
   });
+
+  it('treats a call it cannot cover as all-in for the stack, without lowering the bet', () => {
+    const deck: Card[] = [
+      card('A', 'spades'), card('K', 'spades'),
+      card('2', 'hearts'), card('3', 'hearts'),
+      card('4', 'clubs'), card('5', 'clubs'), card('6', 'diamonds'), // flop
+      card('7', 'diamonds'), // turn
+      card('8', 'diamonds'), // river
+    ];
+    const hand = new HoldemHand(
+      [
+        { playerId: 'button', stack: 1000 },
+        { playerId: 'other', stack: 50 },
+      ],
+      { smallBlind: 10, bigBlind: 20, buttonIndex: 0, deck }
+    );
+    hand.act('button', 'raise', 200);
+    hand.act('other', 'call'); // owes 180 with 30 behind
+    const other = hand.players[1];
+    expect(other.contributed).toBe(50);
+    expect(other.stack).toBe(0);
+    expect(other.isAllIn).toBe(true);
+    expect(hand.street).toBe('settled');
+    const totalPayout = hand.results.reduce((sum, r) => sum + r.payout, 0);
+    expect(totalPayout).toBe(0);
+  });
 });
 
 describe('HoldemHand — full showdown (heads-up)', () => {

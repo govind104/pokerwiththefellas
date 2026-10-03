@@ -118,7 +118,8 @@ export function HoldemPrompts(p: HoldemPromptsProps) {
             onClick={() => p.onAction('check')}
           />
           <Prompt
-            label={p.toCall > 0 ? `Call ${p.toCall}` : 'Call'}
+            // toCall is already capped at the stack, so reaching it means the call puts everything in.
+            label={p.toCall > 0 ? `Call ${p.toCall}${p.maxRaise !== null && p.toCall >= p.maxRaise ? ' (all in)' : ''}` : 'Call'}
             shortcut={p.toCall > 0 ? 'C' : undefined}
             disabled={p.actionPending || p.toCall === 0}
             title={p.toCall === 0 ? 'Nothing to call' : undefined}
