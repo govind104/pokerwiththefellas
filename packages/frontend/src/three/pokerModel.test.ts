@@ -1,6 +1,6 @@
 import type { HoldemView, SeatView } from '@poker-blackjack/server/src/table';
 import type { Card } from '@poker-blackjack/game-engine';
-import { actingSeatIndex, amountToCall, buildPokerModel, livePot } from './pokerModel';
+import { SHOWDOWN_LIFT, actingSeatIndex, amountToCall, buildPokerModel, livePot } from './pokerModel';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 type P = HoldemView['players'][number];
@@ -219,5 +219,56 @@ describe('actingSeatIndex', () => {
     expect(actingSeatIndex(seats(['a', 'b']), hand({ actingPlayerId: 'b' }))).toBe(1);
     expect(actingSeatIndex(seats(['a', 'b']), null)).toBeNull();
     expect(actingSeatIndex(seats(['a', 'b']), hand({ actingPlayerId: null }))).toBeNull();
+  });
+});
+
+describe('showdown highlight (Plan B, base spec §B2)', () => {
+  const card = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
+  const board = [card('Q', 'hearts'), card('Q', 'clubs'), card('7', 'diamonds'), card('7', 'spades'), card('2', 'clubs')];
+  const best = [card('Q', 'hearts'), card('Q', 'clubs'), card('7', 'diamonds'), card('7', 'spades'), card('A', 'spades')];
+  const showdown = (results: HoldemView['results']): HoldemView => ({
+    street: 'settled',
+    communityCards: board,
+    actingPlayerId: null,
+    pots: [{ amount: 40, eligiblePlayerIds: ['alice', 'bob'] }],
+    results,
+    players: [
+      { playerId: 'alice', stack: 1020, streetContributed: 0, folded: false, isAllIn: false, holeCards: [card('A', 'spades'), card('K', 'hearts')] },
+      { playerId: 'bob', stack: 980, streetContributed: 0, folded: false, isAllIn: false, holeCards: [card('9', 'hearts'), card('8', 'clubs')] },
+    ],
+  });
+  const seats: SeatView[] = [
+    { seatIndex: 0, displayName: 'alice', balance: 1020, connected: true, ready: true },
+    { seatIndex: 1, displayName: 'bob', balance: 980, connected: true, ready: true },
+  ];
+
+  it("lifts and highlights exactly the winners' best five cards", () => {
+    const m = buildPokerModel({
+      seats,
+      mySeatIndex: 0,
+      holdem: showdown([
+        { playerId: 'alice', payout: 20, handName: "Two Pair, Q's & 7's", bestCards: best },
+        { playerId: 'bob', payout: -20, handName: "Two Pair, Q's & 7's", bestCards: [card('Q', 'hearts'), card('Q', 'clubs'), card('7', 'diamonds'), card('7', 'spades'), card('9', 'hearts')] },
+      ]),
+    });
+    const lit = m.cards.filter((s) => s.highlight).map((s) => `${s.card?.rank}${s.card?.suit[0]}`).sort();
+    expect(lit).toEqual(['7d', '7s', 'As', 'Qc', 'Qh']);
+    const plain = m.cards.find((s) => s.key === 'cc:4')!;
+    const liftedBoard = m.cards.find((s) => s.key === 'cc:0')!;
+    expect(liftedBoard.y - plain.y).toBeCloseTo(SHOWDOWN_LIFT, 6);
+  });
+
+  it('highlights every winner in a split pot, and nothing on a fold-out', () => {
+    const split = buildPokerModel({
+      seats,
+      mySeatIndex: 0,
+      holdem: showdown([
+        { playerId: 'alice', payout: 20, handName: 'x', bestCards: best },
+        { playerId: 'bob', payout: 20, handName: 'x', bestCards: [card('Q', 'hearts'), card('9', 'hearts')] },
+      ]),
+    });
+    expect(split.cards.filter((s) => s.highlight).map((s) => s.key).sort()).toEqual(['cc:0', 'cc:1', 'cc:2', 'cc:3', 'h:0:0', 'h:1:0']);
+    const foldOut = buildPokerModel({ seats, mySeatIndex: 0, holdem: showdown([{ playerId: 'alice', payout: 20 }, { playerId: 'bob', payout: -20 }]) });
+    expect(foldOut.cards.some((s) => s.highlight)).toBe(false);
   });
 });

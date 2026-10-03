@@ -285,10 +285,12 @@ export class SceneRoot {
         }
         const moved =
           Math.abs(obj.target.x - target.x) > 0.002 ||
+          Math.abs(obj.target.y - target.y) > 0.002 ||
           Math.abs(obj.target.z - target.z) > 0.002 ||
           Math.abs(obj.target.rotY - target.rotY) > 0.01;
         if (moved) obj.moveTo(target, { duration: 0.35, delay: 0, arc: 0.03 });
       }
+      obj.setHighlight(!!slot.highlight);
     }
     // Cards no longer in play get swept to the discard point.
     for (const [key, obj] of this.cards) {

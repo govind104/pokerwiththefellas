@@ -5,6 +5,7 @@ import type { Card, PlayerHand } from '@poker-blackjack/game-engine';
 import { Blackjack3D } from './Blackjack3D';
 import { Poker3D } from './Poker3D';
 import { FlatTable } from '../table/FlatTable';
+import type { BlindSeats } from '../hud/hudModel';
 import '../index.css';
 
 // Dev-only harness (open /dev3d.html under `npm run dev`; add `?game=poker` for
@@ -32,6 +33,7 @@ interface Step {
   inProgress: boolean;
   active: number | null;
   rounds: Record<number, BlackjackRoundView> | null;
+  clockMs?: number;
 }
 
 function round(
@@ -103,6 +105,9 @@ const STEPS: Step[] = [
   { label: 'Split, 4-card hands', count: 4, inProgress: true, active: 0, rounds: allRounds(4, SPLIT_LONG, 'playing', null) },
 ];
 
+// Gate 3 (Plan B): the opponent's-turn state with the turn clock running.
+STEPS.push({ ...STEPS[4], label: 'Opponent acts, 41 s on the clock', clockMs: 41_000 });
+
 type P = HoldemView['players'][number];
 const pl = (playerId: string, stack: number, streetContributed: number, holeCards: P['holeCards'], extra: Partial<P> = {}): P => ({
   playerId,
@@ -143,6 +148,8 @@ interface PokerStep {
   count: number;
   inProgress: boolean;
   holdem: HoldemView | null;
+  blinds?: BlindSeats;
+  clockMs?: number;
 }
 
 function pokerPlayers(bets: number[], opts: { folded?: string[]; reveal?: boolean } = {}): P[] {
@@ -183,6 +190,43 @@ const POKER_STEPS: PokerStep[] = [
     inProgress: true,
     holdem: holdem('turn', TURN, 'fay', pokerPlayers([40, 40, 0, 40, 0, 0], { folded: ['dan'] }), 240),
   },
+  {
+    label: 'Your turn, 23 s on the clock',
+    count: 5,
+    inProgress: true,
+    blinds: { buttonSeatIndex: 2, smallBlindSeatIndex: 3, bigBlindSeatIndex: 4 },
+    clockMs: 23_000,
+    holdem: holdem('flop', FLOP, 'you', pokerPlayers([0, 0, 40, 0, 0]), 85),
+  },
+  {
+    label: '6 players, fay acts, 8 s left',
+    count: 6,
+    inProgress: true,
+    blinds: { buttonSeatIndex: 3, smallBlindSeatIndex: 4, bigBlindSeatIndex: 5 },
+    clockMs: 8_000,
+    holdem: holdem('turn', TURN, 'fay', pokerPlayers([40, 40, 0, 40, 0, 0], { folded: ['dan'] }), 240),
+  },
+  {
+    label: 'Showdown, split pot',
+    count: 3,
+    inProgress: false,
+    holdem: holdem(
+      'settled',
+      [c('Q', 'hearts'), c('Q', 'clubs'), c('7', 'diamonds'), c('7', 'spades'), c('2', 'clubs')],
+      null,
+      [
+        pl('you', 1030, 0, [c('A', 'spades'), c('K', 'hearts')]),
+        pl('bob', 940, 0, [c('9', 'hearts'), c('8', 'clubs')]),
+        pl('cara', 1030, 0, [c('A', 'diamonds'), c('J', 'clubs')]),
+      ],
+      180,
+      [
+        { playerId: 'you', payout: 30, handName: "Two Pair, Q's & 7's", bestCards: [c('Q', 'hearts'), c('Q', 'clubs'), c('7', 'diamonds'), c('7', 'spades'), c('A', 'spades')] },
+        { playerId: 'bob', payout: -60, handName: "Two Pair, Q's & 7's", bestCards: [c('Q', 'hearts'), c('Q', 'clubs'), c('7', 'diamonds'), c('7', 'spades'), c('9', 'hearts')] },
+        { playerId: 'cara', payout: 30, handName: "Two Pair, Q's & 7's", bestCards: [c('Q', 'hearts'), c('Q', 'clubs'), c('7', 'diamonds'), c('7', 'spades'), c('A', 'diamonds')] },
+      ],
+    ),
+  },
 ];
 
 function PokerHarness() {
@@ -221,6 +265,8 @@ function PokerHarness() {
         connectionStatus="at-table"
         handInProgress={step.inProgress}
         holdem={step.holdem}
+        blinds={step.blinds}
+        turnClockRemainingMs={step.clockMs ?? null}
         onReady={() => undefined}
         onLeave={() => undefined}
         onAction={() => setI((n) => Math.min(n + 1, POKER_STEPS.length - 1))}
@@ -284,6 +330,7 @@ function Harness() {
         connectionStatus="at-table"
         handInProgress={step.inProgress}
         blackjackRounds={step.rounds}
+        turnClockRemainingMs={step.clockMs ?? null}
         onReady={() => undefined}
         onLeave={() => undefined}
         onAction={() => setI((n) => Math.min(n + 1, STEPS.length - 1))}

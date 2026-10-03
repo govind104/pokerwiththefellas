@@ -1,4 +1,5 @@
 import type { SeatView, HoldemView } from '@poker-blackjack/server/src/table';
+import type { Card } from '@poker-blackjack/game-engine';
 import { POT_SPOT, TABLE_Y, boardCards, layoutSeats } from './layout';
 import {
   centreOf,
@@ -11,6 +12,9 @@ import {
   type SeatModel,
   type Vec2,
 } from './sceneModel';
+
+// How far a winning card lifts off the felt at a showdown, in metres (base spec §B2).
+export const SHOWDOWN_LIFT = 0.015;
 
 export interface PokerInput {
   seats: SeatView[];
@@ -78,6 +82,15 @@ export function buildPokerModel({ seats, mySeatIndex, holdem }: PokerInput): Sce
   const settled = holdem?.street === 'settled';
   const playerOf = (s: SeatView) => holdem?.players.find((p) => p.playerId === s.displayName) ?? null;
 
+  // The winners' best five (base spec §B2): only at a real showdown, where the server sends them.
+  const winning = new Set<string>();
+  if (settled) {
+    for (const r of holdem?.results ?? []) {
+      if (r.payout > 0) for (const b of r.bestCards ?? []) winning.add(`${b.rank}:${b.suit}`);
+    }
+  }
+  const lit = (card: Card | null) => !!card && winning.has(`${card.rank}:${card.suit}`);
+
   // Laid out from the players dealt into the hand, evenly round the whole table. Between hands
   // (no hand yet, or the last one fully settled: the server keeps sending it until the next deal)
   // every seated player is laid out, those not in the hand with no cards. See buildSceneModel.
@@ -100,7 +113,9 @@ export function buildPokerModel({ seats, mySeatIndex, holdem }: PokerInput): Sce
   if (holdem) {
     boardCards(holdem.communityCards.length).forEach((p, i) => {
       const key = `cc:${i}`;
-      cards.push({ key, card: holdem.communityCards[i], x: p.x, y: TABLE_Y + 0.004, z: p.z, rotY: jitter(key, 0.04), order: i });
+      const card = holdem.communityCards[i];
+      const up = lit(card);
+      cards.push({ key, card, x: p.x, y: TABLE_Y + 0.004 + (up ? SHOWDOWN_LIFT : 0), z: p.z, rotY: jitter(key, 0.04), order: i, highlight: up });
     });
   }
 
@@ -131,7 +146,8 @@ export function buildPokerModel({ seats, mySeatIndex, holdem }: PokerInput): Sce
       hole.forEach((card, i) => {
         const key = `h:${seat.seatIndex}:${i}`;
         const p = place.hands[0][i];
-        cards.push({ key, card, x: p.x, y: TABLE_Y + 0.004 + i * 0.002, z: p.z, rotY: p.rotY + jitter(key, 0.04), order: i });
+        const up = lit(card);
+        cards.push({ key, card, x: p.x, y: TABLE_Y + 0.004 + i * 0.002 + (up ? SHOWDOWN_LIFT : 0), z: p.z, rotY: p.rotY + jitter(key, 0.04), order: i, highlight: up });
       });
     }
 
