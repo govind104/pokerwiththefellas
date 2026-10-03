@@ -17,6 +17,8 @@ export interface BlackjackHudProps {
   handInProgress: boolean;
   blackjackRounds: Record<number, BlackjackRoundView> | null;
   turnClockRemainingMs: number | null;
+  // The table's actionSeq: restarts the countdown when a new turn carries the same ms. Optional so tests and the dev harness can omit it.
+  actionSeq?: number;
   actionPending: boolean;
   onAction: (action: PlayerAction) => void;
   onReady: () => void;
@@ -29,7 +31,7 @@ export function BlackjackHud(p: BlackjackHudProps) {
     () => buildBlackjackHud({ seats, mySeatIndex, activeSeatIndex, handInProgress, blackjackRounds }),
     [seats, mySeatIndex, activeSeatIndex, handInProgress, blackjackRounds],
   );
-  const clock = useCountdown(p.turnClockRemainingMs);
+  const clock = useCountdown(p.turnClockRemainingMs, p.actionSeq ?? null);
   const mySeat = seats.find((s) => s.seatIndex === mySeatIndex) ?? null;
   const myRound = mySeatIndex !== null ? blackjackRounds?.[mySeatIndex] : undefined;
   return (

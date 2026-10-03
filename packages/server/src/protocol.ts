@@ -25,7 +25,7 @@ export interface ActionPayload {
 export interface ErrorPayload {
   message: string;
   // Which error surface this belongs to. Absent means the default
-  // join/table channel (JoinScreen's name field, GameTable's alert banner) --
+  // join/table channel (JoinScreen's name field, the table's alert banner) --
   // deliberately optional so the many non-admin emitters (`join`, `ready`,
   // `action`, `leave`) need no change at all. Only the admin-action handlers
   // set `scope: 'admin'`, which routes the message to the admin panel's own

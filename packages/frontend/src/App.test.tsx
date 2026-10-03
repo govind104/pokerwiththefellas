@@ -109,7 +109,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /reload/i })).toBeInTheDocument();
   });
 
-  it('shows PokerTable once seated at a holdem table', async () => {
+  it('shows the Hold’em table once seated', async () => {
     render(<App />);
     act(() => {
       handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'holdem' })));
@@ -163,7 +163,7 @@ describe('App', () => {
     });
 
     expect(screen.getByRole('alert')).toHaveTextContent("Can't adjust -- bob is in an active hand");
-    // The join/table alert banner (GameTable's) must NOT have picked it up:
+    // The table's alert banner must NOT have picked it up:
     // exactly one alert is on screen, and it is the admin panel's.
     expect(screen.getAllByRole('alert')).toHaveLength(1);
   });
@@ -230,7 +230,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /admin panel/i })).toBeInTheDocument();
   });
 
-  it('shows BlackjackTable once seated at a blackjack table', async () => {
+  it('shows the Blackjack table once seated', async () => {
     render(<App />);
     act(() => {
       handlers.get('state')?.(makeAppState(makeWaitingState({ gameMode: 'blackjack' })));
@@ -244,7 +244,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
   });
 
-  describe('Blackjack 2D/3D view', () => {
+  describe('Blackjack flat/3D view', () => {
     // jsdom's default 1024×768 window is below OVERLAY_MIN_WIDTH (1200), which would always pick
     // the flat view; these tests need a window wide enough for the 3D one.
     const jsdomSize = { w: window.innerWidth, h: window.innerHeight };
@@ -269,7 +269,7 @@ describe('App', () => {
       });
     }
 
-    it('shows the 3D table when that is the stored preference, and switching to 2D is remembered', async () => {
+    it('shows the 3D table when that is the stored preference, and switching to the flat view is remembered', async () => {
       window.localStorage.setItem('table.view', '3d');
       await seatAtBlackjack();
       expect(await screen.findByTestId('bj3d')).toBeInTheDocument();
@@ -278,7 +278,7 @@ describe('App', () => {
       expect(window.localStorage.getItem('table.view')).toBe('2d');
     });
 
-    it('offers a 3D view button on the 2D table and remembers the choice', async () => {
+    it('offers a 3D view button on the flat table and remembers the choice', async () => {
       await seatAtBlackjack();
       await userEvent.click(await screen.findByRole('button', { name: '3D view' }));
       expect(await screen.findByTestId('bj3d')).toBeInTheDocument();
@@ -303,7 +303,7 @@ describe('App', () => {
       }
     });
 
-    it('falls back to 2D when WebGL is unsupported, without overwriting the stored preference', async () => {
+    it('falls back to the flat view when WebGL is unsupported, without overwriting the stored preference', async () => {
       window.localStorage.setItem('table.view', '3d');
       await seatAtBlackjack();
       await userEvent.click(await screen.findByRole('button', { name: 'stub-unsupported' }));

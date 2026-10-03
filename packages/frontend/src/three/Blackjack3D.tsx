@@ -20,10 +20,12 @@ export interface Blackjack3DProps {
   // True while a sent action awaits the server's response: the action buttons stay disabled.
   actionPending?: boolean;
   onSwitchTo2D: () => void;
-  // Called if WebGL can't start, so the parent can fall back to the 2D table.
+  // Called if WebGL can't start, so the parent can fall back to the flat view.
   onUnsupported: () => void;
   // From the table view (Plan B spec §3 item 3); optional so the dev harness and tests can omit it.
   turnClockRemainingMs?: number | null;
+  // The table's actionSeq, to restart the countdown on every new turn.
+  actionSeq?: number;
   // Extra controls for the top-left cluster (Admin).
   controls?: ReactNode;
 }
@@ -47,6 +49,7 @@ export function Blackjack3D({
   onSwitchTo2D,
   onUnsupported,
   turnClockRemainingMs = null,
+  actionSeq,
   controls,
 }: Blackjack3DProps) {
   const model = useMemo(
@@ -106,6 +109,7 @@ export function Blackjack3D({
           handInProgress={handInProgress}
           blackjackRounds={blackjackRounds}
           turnClockRemainingMs={turnClockRemainingMs}
+          actionSeq={actionSeq}
           actionPending={actionPending}
           onAction={onAction}
           onReady={onReady}

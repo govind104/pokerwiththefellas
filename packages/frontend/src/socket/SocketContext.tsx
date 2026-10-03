@@ -461,9 +461,11 @@ export function SocketProvider({ serverUrl, children }: { serverUrl: string; chi
   }
 
   function leave() {
-    // GameTable hides Leave mid-hand; this guard is the same rule for any other caller. The
-    // pending check makes a double-click one leave (audit M30).
-    if (state?.table?.handInProgress || leavePendingRef.current || !socketRef.current) {
+    // The HUD offers Leave mid-hand to a seat that was not dealt in (Plan B spec §3), so a hand in
+    // progress does not stop the request: the server refuses a seat that is dealt in, and the
+    // refusal below shows the player why. The pending check makes a double-click one leave
+    // (audit M30).
+    if (leavePendingRef.current || !socketRef.current) {
       return;
     }
     leavePendingRef.current = true;

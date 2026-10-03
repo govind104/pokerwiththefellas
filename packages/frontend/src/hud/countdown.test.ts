@@ -26,4 +26,25 @@ describe('useCountdown', () => {
     rerender({ ms: null });
     expect(result.current).toBeNull();
   });
+
+  // Consecutive turns usually carry exactly the configured clock, so the value alone cannot tell
+  // the hook a new turn began; the table's actionSeq is the reset key.
+  it('restarts when the same value arrives again under a new key', () => {
+    const { result, rerender } = renderHook(
+      ({ ms, resetKey }: { ms: number | null; resetKey: number }) => useCountdown(ms, resetKey),
+      { initialProps: { ms: 10_000, resetKey: 1 } as { ms: number | null; resetKey: number } },
+    );
+    act(() => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(result.current).toBe(6);
+    rerender({ ms: 10_000, resetKey: 1 }); // the same view again: keeps counting
+    expect(result.current).toBe(6);
+    rerender({ ms: 10_000, resetKey: 2 }); // next turn, same ms: starts over
+    expect(result.current).toBe(10);
+    act(() => {
+      vi.advanceTimersByTime(1_100);
+    });
+    expect(result.current).toBe(9);
+  });
 });

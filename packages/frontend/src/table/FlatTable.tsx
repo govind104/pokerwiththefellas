@@ -41,6 +41,7 @@ export function FlatTable({ table, mySeatIndex, connectionStatus, errorMessage, 
             bigBlindSeatIndex: table.bigBlindSeatIndex,
           }}
           turnClockRemainingMs={table.turnClockRemainingMs}
+          actionSeq={table.actionSeq}
           actionPending={actionPending}
           onAction={onAction}
           onReady={onReady}
@@ -55,6 +56,7 @@ export function FlatTable({ table, mySeatIndex, connectionStatus, errorMessage, 
           handInProgress={table.handInProgress}
           blackjackRounds={table.blackjackRounds}
           turnClockRemainingMs={table.turnClockRemainingMs}
+          actionSeq={table.actionSeq}
           actionPending={actionPending}
           onAction={onAction}
           onReady={onReady}

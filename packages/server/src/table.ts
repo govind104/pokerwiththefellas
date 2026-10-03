@@ -701,8 +701,10 @@ export class Table {
       await this.settleHoldem(this.holdemHand);
     }
 
-    this.deps.onStateChange();
+    // Arm before broadcasting: onStateChange builds every seat's view synchronously, and a view
+    // carries the clock as it stands at that moment (Plan B final review).
     this.armTurnClock();
+    this.deps.onStateChange();
   }
 
   /**
@@ -769,8 +771,9 @@ export class Table {
       await this.advanceBlackjackTurn();
     }
 
-    this.deps.onStateChange();
+    // Arm before broadcasting, as in startHand: the views must carry the next actor's fresh clock.
     this.armTurnClock();
+    this.deps.onStateChange();
 
     if (this.handInProgress) {
       const nextSeatIndex = this.actingSeatIndex();

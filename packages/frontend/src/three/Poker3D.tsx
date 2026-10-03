@@ -20,11 +20,13 @@ export interface Poker3DProps {
   // True while a sent action awaits the server's response: the action buttons stay disabled.
   actionPending?: boolean;
   onSwitchTo2D: () => void;
-  // Called if WebGL can't start, so the parent can fall back to the 2D table.
+  // Called if WebGL can't start, so the parent can fall back to the flat view.
   onUnsupported: () => void;
   // From the table view (Plan B spec §5.1); optional so the dev harness and tests can omit them.
   blinds?: BlindSeats;
   turnClockRemainingMs?: number | null;
+  // The table's actionSeq, to restart the countdown on every new turn.
+  actionSeq?: number;
   // Extra controls for the top-left cluster (Admin).
   controls?: ReactNode;
 }
@@ -48,6 +50,7 @@ export function Poker3D({
   onUnsupported,
   blinds = NO_BLINDS,
   turnClockRemainingMs = null,
+  actionSeq,
   controls,
 }: Poker3DProps) {
   const model = useMemo(() => buildPokerModel({ seats, mySeatIndex, holdem }), [seats, mySeatIndex, holdem]);
@@ -93,6 +96,7 @@ export function Poker3D({
           holdem={holdem}
           blinds={blinds}
           turnClockRemainingMs={turnClockRemainingMs}
+          actionSeq={actionSeq}
           actionPending={actionPending}
           onAction={onAction}
           onReady={onReady}

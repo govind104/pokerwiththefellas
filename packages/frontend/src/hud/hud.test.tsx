@@ -5,7 +5,6 @@ import type { BlackjackRoundView, HoldemView, SeatView } from '@poker-blackjack/
 import type { Card } from '@poker-blackjack/game-engine';
 import { HoldemHud, type HoldemHudProps } from './HoldemHud';
 import { BlackjackHud, type BlackjackHudProps } from './BlackjackHud';
-import { NO_BLINDS } from './hudModel';
 import type { HudLayout } from './TableHud';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });

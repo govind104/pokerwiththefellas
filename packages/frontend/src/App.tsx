@@ -71,6 +71,7 @@ function TableView({
       onReady,
       onLeave,
       turnClockRemainingMs: table.turnClockRemainingMs,
+      actionSeq: table.actionSeq,
       controls: adminControls,
       onSwitchTo2D: () => choose('flat'),
       onUnsupported: () => setFailed(true),

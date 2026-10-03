@@ -17,6 +17,8 @@ export interface HoldemHudProps {
   holdem: HoldemView | null;
   blinds: BlindSeats;
   turnClockRemainingMs: number | null;
+  // The table's actionSeq: restarts the countdown when a new turn carries the same ms. Optional so tests and the dev harness can omit it.
+  actionSeq?: number;
   actionPending: boolean;
   onAction: (action: HoldemAction, amount?: number) => void;
   onReady: () => void;
@@ -26,7 +28,7 @@ export interface HoldemHudProps {
 export function HoldemHud(p: HoldemHudProps) {
   const { layout, seats, mySeatIndex, handInProgress, holdem, blinds } = p;
   const model = useMemo(() => buildHoldemHud({ seats, mySeatIndex, holdem, blinds }), [seats, mySeatIndex, holdem, blinds]);
-  const clock = useCountdown(p.turnClockRemainingMs);
+  const clock = useCountdown(p.turnClockRemainingMs, p.actionSeq ?? null);
   const mySeat = seats.find((s) => s.seatIndex === mySeatIndex) ?? null;
   const me = holdem?.players.find((pl) => pl.playerId === mySeat?.displayName) ?? null;
   const myTurn = mySeatIndex !== null && actingSeatIndex(seats, holdem) === mySeatIndex;

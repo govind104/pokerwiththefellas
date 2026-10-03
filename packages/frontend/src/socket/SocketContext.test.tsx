@@ -776,7 +776,9 @@ describe('SocketProvider', () => {
     expect(screen.getByTestId('name')).toHaveTextContent('none');
   });
 
-  it('leave() while a hand is in progress is a no-op, preserving the session (defense in depth alongside the UI gate)', async () => {
+  // The HUD offers Leave mid-hand to a seat that was not dealt in, so the request must reach the
+  // server, which refuses a seat that is dealt in (Table.leave); the refusal's message is shown.
+  it('leave() while a hand is in progress still emits leave; a refusal keeps the session and shows why', async () => {
     render(
       <SocketProvider serverUrl="http://localhost:3000">
         <TestConsumer />
@@ -794,9 +796,18 @@ describe('SocketProvider', () => {
       screen.getByText('leave').click();
     });
 
-    expect(emitted).toEqual([]);
+    expect(emitted.filter((e) => e.event === 'leave')).toHaveLength(1);
+    answerLeave({ ok: false, message: 'Cannot leave while a hand you are in is in progress' });
     expect(screen.getByTestId('status')).toHaveTextContent('at-table');
+    expect(screen.getByTestId('error')).toHaveTextContent('Cannot leave while a hand you are in is in progress');
     expect(storedIdentity().lastName).toBe('alice');
+
+    // The pending flag was cleared by the ack, so a second attempt goes out.
+    emitted.length = 0;
+    act(() => {
+      screen.getByText('leave').click();
+    });
+    expect(emitted.filter((e) => e.event === 'leave')).toHaveLength(1);
   });
 
   describe('identity (audit C5, I9, M11)', () => {
