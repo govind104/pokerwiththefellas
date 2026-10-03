@@ -1692,6 +1692,25 @@ describe('Table.recoverFromLog', () => {
     errors.mockRestore();
   });
 
+  it('I3: does not rewrite balances from a settled hand that a later hand start follows (its clear failed)', async () => {
+    // settleHoldem's final clear failed, so the next hand was appended after this one. The
+    // balances file is newer than this hand's result, so writing it would roll play back.
+    const { table, handLog, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
+    await playerStore.setBalance('alice', 990);
+    await playerStore.setBalance('bob', 1010);
+    const [started, fold] = await aliceFoldsLog();
+    const [nextStarted] = await aliceFoldsLog({ alice: 990, bob: 1010 });
+    handLog.entries = [started, fold, nextStarted];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await table.recoverFromLog();
+
+    await expect(playerStore.getBalance('alice')).resolves.toBe(990);
+    await expect(playerStore.getBalance('bob')).resolves.toBe(1010);
+    expect(handLog.entries).toEqual([]);
+    warn.mockRestore();
+  });
+
   it('seats an unfinished recovered Hold\'em hand with the stacks it was dealt from, not the balances file', async () => {
     const { table, handLog, playerStore } = makeTable({ smallBlind: 5, bigBlind: 10 });
     // An earlier best-effort write failed, so the file is behind the live balance.

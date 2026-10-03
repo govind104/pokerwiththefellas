@@ -1041,7 +1041,13 @@ export class Table {
           }
         }
         if (hand.street === 'settled') {
-          await this.writeRecoveredHoldemBalances(players, hand);
+          // A later hand start means settleHoldem's final clear failed and play went on: the
+          // balances file is newer than this hand's result, so writing it would roll play back.
+          if (rest.some((e) => e.type === 'holdem_hand_started')) {
+            console.warn('Table: hand log holds a settled hand followed by another hand -- discarding it.');
+          } else {
+            await this.writeRecoveredHoldemBalances(players, hand);
+          }
           await this.deps.handLog.clear();
           return;
         }
