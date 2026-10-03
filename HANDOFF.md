@@ -15,8 +15,10 @@ which docs are kept current and which are historical records.
    table / Act for / turn clock, server-confirmed leave, rejoin after two quick drops. Commits
    `ec704cf`..the item-6 docs commit; detail in the audit progress table and "Next step" item 3.
 2. ~~**3D readability Plan B (HUD, showdown, flat view).**~~ **Done on the branch 2026-10-03; PR pending**
-   (the final whole-branch review and the merge decision come next). Branch `feat/3d-plan-b-hud`,
-   implementation commits `5ddfebe`..`73bea32` plus the docs commit.
+   (final whole-branch review passed after one fix round; the merge decision is the user's). Branch
+   `feat/3d-plan-b-hud`, commits `5ddfebe`..`a5cb58b` (implementation, docs, then the final-review
+   fixes: the turn clock was armed after the broadcast, so every view carried the previous turn's
+   timer; mid-hand Leave was dropped client-side).
    - **Spec:** `docs/superpowers/specs/2026-10-02-3d-plan-b-hud-design.md` (amends base spec §6).
      **Plan:** `docs/superpowers/plans/2026-10-02-3d-plan-b-hud.md`. Approved visual:
      `.playtest-data/plan-b-preview/plan-b-visual.html` (git-ignored).
@@ -40,7 +42,15 @@ which docs are kept current and which are historical records.
      - the off-table "Admin panel" button is not flush right on the join screen;
      - a possible tween overlap when a showdown lift lands during an all-in runout deal: cancel the
        previous tween in `moveTo` if it is seen.
-     - The final whole-branch review's findings are recorded in `.superpowers/sdd/progress.md`.
+     - Deferred by the final review (one cleanup commit when convenient): `TableStageProps` still
+       declares unused `seats`/`mySeatIndex`/`handInProgress`/`onReady`/`onLeave`; sceneModel's
+       `outcomes` and seat `plate` are now unused (sceneModel is protected, so remove deliberately);
+       banner markup duplicated in `table/Banners.tsx` and `three/TableStage.tsx`; the 3D sr-only
+       live summary repeats what the HUD shows; "2D" comments at `three/pokerModel.ts:61` and
+       `three/sceneModel.ts:161`; `noThree.test.ts` only sees single-quoted static imports; the dust
+       `Points` geometry is not disposed on unmount.
+     - Mid-hand Leave and the live turn countdown were never driven against a real server in a
+       browser (Gate 3 used harness fixtures); check both at the next playtest.
 3. **The rest of the audit, in the report's §8 order:**
    - **I3:** idempotent Hold'em settlement on recovery, together with the MIN-1/MIN-2 lock races.
    - **Short stacks (I8, M1, M3, M24):** the call-for-less offered as an all-in, integer chips,
