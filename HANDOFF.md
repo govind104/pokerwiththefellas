@@ -7,18 +7,16 @@ which docs are kept current and which are historical records.
 
 ## Next steps (updated 2026-10-04, two new feature specs)
 
-**Now (2026-10-04):** two features were brainstormed and their specs committed on branch
-`docs/soundboard-lobby-specs` (`2958988`, `015fd88`). The `TODO.md` items wait until both ship.
+**Now (2026-10-04):** two features were brainstormed, specced and planned, and all of it is on `master`
+(merged and pushed; the docs branch is deleted). The `TODO.md` items wait until both ship.
 
-1. **Plans.** The soundboard plan is written and committed: `docs/superpowers/plans/2026-10-04-soundboard.md`
-   (9 tasks; the clip list in Task 1 is a starter set for the user to edit). The saloon lobby plan is written and
-   committed too: `docs/superpowers/plans/2026-10-04-saloon-lobby.md` (13 tasks in phases a–d, three render gates;
-   the planning-notes file it was built from is deleted). **Next: merge this branch to `master`** (docs only) so each
-   build branch starts from it.
-2. **Build plan #1, the soundboard**, in its own session: spec
+1. ~~**Plans.**~~ **Done.** `docs/superpowers/plans/2026-10-04-soundboard.md` (9 tasks; the clip list in Task 1 is
+   a starter set for the user to edit) and `docs/superpowers/plans/2026-10-04-saloon-lobby.md` (13 tasks in phases
+   a–d, three render gates). **Next: item 2**, on a new branch from `master` (e.g. `feat/soundboard`).
+2. **Build plan #1, the soundboard**, in its own session and branch: spec
    `docs/superpowers/specs/2026-10-04-soundboard-design.md` (mixer replaces "Sound: on/off", piano removed,
    clip files gitignored under `packages/frontend/public/sounds/`).
-3. **Build plan #2, the saloon lobby**, in its own session: spec
+3. **Build plan #2, the saloon lobby**, in its own session and branch (e.g. `feat/saloon-lobby`): spec
    `docs/superpowers/specs/2026-10-04-saloon-lobby-design.md` (three.js batwing doors replace `Lobby` and
    `JoinScreen`, door entry, 180° table-switch swing, admin restyle first, Rye font reload). It has three
    **render gates** the user approves; gate 3 fails on any banding, ghosting, hard seams, overshoot or pause
