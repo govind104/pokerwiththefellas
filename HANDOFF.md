@@ -5,7 +5,31 @@ A browser-based Poker (Texas Hold'em) + Blackjack app for a friend group, built 
 (see "After Plan 6" below). Start here if you're new to this repo; `docs/README.md` says
 which docs are kept current and which are historical records.
 
-## Next steps (updated 2026-10-03, after audit item 7)
+## Next steps (updated 2026-10-04, two new feature specs)
+
+**Now (2026-10-04):** two features were brainstormed and their specs committed on branch
+`docs/soundboard-lobby-specs` (`2958988`, `015fd88`). The `TODO.md` items wait until both ship.
+
+1. **Plans.** The soundboard plan is written and committed: `docs/superpowers/plans/2026-10-04-soundboard.md`
+   (9 tasks; the clip list in Task 1 is a starter set for the user to edit). The saloon lobby plan is written and
+   committed too: `docs/superpowers/plans/2026-10-04-saloon-lobby.md` (13 tasks in phases a–d, three render gates;
+   the planning-notes file it was built from is deleted). **Next: merge this branch to `master`** (docs only) so each
+   build branch starts from it.
+2. **Build plan #1, the soundboard**, in its own session: spec
+   `docs/superpowers/specs/2026-10-04-soundboard-design.md` (mixer replaces "Sound: on/off", piano removed,
+   clip files gitignored under `packages/frontend/public/sounds/`).
+3. **Build plan #2, the saloon lobby**, in its own session: spec
+   `docs/superpowers/specs/2026-10-04-saloon-lobby-design.md` (three.js batwing doors replace `Lobby` and
+   `JoinScreen`, door entry, 180° table-switch swing, admin restyle first, Rye font reload). It has three
+   **render gates** the user approves; gate 3 fails on any banding, ghosting, hard seams, overshoot or pause
+   mid-swing. Restyle covers `TODO.md` T-3.
+
+Brainstorm previews (2D approximations, gitignored) are in `.superpowers/brainstorm/`; the table-switch
+reference is `2896-1791129401/content/table-switch-preview-v8.html` (1300 ms, lightest blur, no arc). Its
+banding comes from 8-bit canvas stacking and its hard seams from the painted stand-in room; neither may
+appear in the real shader (spec §3.4).
+
+### Earlier list (2026-10-03, after audit item 7)
 
 `master` holds audit items 1-5 (PR #14), 3D readability Plan A (PR #15), audit item 6 (PR #16)
 Plan B (PR #17) and audit item 7 (PR #18, merged 2026-10-03 as `9eeeeb0`). Open work and parked
@@ -487,7 +511,7 @@ WebAudio (off until the player clicks "Sound"). All in `packages/frontend/src/th
   only sends full snapshots, never events, so this diffing is the only way to know what happened.
   A slot that now holds a different (or face-down) card retires the old card and deals a new one,
   because keys repeat from hand to hand. `advance(seconds)` steps the simulation deterministically.
-- `TableStage.tsx` is the shared React shell (canvas lifecycle, projected name plates, quality/sound
+- `TableStage.tsx` is the shared React shell (canvas lifecycle, quality/sound
   controls, banners, Ready/Leave). `Blackjack3D.tsx` / `Poker3D.tsx` only supply model, sr-only
   summary and their action buttons. `View3DBoundary.tsx` drops to the flat view if the lazy chunk or scene throws (it was the 2D view
   when this was written; Plan B replaced it).
