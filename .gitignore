@@ -17,3 +17,6 @@ hand.jsonl
 
 # Scratch data for scripts/playtest (see scripts/playtest/README.md)
 .playtest-data/
+
+# Superpowers brainstorm companion mockups
+.superpowers/

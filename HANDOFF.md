@@ -487,7 +487,7 @@ WebAudio (off until the player clicks "Sound"). All in `packages/frontend/src/th
   only sends full snapshots, never events, so this diffing is the only way to know what happened.
   A slot that now holds a different (or face-down) card retires the old card and deals a new one,
   because keys repeat from hand to hand. `advance(seconds)` steps the simulation deterministically.
-- `TableStage.tsx` is the shared React shell (canvas lifecycle, projected name plates, quality/sound
+- `TableStage.tsx` is the shared React shell (canvas lifecycle, quality/sound
   controls, banners, Ready/Leave). `Blackjack3D.tsx` / `Poker3D.tsx` only supply model, sr-only
   summary and their action buttons. `View3DBoundary.tsx` drops to the flat view if the lazy chunk or scene throws (it was the 2D view
   when this was written; Plan B replaced it).
