@@ -10,9 +10,12 @@ which docs are kept current and which are historical records.
 **Now (2026-10-04):** two features were brainstormed and their specs committed on branch
 `docs/soundboard-lobby-specs` (`2958988`, `015fd88`). The `TODO.md` items wait until both ship.
 
-1. **Write both implementation plans in one fresh session** (`superpowers:writing-plans`), saved to
-   `docs/superpowers/plans/2026-10-04-soundboard.md` and `docs/superpowers/plans/2026-10-04-saloon-lobby.md`,
-   committed on the same branch. Then merge the branch to `master` (docs only) so each build branch starts from it.
+1. **Plans.** The soundboard plan is written and committed: `docs/superpowers/plans/2026-10-04-soundboard.md`
+   (9 tasks; the clip list in Task 1 is a starter set for the user to edit). **Next: write the saloon lobby plan**
+   (`superpowers:writing-plans`) to `docs/superpowers/plans/2026-10-04-saloon-lobby.md` from the spec plus
+   `docs/superpowers/plans/2026-10-04-saloon-lobby-planning-notes.md` (code facts and a settled 12-task outline;
+   delete the notes file in the same commit). Commit on this branch, then merge it to `master` (docs only) so each
+   build branch starts from it.
 2. **Build plan #1, the soundboard**, in its own session: spec
    `docs/superpowers/specs/2026-10-04-soundboard-design.md` (mixer replaces "Sound: on/off", piano removed,
    clip files gitignored under `packages/frontend/public/sounds/`).

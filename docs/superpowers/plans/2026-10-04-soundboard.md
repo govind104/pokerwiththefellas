@@ -1930,6 +1930,12 @@ function stage(socket: SocketContextValue | null) {
 
 describe('TableStage sound wiring (soundboard spec §3)', () => {
   beforeEach(() => {
+    // jsdom has no ResizeObserver (same stub as Blackjack3D.test.tsx).
+    window.ResizeObserver ??= class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
     localStorage.clear();
     played.length = 0;
     mixes.length = 0;
